@@ -146,4 +146,113 @@ describe("proxy", () => {
     expect(res.headers.get("x-deepseek-router-routed")).toBe("true");
     expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-pro" });
   });
+
+  it("lets custom authorization override api key", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxy({
+      baseUrl: upstream.baseUrl,
+      port: 0,
+      apiKey: "secret",
+      headers: { Authorization: "Custom token", "X-Custom": "yes" },
+    });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "deepseek-v4-flash", messages: [] }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(upstream.requests[0]?.headers.authorization).toBe("Custom token");
+    expect(upstream.requests[0]?.headers["x-custom"]).toBe("yes");
+  });
+
+  it("keeps auto sessions pinned to pro after upgrade", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const headers = { "content-type": "application/json", "x-session-id": "session-pro" };
+
+    await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: "auto",
+        messages: [{ role: "user", content: "Debug failing tests across multiple files" }],
+      }),
+    });
+    await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: "auto",
+        messages: [{ role: "user", content: "Translate hello" }],
+      }),
+    });
+
+    expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-pro" });
+    expect(upstream.requests[1]?.body).toMatchObject({ model: "deepseek-v4-pro" });
+  });
+
+  it("falls back from flash to pro on retryable upstream failure", async () => {
+    let count = 0;
+    const upstream = await startUpstream((_req, res) => {
+      count += 1;
+      if (count === 1) {
+        res.writeHead(429, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "rate limited" }));
+        return;
+      }
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ choices: [{ message: { content: "pro ok" } }] }));
+    });
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "deepseek-v4-flash",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-deepseek-router-model")).toBe("deepseek-v4-pro");
+    expect(res.headers.get("x-deepseek-router-fallback")).toBe("true");
+    expect(upstream.requests.map((entry) => (entry.body as { model: string }).model)).toEqual([
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+    ]);
+  });
+
+  it("does not downgrade pro on retryable upstream failure", async () => {
+    const upstream = await startUpstream((_req, res) => {
+      res.writeHead(503, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "unavailable" }));
+    });
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "deepseek-v4-pro",
+        messages: [{ role: "user", content: "debug" }],
+      }),
+    });
+
+    expect(res.status).toBe(503);
+    expect(res.headers.get("x-deepseek-router-model")).toBe("deepseek-v4-pro");
+    expect(res.headers.get("x-deepseek-router-fallback")).toBe("false");
+    expect(upstream.requests).toHaveLength(1);
+  });
 });

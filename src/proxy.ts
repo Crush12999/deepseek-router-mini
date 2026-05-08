@@ -24,6 +24,8 @@ const HOP_BY_HOP = new Set([
   "content-length",
 ]);
 
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+
 export type ProxyOptions = RouterConfigInput;
 
 export type ProxyHandle = {
@@ -108,8 +110,9 @@ function buildUpstreamHeaders(req: IncomingMessage, cfg: RouterConfig): Record<s
   // Custom headers override request headers
   Object.assign(headers, cfg.headers);
 
-  // Add auth if missing
-  if (!headers.authorization && cfg.apiKey) {
+  // Add auth if missing (header names are case-insensitive per HTTP spec)
+  const hasAuth = Object.keys(headers).some((k) => k.toLowerCase() === "authorization");
+  if (!hasAuth && cfg.apiKey) {
     headers.authorization = `Bearer ${cfg.apiKey}`;
   }
 
@@ -119,6 +122,79 @@ function buildUpstreamHeaders(req: IncomingMessage, cfg: RouterConfig): Record<s
   }
 
   return headers;
+}
+
+// ---------------------------------------------------------------------------
+// Response helpers
+// ---------------------------------------------------------------------------
+
+function writeJson(res: ServerResponse, status: number, body: unknown): void {
+  if (!res.headersSent) {
+    res.statusCode = status;
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify(body));
+  }
+}
+
+function copyResponseHeaders(response: Response, extraHeaders: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (const [key, value] of response.headers.entries()) {
+    const lower = key.toLowerCase();
+    if (HOP_BY_HOP.has(lower)) continue;
+    if (lower.startsWith("x-deepseek-router-")) continue;
+    headers[key] = value;
+  }
+  Object.assign(headers, extraHeaders);
+  return headers;
+}
+
+async function streamResponse(response: Response, res: ServerResponse): Promise<void> {
+  if (response.body) {
+    for await (const chunk of response.body as AsyncIterable<Uint8Array>) {
+      res.write(chunk);
+    }
+  }
+  res.end();
+}
+
+// ---------------------------------------------------------------------------
+// Upstream fetch with retryable detection
+// ---------------------------------------------------------------------------
+
+type AttemptResult =
+  | { ok: true; response: Response }
+  | { ok: false; response: Response }
+  | { ok: false; error: unknown };
+
+async function fetchUpstream(
+  cfg: ReturnType<typeof resolveConfig>,
+  req: IncomingMessage,
+  body: Record<string, unknown>,
+  model: RealModelId,
+): Promise<AttemptResult> {
+  try {
+    const response = await fetch(`${cfg.baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: buildUpstreamHeaders(req, cfg),
+      body: JSON.stringify({ ...body, model }),
+    });
+
+    if (RETRYABLE_STATUS.has(response.status)) {
+      return { ok: false, response };
+    }
+
+    return { ok: true, response };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+
+async function discardBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // Best effort cleanup before trying the fallback model.
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -202,7 +278,7 @@ async function proxyChat(
   }
 
   // Choose the actual upstream model
-  const { model: selectedModel, routed, sessionId } = chooseModel(
+  const selected = chooseModel(
     validation.model,
     bodyObj as { messages?: unknown[]; tools?: unknown[] },
     req,
@@ -210,47 +286,44 @@ async function proxyChat(
     cfg,
   );
 
-  // Observe "auto" requests for session pinning
-  if (validation.model === "auto" && sessionId) {
-    pins.observe(sessionId, selectedModel);
+  // Observe "auto" requests for session pinning (before fetch)
+  if (validation.model === "auto" && selected.sessionId) {
+    pins.observe(selected.sessionId, selected.model);
   }
 
-  // Build upstream body (replace model field)
-  const upstreamBody = JSON.stringify({ ...bodyObj, model: selectedModel });
+  // Fetch upstream with fallback from Flash to Pro
+  let actualModel = selected.model;
+  let fallback = false;
+  let attempt = await fetchUpstream(cfg, req, bodyObj, selected.model);
 
-  // Build upstream headers
-  const upstreamHeaders = buildUpstreamHeaders(req, cfg);
-
-  // Fetch upstream
-  const upstreamRes = await fetch(`${cfg.baseUrl}/v1/chat/completions`, {
-    method: "POST",
-    headers: upstreamHeaders,
-    body: upstreamBody,
-  });
-
-  // Set proxy response headers
-  res.setHeader("x-deepseek-router-model", selectedModel);
-  res.setHeader("x-deepseek-router-routed", String(routed));
-  res.setHeader("x-deepseek-router-fallback", "false");
-
-  // Copy upstream response headers (skip hop-by-hop and our own headers)
-  for (const [key, value] of upstreamRes.headers.entries()) {
-    const lower = key.toLowerCase();
-    if (HOP_BY_HOP.has(lower)) continue;
-    if (lower.startsWith("x-deepseek-router-")) continue;
-    res.setHeader(key, value);
-  }
-
-  // Write status code
-  res.statusCode = upstreamRes.status;
-
-  // Stream response body
-  if (upstreamRes.body) {
-    for await (const chunk of upstreamRes.body as AsyncIterable<Uint8Array>) {
-      res.write(chunk);
+  if (!attempt.ok && selected.model === "deepseek-v4-flash") {
+    if ("response" in attempt) {
+      await discardBody(attempt.response);
+    }
+    actualModel = "deepseek-v4-pro";
+    fallback = true;
+    attempt = await fetchUpstream(cfg, req, bodyObj, actualModel);
+    if (validation.model === "auto") {
+      pins.observe(selected.sessionId, actualModel);
     }
   }
-  res.end();
+
+  const headers: Record<string, string> = {
+    "x-deepseek-router-model": actualModel,
+    "x-deepseek-router-routed": String(selected.routed),
+    "x-deepseek-router-fallback": String(fallback),
+  };
+
+  if (!attempt.ok && "error" in attempt) {
+    writeJson(res, 502, {
+      error: attempt.error instanceof Error ? attempt.error.message : "DeepSeek upstream failed",
+    });
+    return;
+  }
+
+  const responseHeaders = copyResponseHeaders(attempt.response, headers);
+  res.writeHead(attempt.response.status, responseHeaders);
+  await streamResponse(attempt.response, res);
 }
 
 // ---------------------------------------------------------------------------
