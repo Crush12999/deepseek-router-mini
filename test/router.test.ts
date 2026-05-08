@@ -41,4 +41,29 @@ describe("router", () => {
       reason: "long-context",
     });
   });
+
+  it("routes standard (no match) prompts to flash", () => {
+    const prompt = "How are you doing today?";
+    expect(classifyPrompt(prompt)).toBe("standard");
+    expect(selectModel({ prompt })).toMatchObject({
+      model: "deepseek-v4-flash",
+      category: "standard",
+      reason: "standard",
+    });
+  });
+
+  it("gives complex priority over code when both patterns match", () => {
+    const prompt = "Write and debug a TypeScript function";
+    expect(classifyPrompt(prompt)).toBe("complex");
+    expect(selectModel({ prompt })).toMatchObject({
+      model: "deepseek-v4-pro",
+      category: "complex",
+      reason: "complex",
+    });
+  });
+
+  it("gives complex priority over simple when both patterns match", () => {
+    const prompt = "Debug and explain briefly this failing test";
+    expect(classifyPrompt(prompt)).toBe("complex");
+  });
 });

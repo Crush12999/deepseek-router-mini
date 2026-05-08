@@ -27,4 +27,19 @@ describe("session pinning", () => {
     expect(deriveSessionId({}, "same opening")).toBe(deriveSessionId({}, "same opening"));
     expect(deriveSessionId({}, "different opening")).not.toBe(deriveSessionId({}, "same opening"));
   });
+
+  it("handles x-session-id as string array", () => {
+    expect(deriveSessionId({ "x-session-id": ["arr-session", "fallback"] }, "hello")).toBe("arr-session");
+  });
+
+  it("returns undefined for empty openingText without header", () => {
+    expect(deriveSessionId({}, "")).toBeUndefined();
+    expect(deriveSessionId({}, "   ")).toBeUndefined();
+  });
+
+  it("falls through to content-based id when header is empty string", () => {
+    const id = deriveSessionId({ "x-session-id": "" }, "hello");
+    expect(id).toBeDefined();
+    expect(id).toMatch(/^content:/);
+  });
 });

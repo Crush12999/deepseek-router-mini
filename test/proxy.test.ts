@@ -27,20 +27,39 @@ async function startUpstream(handler?: (req: IncomingMessage, res: ServerRespons
   const requests: CapturedRequest[] = [];
   const server = http.createServer((req, res) => {
     void (async () => {
-      const raw = await readBody(req);
-      requests.push({
-        url: req.url ?? "",
-        headers: req.headers,
-        body: raw ? JSON.parse(raw) : undefined,
-      });
+      try {
+        const raw = await readBody(req);
+        let parsed: unknown;
+        try {
+          parsed = raw ? JSON.parse(raw) : undefined;
+        } catch {
+          res.statusCode = 400;
+          res.setHeader("content-type", "application/json");
+          res.end(JSON.stringify({ error: "Invalid JSON body" }));
+          return;
+        }
+        requests.push({
+          url: req.url ?? "",
+          headers: req.headers,
+          body: parsed,
+        });
 
-      if (handler) {
-        handler(req, res);
-        return;
+        if (handler) {
+          handler(req, res);
+          return;
+        }
+
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ id: "cmpl_1", choices: [{ message: { content: "ok" } }] }));
+      } catch {
+        if (!res.headersSent) {
+          res.statusCode = 400;
+          res.setHeader("content-type", "application/json");
+          res.end(JSON.stringify({ error: "Bad Request" }));
+        } else {
+          res.destroy();
+        }
       }
-
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ id: "cmpl_1", choices: [{ message: { content: "ok" } }] }));
     })();
   });
 
@@ -254,6 +273,40 @@ describe("proxy", () => {
     expect(res.headers.get("x-deepseek-router-model")).toBe("deepseek-v4-pro");
     expect(res.headers.get("x-deepseek-router-fallback")).toBe("false");
     expect(upstream.requests).toHaveLength(1);
+  });
+
+  it("returns 502 on network error to upstream", async () => {
+    // Point proxy to a non-existent port — fetch will throw a network error.
+    const proxy = await startProxy({ baseUrl: "http://127.0.0.1:1", port: 0 });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "deepseek-v4-pro",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(res.status).toBe(502);
+    expect(await res.json()).toMatchObject({ error: expect.any(String) });
+  });
+
+  it("returns 400 on invalid JSON body", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "not-json",
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "Invalid JSON body" });
   });
 
   it("passes through streaming responses", async () => {

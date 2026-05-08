@@ -15,7 +15,9 @@ export const CODE_PATTERNS = [
   /\bjavascript\b/i,
   /\bfunction\b/i,
   /\bclass\b/i,
-  /\bcode\b/i,
+  /\bwrite\s+(some\s+)?code\b/i,
+  /\bgenerate\s+code\b/i,
+  /\bimplement\b/i,
   /代码/,
   /函数/,
 ];

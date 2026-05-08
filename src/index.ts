@@ -1,4 +1,4 @@
-export const VERSION = "0.1.0";
+export { VERSION } from "./proxy.js";
 
 export { resolveConfig } from "./config.js";
 export type { RouterConfig, RouterConfigInput } from "./config.js";

@@ -163,8 +163,8 @@ async function streamResponse(response: Response, res: ServerResponse): Promise<
 
 type AttemptResult =
   | { ok: true; response: Response }
-  | { ok: false; response: Response }
-  | { ok: false; error: unknown };
+  | { ok: false; reason: "retryable"; response: Response }
+  | { ok: false; reason: "network_error"; error: unknown };
 
 async function fetchUpstream(
   cfg: ReturnType<typeof resolveConfig>,
@@ -180,12 +180,12 @@ async function fetchUpstream(
     });
 
     if (RETRYABLE_STATUS.has(response.status)) {
-      return { ok: false, response };
+      return { ok: false, reason: "retryable", response };
     }
 
     return { ok: true, response };
   } catch (error) {
-    return { ok: false, error };
+    return { ok: false, reason: "network_error", error };
   }
 }
 
@@ -204,12 +204,12 @@ async function discardBody(response: Response): Promise<void> {
 function chooseModel(
   requestedModel: SupportedModelId,
   body: { messages?: unknown[]; tools?: unknown[] },
-  req: IncomingMessage,
+  headers: IncomingMessage["headers"],
   pins: SessionPinStore,
   cfg: RouterConfig,
 ): { model: RealModelId; routed: boolean; sessionId?: string } {
   const prompt = extractPrompt(body.messages ?? []);
-  const sessionId = deriveSessionId(req.headers, prompt.openingText);
+  const sessionId = deriveSessionId(headers, prompt.openingText);
 
   if (requestedModel !== "auto") {
     return { model: requestedModel as RealModelId, routed: false, sessionId };
@@ -262,7 +262,7 @@ async function proxyChat(
   if (!body || typeof body !== "object") {
     res.statusCode = 400;
     res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify({ error: "Invalid JSON body" }));
+    res.end(JSON.stringify({ error: "Body must be a JSON object" }));
     return;
   }
 
@@ -281,7 +281,7 @@ async function proxyChat(
   const selected = chooseModel(
     validation.model,
     bodyObj as { messages?: unknown[]; tools?: unknown[] },
-    req,
+    req.headers,
     pins,
     cfg,
   );
@@ -297,13 +297,13 @@ async function proxyChat(
   let attempt = await fetchUpstream(cfg, req, bodyObj, selected.model);
 
   if (!attempt.ok && selected.model === "deepseek-v4-flash") {
-    if ("response" in attempt) {
+    if (attempt.reason === "retryable") {
       await discardBody(attempt.response);
     }
     actualModel = "deepseek-v4-pro";
     fallback = true;
     attempt = await fetchUpstream(cfg, req, bodyObj, actualModel);
-    if (validation.model === "auto") {
+    if (validation.model === "auto" && selected.sessionId) {
       pins.observe(selected.sessionId, actualModel);
     }
   }
@@ -314,7 +314,7 @@ async function proxyChat(
     "x-deepseek-router-fallback": String(fallback),
   };
 
-  if (!attempt.ok && "error" in attempt) {
+  if (!attempt.ok && attempt.reason === "network_error") {
     writeJson(res, 502, {
       error: attempt.error instanceof Error ? attempt.error.message : "DeepSeek upstream failed",
     });
@@ -322,7 +322,10 @@ async function proxyChat(
   }
 
   const responseHeaders = copyResponseHeaders(attempt.response, headers);
-  res.writeHead(attempt.response.status, responseHeaders);
+  res.statusCode = attempt.response.status;
+  for (const [k, v] of Object.entries(responseHeaders)) {
+    res.setHeader(k, v);
+  }
   await streamResponse(attempt.response, res);
 }
 

@@ -12,5 +12,5 @@ export type RouteInput = {
 export type RouteDecision = {
   model: RealModelId;
   category: TaskCategory;
-  reason: "simple" | "standard" | "code" | "complex" | "tools" | "long-context";
+  reason: TaskCategory | "tools" | "long-context";
 };
