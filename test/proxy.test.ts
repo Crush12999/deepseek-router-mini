@@ -255,4 +255,34 @@ describe("proxy", () => {
     expect(res.headers.get("x-deepseek-router-fallback")).toBe("false");
     expect(upstream.requests).toHaveLength(1);
   });
+
+  it("passes through streaming responses", async () => {
+    const upstream = await startUpstream((_req, res) => {
+      res.writeHead(200, {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+      });
+      res.write("data: {\"choices\":[{\"delta\":{\"content\":\"he\"}}]}\n\n");
+      res.write("data: {\"choices\":[{\"delta\":{\"content\":\"llo\"}}]}\n\n");
+      res.end("data: [DONE]\n\n");
+    });
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "auto",
+        stream: true,
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+    expect(res.headers.get("x-deepseek-router-model")).toBe("deepseek-v4-flash");
+    expect(await res.text()).toContain("data: [DONE]");
+  });
 });
