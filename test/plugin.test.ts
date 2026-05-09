@@ -650,15 +650,15 @@ describe("OpenClaw plugin lifecycle", () => {
 });
 
 describe("OpenClaw plugin default export", () => {
-  it("exports the plugin object from the package entrypoint", async () => {
+  it("exports the plugin object from the source entrypoint", async () => {
     const mod = await import("../src/index.js");
 
     expect(mod.default).toMatchObject({
       id: "deepseek-router-mini",
       name: "DeepSeek Router Mini",
       description: "DeepSeek-only local routing proxy for OpenClaw",
-      version: "0.1.0",
     });
+    expect(mod.default.version).toBe(mod.VERSION);
     expect(typeof mod.default.register).toBe("function");
     expect(typeof mod.startProxy).toBe("function");
     expect(mod.DEEPSEEK_OPENCLAW_MODELS).toHaveLength(3);
