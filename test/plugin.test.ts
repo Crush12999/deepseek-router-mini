@@ -269,6 +269,37 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(secondClose).toHaveBeenCalledTimes(1);
   });
 
+  it("surfaces cleanup failures when service registration fails after starting a proxy", async () => {
+    const registerError = new Error("duplicate service id");
+    const cleanupError = new Error("failed to close new proxy");
+    const close = vi.fn<() => Promise<void>>().mockRejectedValue(cleanupError);
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close,
+    });
+    const api = {
+      config: {},
+      registerProvider: vi.fn(),
+      registerService: vi.fn(() => {
+        throw registerError;
+      }),
+    };
+
+    let thrown: unknown;
+    try {
+      await registerOpenClawPlugin(api, { startProxy });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(AggregateError);
+    expect((thrown as AggregateError).message).toContain("proxy cleanup failed");
+    expect((thrown as AggregateError).errors).toEqual([registerError, cleanupError]);
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(serviceCalls).toHaveLength(0);
+  });
+
   it("does not start a replacement proxy when closing the active proxy fails", async () => {
     const closeError = new Error("failed to close old proxy");
     const firstClose = vi

@@ -157,7 +157,14 @@ export async function registerOpenClawPlugin(
       stop: stopRegisteredProxy,
     });
   } catch (error) {
-    await cleanupUnregisteredProxy(registeredProxy).catch(() => undefined);
+    try {
+      await cleanupUnregisteredProxy(registeredProxy);
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        "OpenClaw service registration failed and proxy cleanup failed",
+      );
+    }
     throw error;
   }
 
