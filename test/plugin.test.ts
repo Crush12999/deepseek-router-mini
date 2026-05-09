@@ -72,12 +72,16 @@ describe("OpenClaw plugin config injection", () => {
 });
 
 describe("OpenClaw plugin lifecycle", () => {
+  const serviceCalls: Array<{ id: string; stop: () => Promise<void> }> = [];
+
   beforeEach(() => {
+    serviceCalls.length = 0;
     vi.stubEnv("DEEPSEEK_ROUTER_PORT", undefined);
     vi.stubEnv("DEEPSEEK_BASE_URL", undefined);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await Promise.all(serviceCalls.map((service) => service.stop()));
     vi.unstubAllEnvs();
   });
 
@@ -89,7 +93,6 @@ describe("OpenClaw plugin lifecycle", () => {
       close,
     });
     const providerCalls: unknown[] = [];
-    const serviceCalls: Array<{ id: string; stop: () => Promise<void> }> = [];
     const api = {
       config: {},
       registerProvider: (provider: unknown) => providerCalls.push(provider),
@@ -137,7 +140,7 @@ describe("OpenClaw plugin lifecycle", () => {
     const api = {
       config: {},
       registerProvider: vi.fn(),
-      registerService: vi.fn(),
+      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
     };
 
     await registerOpenClawPlugin(api, { startProxy });
@@ -153,6 +156,69 @@ describe("OpenClaw plugin lifecycle", () => {
         }),
       }),
     );
+  });
+
+  it("closes the previous proxy when a later registration becomes active", async () => {
+    const firstClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const secondClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const startProxy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        port: 8402,
+        baseUrl: "https://api.deepseek.com",
+        close: firstClose,
+      })
+      .mockResolvedValueOnce({
+        port: 8402,
+        baseUrl: "https://api.deepseek.com",
+        close: secondClose,
+      });
+    const api = {
+      config: {},
+      registerProvider: vi.fn(),
+      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
+    };
+
+    await registerOpenClawPlugin(api, { startProxy });
+    await registerOpenClawPlugin(api, { startProxy });
+
+    expect(firstClose).toHaveBeenCalledTimes(1);
+
+    await serviceCalls[1]!.stop();
+    expect(secondClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let an old service stop close a later proxy", async () => {
+    const firstClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const secondClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const startProxy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        port: 8402,
+        baseUrl: "https://api.deepseek.com",
+        close: firstClose,
+      })
+      .mockResolvedValueOnce({
+        port: 8402,
+        baseUrl: "https://api.deepseek.com",
+        close: secondClose,
+      });
+    const api = {
+      config: {},
+      registerProvider: vi.fn(),
+      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
+    };
+
+    await registerOpenClawPlugin(api, { startProxy });
+    const firstService = serviceCalls[0]!;
+    await registerOpenClawPlugin(api, { startProxy });
+
+    await firstService.stop();
+    expect(firstClose).toHaveBeenCalledTimes(1);
+    expect(secondClose).not.toHaveBeenCalled();
+
+    await serviceCalls[1]!.stop();
+    expect(secondClose).toHaveBeenCalledTimes(1);
   });
 
   it("logs and rethrows proxy startup errors so OpenClaw can surface them", async () => {
@@ -171,6 +237,22 @@ describe("OpenClaw plugin lifecycle", () => {
         startProxy: vi.fn().mockRejectedValue(error),
       }),
     ).rejects.toThrow("EADDRINUSE");
+    expect(api.registerProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "deepseek",
+      }),
+    );
+    expect(api.config).toMatchObject({
+      models: {
+        providers: {
+          deepseek: {
+            baseUrl: "http://127.0.0.1:8402/v1",
+            api: "openai-completions",
+          },
+        },
+      },
+    });
+    expect(api.registerService).not.toHaveBeenCalled();
     expect(api.logger.error).toHaveBeenCalledWith(
       "DeepSeek Router Mini failed to start on port 8402: listen EADDRINUSE: address already in use 127.0.0.1:8402",
     );

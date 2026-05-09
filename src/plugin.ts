@@ -43,6 +43,7 @@ const defaultRuntime: PluginRuntime = {
 };
 
 let activeProxy: ProxyHandle | undefined;
+const closedProxies = new WeakSet<ProxyHandle>();
 
 function ensureObject(parent: JsonObject, key: string): JsonObject {
   const value = parent[key];
@@ -81,11 +82,31 @@ function parsePluginPort(value: string | undefined): number {
   return port;
 }
 
-async function stopActiveProxy(): Promise<void> {
-  const proxy = activeProxy;
-  activeProxy = undefined;
-  if (proxy) {
-    await proxy.close();
+async function closeProxyOnce(proxy: ProxyHandle): Promise<void> {
+  if (closedProxies.has(proxy)) return;
+  closedProxies.add(proxy);
+
+  if (activeProxy === proxy) {
+    activeProxy = undefined;
+  }
+
+  await proxy.close();
+}
+
+function createStopProxy(proxy: ProxyHandle): () => Promise<void> {
+  return () => closeProxyOnce(proxy);
+}
+
+async function replaceActiveProxy(proxy: ProxyHandle): Promise<void> {
+  const previous = activeProxy;
+  if (activeProxy === proxy) {
+    return;
+  }
+
+  activeProxy = proxy;
+
+  if (previous) {
+    await closeProxyOnce(previous);
   }
 }
 
@@ -100,8 +121,11 @@ export async function registerOpenClawPlugin(
   api.registerProvider(createDeepSeekProvider(providerBaseUrl));
   injectDeepSeekModelsConfig(api.config, providerBaseUrl);
 
+  let stopRegisteredProxy: () => Promise<void>;
   try {
-    activeProxy = await runtime.startProxy({ port, baseUrl: upstreamUrl });
+    const registeredProxy = await runtime.startProxy({ port, baseUrl: upstreamUrl });
+    stopRegisteredProxy = createStopProxy(registeredProxy);
+    await replaceActiveProxy(registeredProxy);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     api.logger?.error?.(`DeepSeek Router Mini failed to start on port ${port}: ${message}`);
@@ -110,7 +134,7 @@ export async function registerOpenClawPlugin(
 
   api.registerService({
     id: "deepseek-router-proxy",
-    stop: stopActiveProxy,
+    stop: stopRegisteredProxy,
   });
 
   api.logger?.info?.(`DeepSeek Router Mini listening on ${providerBaseUrl}`);
