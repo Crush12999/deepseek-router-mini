@@ -16,8 +16,14 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "openclaw.plugin.json"
   ],
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ]
+  },
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
