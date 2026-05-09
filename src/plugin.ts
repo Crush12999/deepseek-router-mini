@@ -18,6 +18,8 @@ export type OpenClawService = {
 
 export type OpenClawPluginApi = {
   config: JsonObject;
+  pluginConfig?: { port?: unknown; upstreamUrl?: unknown } | Record<string, unknown>;
+  registrationMode?: string;
   registerProvider: (provider: DeepSeekProvider) => void;
   registerService: (service: OpenClawService) => void;
   unregisterService?: (id: string) => void | Promise<void>;
@@ -46,6 +48,7 @@ const defaultRuntime: PluginRuntime = {
 let activeProxy: ProxyHandle | undefined;
 const closedProxies = new WeakSet<ProxyHandle>();
 const closingProxies = new WeakMap<ProxyHandle, Promise<void>>();
+const RUNTIME_REGISTRATION_MODES = new Set(["full", "runtime", "activate", "active"]);
 
 function ensureObject(parent: JsonObject, key: string): JsonObject {
   const value = parent[key];
@@ -77,11 +80,40 @@ export function injectDeepSeekModelsConfig(config: JsonObject, providerBaseUrl: 
   };
 }
 
-function parsePluginPort(value: string | undefined): number {
-  if (!value || !/^\d+$/.test(value)) return DEFAULT_PORT;
+function parsePortValue(value: unknown): number | undefined {
+  if (typeof value === "number") {
+    if (!Number.isInteger(value) || value <= 0 || value >= 65536) return undefined;
+    return value;
+  }
+
+  if (typeof value !== "string" || !/^\d+$/.test(value)) return undefined;
   const port = Number.parseInt(value, 10);
-  if (!Number.isInteger(port) || port <= 0 || port >= 65536) return DEFAULT_PORT;
+  if (!Number.isInteger(port) || port <= 0 || port >= 65536) return undefined;
   return port;
+}
+
+function resolvePluginPort(pluginValue: unknown, envValue: string | undefined): number {
+  return parsePortValue(pluginValue) ?? parsePortValue(envValue) ?? DEFAULT_PORT;
+}
+
+function parsePluginUpstreamUrl(pluginValue: unknown, envValue: string | undefined): string {
+  if (typeof pluginValue === "string" && pluginValue.trim()) {
+    return pluginValue;
+  }
+
+  return envValue ?? DEFAULT_BASE_URL;
+}
+
+function resolvePluginRuntimeConfig(api: OpenClawPluginApi): { port: number; upstreamUrl: string } {
+  return {
+    port: resolvePluginPort(api.pluginConfig?.port, process.env.DEEPSEEK_ROUTER_PORT),
+    upstreamUrl: parsePluginUpstreamUrl(api.pluginConfig?.upstreamUrl, process.env.DEEPSEEK_BASE_URL),
+  };
+}
+
+function shouldStartRuntimeProxy(registrationMode: string | undefined): boolean {
+  if (registrationMode === undefined) return true;
+  return RUNTIME_REGISTRATION_MODES.has(registrationMode);
 }
 
 async function closeProxyOnce(proxy: ProxyHandle): Promise<void> {
@@ -188,9 +220,14 @@ export async function registerOpenClawPlugin(
   api: OpenClawPluginApi,
   runtime: PluginRuntime = defaultRuntime,
 ): Promise<void> {
-  const port = parsePluginPort(process.env.DEEPSEEK_ROUTER_PORT);
-  const upstreamUrl = process.env.DEEPSEEK_BASE_URL ?? DEFAULT_BASE_URL;
+  const { port, upstreamUrl } = resolvePluginRuntimeConfig(api);
   const providerBaseUrl = localProviderBaseUrl(port);
+
+  if (!shouldStartRuntimeProxy(api.registrationMode)) {
+    api.registerProvider(createDeepSeekProvider(providerBaseUrl));
+    injectDeepSeekModelsConfig(api.config, providerBaseUrl);
+    return;
+  }
 
   let stopRegisteredProxy: () => Promise<void>;
   let registeredProxy: ProxyHandle;

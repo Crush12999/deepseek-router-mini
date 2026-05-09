@@ -161,6 +161,144 @@ describe("OpenClaw plugin lifecycle", () => {
     );
   });
 
+  it("uses pluginConfig port and upstreamUrl for runtime and local provider config", async () => {
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 9999,
+      baseUrl: "https://plugin.example.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {},
+      pluginConfig: {
+        port: 9999,
+        upstreamUrl: "https://plugin.example.com",
+      },
+      registerProvider: vi.fn(),
+      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
+    };
+
+    await registerOpenClawPlugin(api, { startProxy });
+
+    expect(startProxy).toHaveBeenCalledWith({ port: 9999, baseUrl: "https://plugin.example.com" });
+    expect(api.registerProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        models: expect.objectContaining({
+          baseUrl: "http://127.0.0.1:9999/v1",
+        }),
+      }),
+    );
+    expect(api.config).toMatchObject({
+      models: {
+        providers: {
+          deepseek: {
+            baseUrl: "http://127.0.0.1:9999/v1",
+            api: "openai-completions",
+          },
+        },
+      },
+    });
+  });
+
+  it("prefers pluginConfig over environment variables", async () => {
+    vi.stubEnv("DEEPSEEK_ROUTER_PORT", "9011");
+    vi.stubEnv("DEEPSEEK_BASE_URL", "https://env.example.com");
+
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 9999,
+      baseUrl: "https://plugin.example.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {},
+      pluginConfig: {
+        port: "9999",
+        upstreamUrl: "https://plugin.example.com",
+      },
+      registerProvider: vi.fn(),
+      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
+    };
+
+    await registerOpenClawPlugin(api, { startProxy });
+
+    expect(startProxy).toHaveBeenCalledWith({ port: 9999, baseUrl: "https://plugin.example.com" });
+    expect(api.config).toMatchObject({
+      models: {
+        providers: {
+          deepseek: {
+            baseUrl: "http://127.0.0.1:9999/v1",
+          },
+        },
+      },
+    });
+  });
+
+  it("falls back to env/default when pluginConfig port is invalid", async () => {
+    vi.stubEnv("DEEPSEEK_ROUTER_PORT", "9011");
+
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 9011,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {},
+      pluginConfig: {
+        port: "nope",
+      },
+      registerProvider: vi.fn(),
+      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
+    };
+
+    await registerOpenClawPlugin(api, { startProxy });
+
+    expect(startProxy).toHaveBeenCalledWith({ port: 9011, baseUrl: "https://api.deepseek.com" });
+    expect(api.config).toMatchObject({
+      models: {
+        providers: {
+          deepseek: {
+            baseUrl: "http://127.0.0.1:9011/v1",
+          },
+        },
+      },
+    });
+  });
+
+  it("only registers provider and injects config in discovery mode", async () => {
+    const startProxy = vi.fn();
+    const api = {
+      config: {},
+      registrationMode: "discovery",
+      pluginConfig: {
+        port: 9999,
+        upstreamUrl: "https://plugin.example.com",
+      },
+      registerProvider: vi.fn(),
+      registerService: vi.fn(),
+    };
+
+    await registerOpenClawPlugin(api, { startProxy });
+
+    expect(startProxy).not.toHaveBeenCalled();
+    expect(api.registerService).not.toHaveBeenCalled();
+    expect(api.registerProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        models: expect.objectContaining({
+          baseUrl: "http://127.0.0.1:9999/v1",
+        }),
+      }),
+    );
+    expect(api.config).toMatchObject({
+      models: {
+        providers: {
+          deepseek: {
+            baseUrl: "http://127.0.0.1:9999/v1",
+            api: "openai-completions",
+          },
+        },
+      },
+    });
+  });
+
   it("closes the previous proxy when a later registration becomes active", async () => {
     const firstClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
     const secondClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
