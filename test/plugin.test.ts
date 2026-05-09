@@ -300,6 +300,129 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(serviceCalls).toHaveLength(0);
   });
 
+  it("does not register provider or mutate config when proxy startup fails", async () => {
+    const error = new Error("listen EADDRINUSE: address already in use 127.0.0.1:8402");
+    const config = { models: { providers: { keep: { baseUrl: "https://keep.example.com" } } } };
+    const api = {
+      config,
+      registerProvider: vi.fn(),
+      registerService: vi.fn(),
+      logger: {
+        error: vi.fn(),
+      },
+    };
+
+    await expect(
+      registerOpenClawPlugin(api, {
+        startProxy: vi.fn().mockRejectedValue(error),
+      }),
+    ).rejects.toThrow("EADDRINUSE");
+
+    expect(api.registerProvider).not.toHaveBeenCalled();
+    expect(api.config).toEqual({
+      models: {
+        providers: {
+          keep: { baseUrl: "https://keep.example.com" },
+        },
+      },
+    });
+    expect(api.registerService).not.toHaveBeenCalled();
+  });
+
+  it("does not register provider or mutate config when service registration fails", async () => {
+    const registerError = new Error("duplicate service id");
+    const close = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close,
+    });
+    const config = { models: { providers: { keep: { baseUrl: "https://keep.example.com" } } } };
+    const api = {
+      config,
+      registerProvider: vi.fn(),
+      registerService: vi.fn(() => {
+        throw registerError;
+      }),
+    };
+
+    await expect(registerOpenClawPlugin(api, { startProxy })).rejects.toThrow(registerError);
+
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(api.registerProvider).not.toHaveBeenCalled();
+    expect(api.config).toEqual({
+      models: {
+        providers: {
+          keep: { baseUrl: "https://keep.example.com" },
+        },
+      },
+    });
+  });
+
+  it("runs the underlying proxy close once for concurrent stop calls", async () => {
+    const closeResolvers: Array<() => void> = [];
+    const closeStarted = vi.fn();
+    const close = vi.fn<() => Promise<void>>().mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          closeStarted();
+          closeResolvers.push(resolve);
+        }),
+    );
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close,
+    });
+    const api = {
+      config: {},
+      registerProvider: vi.fn(),
+      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
+    };
+
+    await registerOpenClawPlugin(api, { startProxy });
+
+    const firstStop = serviceCalls[0]!.stop();
+    const secondStop = serviceCalls[0]!.stop();
+
+    expect(closeStarted).toHaveBeenCalled();
+
+    closeResolvers.forEach((resolve) => resolve());
+    await expect(Promise.all([firstStop, secondStop])).resolves.toEqual([undefined, undefined]);
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("shares the same rejection for concurrent stop calls when close fails", async () => {
+    const closeError = new Error("failed to close proxy");
+    const close = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(closeError)
+      .mockRejectedValueOnce(closeError)
+      .mockResolvedValue(undefined);
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close,
+    });
+    const api = {
+      config: {},
+      registerProvider: vi.fn(),
+      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
+    };
+
+    await registerOpenClawPlugin(api, { startProxy });
+
+    const firstStop = serviceCalls[0]!.stop();
+    const secondStop = serviceCalls[0]!.stop();
+    const results = await Promise.allSettled([firstStop, secondStop]);
+
+    expect(results).toEqual([
+      { status: "rejected", reason: closeError },
+      { status: "rejected", reason: closeError },
+    ]);
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
   it("does not start a replacement proxy when closing the active proxy fails", async () => {
     const closeError = new Error("failed to close old proxy");
     const firstClose = vi
@@ -361,21 +484,8 @@ describe("OpenClaw plugin lifecycle", () => {
         startProxy: vi.fn().mockRejectedValue(error),
       }),
     ).rejects.toThrow("EADDRINUSE");
-    expect(api.registerProvider).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: "deepseek",
-      }),
-    );
-    expect(api.config).toMatchObject({
-      models: {
-        providers: {
-          deepseek: {
-            baseUrl: "http://127.0.0.1:8402/v1",
-            api: "openai-completions",
-          },
-        },
-      },
-    });
+    expect(api.registerProvider).not.toHaveBeenCalled();
+    expect(api.config).toEqual({});
     expect(api.registerService).not.toHaveBeenCalled();
     expect(api.logger.error).toHaveBeenCalledWith(
       "DeepSeek Router Mini failed to start on port 8402: listen EADDRINUSE: address already in use 127.0.0.1:8402",

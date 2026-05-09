@@ -44,6 +44,7 @@ const defaultRuntime: PluginRuntime = {
 
 let activeProxy: ProxyHandle | undefined;
 const closedProxies = new WeakSet<ProxyHandle>();
+const closingProxies = new WeakMap<ProxyHandle, Promise<void>>();
 
 function ensureObject(parent: JsonObject, key: string): JsonObject {
   const value = parent[key];
@@ -85,11 +86,26 @@ function parsePluginPort(value: string | undefined): number {
 async function closeProxyOnce(proxy: ProxyHandle): Promise<void> {
   if (closedProxies.has(proxy)) return;
 
-  await proxy.close();
-  closedProxies.add(proxy);
+  const closing = closingProxies.get(proxy);
+  if (closing) {
+    await closing;
+    return;
+  }
 
-  if (activeProxy === proxy) {
-    activeProxy = undefined;
+  const closePromise = (async () => {
+    await proxy.close();
+    closedProxies.add(proxy);
+
+    if (activeProxy === proxy) {
+      activeProxy = undefined;
+    }
+  })();
+  closingProxies.set(proxy, closePromise);
+
+  try {
+    await closePromise;
+  } finally {
+    closingProxies.delete(proxy);
   }
 }
 
@@ -135,9 +151,6 @@ export async function registerOpenClawPlugin(
   const upstreamUrl = process.env.DEEPSEEK_BASE_URL ?? DEFAULT_BASE_URL;
   const providerBaseUrl = localProviderBaseUrl(port);
 
-  api.registerProvider(createDeepSeekProvider(providerBaseUrl));
-  injectDeepSeekModelsConfig(api.config, providerBaseUrl);
-
   let stopRegisteredProxy: () => Promise<void>;
   let registeredProxy: ProxyHandle;
   try {
@@ -167,6 +180,9 @@ export async function registerOpenClawPlugin(
     }
     throw error;
   }
+
+  injectDeepSeekModelsConfig(api.config, providerBaseUrl);
+  api.registerProvider(createDeepSeekProvider(providerBaseUrl));
 
   api.logger?.info?.(`DeepSeek Router Mini listening on ${providerBaseUrl}`);
 }
