@@ -390,11 +390,12 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(secondClose).toHaveBeenCalledTimes(1);
   });
 
-  it("throws synchronously when service registration fails without starting a proxy", () => {
+  it("does not register provider or mutate config when service registration fails", () => {
     const registerError = new Error("duplicate service id");
     const startProxy = vi.fn();
+    const config = { models: { providers: { keep: { baseUrl: "https://keep.example.com" } } } };
     const api = {
-      config: {},
+      config,
       registerProvider: vi.fn(),
       registerService: vi.fn(() => {
         throw registerError;
@@ -403,31 +404,37 @@ describe("OpenClaw plugin lifecycle", () => {
 
     expect(() => registerOpenClawPlugin(api, { startProxy })).toThrow(registerError);
     expect(startProxy).not.toHaveBeenCalled();
-    expect(api.registerProvider).toHaveBeenCalledTimes(1);
-    expect(api.config).toMatchObject({
+    expect(api.registerProvider).not.toHaveBeenCalled();
+    expect(api.config).toEqual({
       models: {
         providers: {
-          deepseek: {
-            baseUrl: "http://127.0.0.1:8402/v1",
-          },
+          keep: { baseUrl: "https://keep.example.com" },
         },
       },
     });
   });
 
-  it("throws synchronously when provider registration fails without registering a service", () => {
+  it("unregisters the runtime service when provider registration fails", () => {
     const providerError = new Error("provider registry unavailable");
     const startProxy = vi.fn();
+    const services = new Map<string, OpenClawService>();
+    const unregisterService = vi.fn((id: string) => {
+      services.delete(id);
+    });
     const api = {
       config: {},
       registerProvider: vi.fn(() => {
         throw providerError;
       }),
-      registerService: vi.fn(),
+      registerService: (service: OpenClawService) => {
+        services.set(service.id, service);
+      },
+      unregisterService,
     };
 
     expect(() => registerOpenClawPlugin(api, { startProxy })).toThrow(providerError);
-    expect(api.registerService).not.toHaveBeenCalled();
+    expect(unregisterService).toHaveBeenCalledWith("deepseek-router-proxy");
+    expect(services.has("deepseek-router-proxy")).toBe(false);
     expect(startProxy).not.toHaveBeenCalled();
     expect(api.config).toEqual({});
   });

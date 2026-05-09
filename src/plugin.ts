@@ -212,11 +212,21 @@ function createProxyService(
 export function registerOpenClawPlugin(api: OpenClawPluginApi, runtime: PluginRuntime = defaultRuntime): void {
   const { port, upstreamUrl } = resolvePluginRuntimeConfig(api);
   const providerBaseUrl = localProviderBaseUrl(port);
+  const shouldRegisterRuntimeService = shouldStartRuntimeProxy(api.registrationMode);
+  const serviceId: OpenClawService["id"] = "deepseek-router-proxy";
 
-  api.registerProvider(createDeepSeekProvider(providerBaseUrl));
-  injectDeepSeekModelsConfig(api.config, providerBaseUrl);
-
-  if (shouldStartRuntimeProxy(api.registrationMode)) {
+  if (shouldRegisterRuntimeService) {
     api.registerService(createProxyService(api, runtime, port, upstreamUrl, providerBaseUrl));
   }
+
+  try {
+    api.registerProvider(createDeepSeekProvider(providerBaseUrl));
+  } catch (error) {
+    if (shouldRegisterRuntimeService) {
+      api.unregisterService?.(serviceId);
+    }
+    throw error;
+  }
+
+  injectDeepSeekModelsConfig(api.config, providerBaseUrl);
 }
