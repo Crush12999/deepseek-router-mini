@@ -391,6 +391,98 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
+  it("unregisters the service after provider registration fails so retry can reuse the id", async () => {
+    const providerError = new Error("provider registry unavailable");
+    const firstClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const secondClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const services = new Map<string, { id: string; stop: () => Promise<void> }>();
+    const startProxy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        port: 8402,
+        baseUrl: "https://api.deepseek.com",
+        close: firstClose,
+      })
+      .mockResolvedValueOnce({
+        port: 8402,
+        baseUrl: "https://api.deepseek.com",
+        close: secondClose,
+      });
+    const registerProvider = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw providerError;
+      })
+      .mockImplementationOnce(() => undefined);
+    const unregisterService = vi.fn((id: string) => {
+      services.delete(id);
+    });
+    const api = {
+      config: {},
+      registerProvider,
+      registerService: (service: { id: string; stop: () => Promise<void> }) => {
+        if (services.has(service.id)) {
+          throw new Error(`duplicate service id: ${service.id}`);
+        }
+        services.set(service.id, service);
+      },
+      unregisterService,
+    };
+
+    await expect(registerOpenClawPlugin(api, { startProxy })).rejects.toThrow(providerError);
+
+    expect(unregisterService).toHaveBeenCalledWith("deepseek-router-proxy");
+    expect(services.has("deepseek-router-proxy")).toBe(false);
+    expect(firstClose).toHaveBeenCalledTimes(1);
+    expect(api.config).toEqual({});
+
+    await registerOpenClawPlugin(api, { startProxy });
+
+    expect(services.has("deepseek-router-proxy")).toBe(true);
+    expect(secondClose).not.toHaveBeenCalled();
+
+    await services.get("deepseek-router-proxy")!.stop();
+    expect(secondClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces unregister and cleanup failures when provider registration fails", async () => {
+    const providerError = new Error("provider registry unavailable");
+    const unregisterError = new Error("failed to unregister service");
+    const cleanupError = new Error("failed to close new proxy");
+    const close = vi.fn<() => Promise<void>>().mockRejectedValue(cleanupError);
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close,
+    });
+    const unregisterService = vi.fn(() => {
+      throw unregisterError;
+    });
+    const api = {
+      config: {},
+      registerProvider: vi.fn(() => {
+        throw providerError;
+      }),
+      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
+      unregisterService,
+    };
+
+    let thrown: unknown;
+    try {
+      await registerOpenClawPlugin(api, { startProxy });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(AggregateError);
+    expect((thrown as AggregateError).message).toContain("provider registration failed");
+    expect((thrown as AggregateError).errors).toEqual([providerError, cleanupError, unregisterError]);
+    expect((thrown as AggregateError).cause).toBeInstanceOf(AggregateError);
+    expect(unregisterService).toHaveBeenCalledWith("deepseek-router-proxy");
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(api.config).toEqual({});
+  });
+
   it("surfaces cleanup failures when provider registration fails", async () => {
     const providerError = new Error("provider registry unavailable");
     const cleanupError = new Error("failed to close new proxy");
@@ -418,7 +510,7 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(thrown).toBeInstanceOf(AggregateError);
     expect((thrown as AggregateError).message).toContain("proxy cleanup failed");
     expect((thrown as AggregateError).errors).toEqual([providerError, cleanupError]);
-    expect((thrown as AggregateError).cause).toBe(providerError);
+    expect((thrown as AggregateError).cause).toBeInstanceOf(AggregateError);
     expect(api.config).toEqual({});
     expect(close).toHaveBeenCalledTimes(1);
   });

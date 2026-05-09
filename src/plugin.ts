@@ -20,6 +20,8 @@ export type OpenClawPluginApi = {
   config: JsonObject;
   registerProvider: (provider: DeepSeekProvider) => void;
   registerService: (service: OpenClawService) => void;
+  unregisterProvider?: (id: string) => void | Promise<void>;
+  unregisterService?: (id: string) => void | Promise<void>;
   logger?: {
     info?: (message: string) => void;
     error?: (message: string) => void;
@@ -142,6 +144,34 @@ function createCleanupFailureError(
   );
 }
 
+async function compensateRegisteredService(
+  api: OpenClawPluginApi,
+  serviceId: OpenClawService["id"],
+  proxy: ProxyHandle,
+): Promise<void[]> {
+  const errors: unknown[] = [];
+
+  try {
+    await cleanupUnregisteredProxy(proxy);
+  } catch (error) {
+    errors.push(error);
+  }
+
+  if (api.unregisterService) {
+    try {
+      await api.unregisterService(serviceId);
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new AggregateError(errors, "OpenClaw service compensation failed", { cause: errors[0] });
+  }
+
+  return [];
+}
+
 async function replaceActiveProxy(proxy: ProxyHandle): Promise<void> {
   const previous = activeProxy;
   if (activeProxy === proxy) {
@@ -194,9 +224,15 @@ export async function registerOpenClawPlugin(
     api.registerProvider(createDeepSeekProvider(providerBaseUrl));
   } catch (error) {
     try {
-      await cleanupUnregisteredProxy(registeredProxy);
-    } catch (cleanupError) {
-      throw createCleanupFailureError("OpenClaw provider registration", error, cleanupError);
+      await compensateRegisteredService(api, "deepseek-router-proxy", registeredProxy);
+    } catch (compensationError) {
+      const compensationErrors =
+        compensationError instanceof AggregateError ? compensationError.errors : [compensationError];
+      throw new AggregateError(
+        [error, ...compensationErrors],
+        "OpenClaw provider registration failed and proxy cleanup failed or service compensation failed",
+        { cause: compensationError },
+      );
     }
     throw error;
   }
