@@ -1,14 +1,7 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { DEEPSEEK_OPENCLAW_MODELS } from "../src/provider.js";
 import { injectDeepSeekModelsConfig, localProviderBaseUrl } from "../src/plugin.js";
-
-const originalEnv = { ...process.env };
-
-afterEach(() => {
-  process.env = { ...originalEnv };
-  vi.restoreAllMocks();
-});
 
 describe("OpenClaw plugin config injection", () => {
   it("builds the local provider baseUrl from the configured port", () => {
