@@ -21,6 +21,23 @@ if (!Array.isArray(mod.DEEPSEEK_OPENCLAW_MODELS) || mod.DEEPSEEK_OPENCLAW_MODELS
   throw new Error("missing DeepSeek OpenClaw model exports");
 }
 
+const services = [];
+const providers = [];
+const result = mod.default.register({
+  config: {},
+  registrationMode: "discovery",
+  registerProvider(provider) {
+    providers.push(provider);
+  },
+  registerService(service) {
+    services.push(service);
+  }
+});
+if (result && typeof result.then === "function") throw new Error("plugin register returned a thenable");
+if (result !== undefined) throw new Error("plugin register must return undefined");
+if (providers.length !== 1) throw new Error("plugin register did not register provider");
+if (services.length !== 0) throw new Error("discovery register should not register runtime service");
+
 console.log(JSON.stringify({
   id: mod.default.id,
   version: mod.default.version,

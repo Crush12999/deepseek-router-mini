@@ -13,7 +13,8 @@ type JsonObject = Record<string, unknown>;
 
 export type OpenClawService = {
   id: "deepseek-router-proxy";
-  stop: () => Promise<void>;
+  start: (ctx?: unknown) => Promise<void>;
+  stop: (ctx?: unknown) => Promise<void>;
 };
 
 export type OpenClawPluginApi = {
@@ -34,7 +35,7 @@ export type OpenClawPlugin = {
   name: "DeepSeek Router Mini";
   description: "DeepSeek-only local routing proxy for OpenClaw";
   version: string;
-  register: (api: OpenClawPluginApi) => Promise<void>;
+  register: (api: OpenClawPluginApi) => void;
 };
 
 export type PluginRuntime = {
@@ -142,65 +143,11 @@ async function closeProxyOnce(proxy: ProxyHandle): Promise<void> {
   }
 }
 
-function createStopProxy(proxy: ProxyHandle): () => Promise<void> {
-  return () => closeProxyOnce(proxy);
-}
-
 async function closeActiveProxy(): Promise<void> {
   const previous = activeProxy;
   if (previous) {
     await closeProxyOnce(previous);
   }
-}
-
-async function cleanupUnregisteredProxy(proxy: ProxyHandle): Promise<void> {
-  try {
-    await closeProxyOnce(proxy);
-  } finally {
-    if (activeProxy === proxy) {
-      activeProxy = undefined;
-    }
-  }
-}
-
-function createCleanupFailureError(
-  operation: string,
-  operationError: unknown,
-  cleanupError: unknown,
-): AggregateError {
-  return new AggregateError(
-    [operationError, cleanupError],
-    `${operation} failed and proxy cleanup failed`,
-    { cause: operationError },
-  );
-}
-
-async function compensateRegisteredService(
-  api: OpenClawPluginApi,
-  serviceId: OpenClawService["id"],
-  proxy: ProxyHandle,
-): Promise<void[]> {
-  const errors: unknown[] = [];
-
-  try {
-    await cleanupUnregisteredProxy(proxy);
-  } catch (error) {
-    errors.push(error);
-  }
-
-  if (api.unregisterService) {
-    try {
-      await api.unregisterService(serviceId);
-    } catch (error) {
-      errors.push(error);
-    }
-  }
-
-  if (errors.length > 0) {
-    throw new AggregateError(errors, "OpenClaw service compensation failed", { cause: errors[0] });
-  }
-
-  return [];
 }
 
 async function replaceActiveProxy(proxy: ProxyHandle): Promise<void> {
@@ -216,64 +163,60 @@ async function replaceActiveProxy(proxy: ProxyHandle): Promise<void> {
   activeProxy = proxy;
 }
 
-export async function registerOpenClawPlugin(
+function createProxyService(
   api: OpenClawPluginApi,
-  runtime: PluginRuntime = defaultRuntime,
-): Promise<void> {
+  runtime: PluginRuntime,
+  port: number,
+  upstreamUrl: string,
+  providerBaseUrl: string,
+): OpenClawService {
+  let serviceProxy: ProxyHandle | undefined;
+
+  return {
+    id: "deepseek-router-proxy",
+    async start() {
+      try {
+        if (serviceProxy && activeProxy === serviceProxy) {
+          return;
+        }
+
+        if (serviceProxy) {
+          await closeProxyOnce(serviceProxy);
+          serviceProxy = undefined;
+        }
+
+        await closeActiveProxy();
+        const proxy = await runtime.startProxy({ port, baseUrl: upstreamUrl });
+        serviceProxy = proxy;
+        await replaceActiveProxy(proxy);
+        api.logger?.info?.(`DeepSeek Router Mini listening on ${providerBaseUrl}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        api.logger?.error?.(`DeepSeek Router Mini failed to start on port ${port}: ${message}`);
+        throw error;
+      }
+    },
+    async stop() {
+      if (!serviceProxy) return;
+
+      const proxy = serviceProxy;
+      await closeProxyOnce(proxy);
+
+      if (serviceProxy === proxy && activeProxy !== proxy) {
+        serviceProxy = undefined;
+      }
+    },
+  };
+}
+
+export function registerOpenClawPlugin(api: OpenClawPluginApi, runtime: PluginRuntime = defaultRuntime): void {
   const { port, upstreamUrl } = resolvePluginRuntimeConfig(api);
   const providerBaseUrl = localProviderBaseUrl(port);
 
-  if (!shouldStartRuntimeProxy(api.registrationMode)) {
-    api.registerProvider(createDeepSeekProvider(providerBaseUrl));
-    injectDeepSeekModelsConfig(api.config, providerBaseUrl);
-    return;
-  }
-
-  let stopRegisteredProxy: () => Promise<void>;
-  let registeredProxy: ProxyHandle;
-  try {
-    await closeActiveProxy();
-    registeredProxy = await runtime.startProxy({ port, baseUrl: upstreamUrl });
-    stopRegisteredProxy = createStopProxy(registeredProxy);
-    await replaceActiveProxy(registeredProxy);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    api.logger?.error?.(`DeepSeek Router Mini failed to start on port ${port}: ${message}`);
-    throw error;
-  }
-
-  try {
-    api.registerService({
-      id: "deepseek-router-proxy",
-      stop: stopRegisteredProxy,
-    });
-  } catch (error) {
-    try {
-      await cleanupUnregisteredProxy(registeredProxy);
-    } catch (cleanupError) {
-      throw createCleanupFailureError("OpenClaw service registration", error, cleanupError);
-    }
-    throw error;
-  }
-
-  try {
-    api.registerProvider(createDeepSeekProvider(providerBaseUrl));
-  } catch (error) {
-    try {
-      await compensateRegisteredService(api, "deepseek-router-proxy", registeredProxy);
-    } catch (compensationError) {
-      const compensationErrors =
-        compensationError instanceof AggregateError ? compensationError.errors : [compensationError];
-      throw new AggregateError(
-        [error, ...compensationErrors],
-        "OpenClaw provider registration failed and proxy cleanup failed or service compensation failed",
-        { cause: compensationError },
-      );
-    }
-    throw error;
-  }
-
+  api.registerProvider(createDeepSeekProvider(providerBaseUrl));
   injectDeepSeekModelsConfig(api.config, providerBaseUrl);
 
-  api.logger?.info?.(`DeepSeek Router Mini listening on ${providerBaseUrl}`);
+  if (shouldStartRuntimeProxy(api.registrationMode)) {
+    api.registerService(createProxyService(api, runtime, port, upstreamUrl, providerBaseUrl));
+  }
 }

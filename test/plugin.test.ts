@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEEPSEEK_OPENCLAW_MODELS } from "../src/provider.js";
+import type { OpenClawService } from "../src/plugin.js";
 import {
   injectDeepSeekModelsConfig,
   localProviderBaseUrl,
@@ -72,7 +73,7 @@ describe("OpenClaw plugin config injection", () => {
 });
 
 describe("OpenClaw plugin lifecycle", () => {
-  const serviceCalls: Array<{ id: string; stop: () => Promise<void> }> = [];
+  const serviceCalls: OpenClawService[] = [];
 
   beforeEach(() => {
     serviceCalls.length = 0;
@@ -88,7 +89,7 @@ describe("OpenClaw plugin lifecycle", () => {
     }
   });
 
-  it("registers provider, injects config, starts proxy, and registers a stop service", async () => {
+  it("registers synchronously and starts the proxy only when the service starts", async () => {
     const close = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
     const startProxy = vi.fn().mockResolvedValue({
       port: 8402,
@@ -99,16 +100,17 @@ describe("OpenClaw plugin lifecycle", () => {
     const api = {
       config: {},
       registerProvider: (provider: unknown) => providerCalls.push(provider),
-      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
       logger: {
         info: vi.fn(),
         error: vi.fn(),
       },
     };
 
-    await registerOpenClawPlugin(api, { startProxy });
+    const result = registerOpenClawPlugin(api, { startProxy });
 
-    expect(startProxy).toHaveBeenCalledWith({ port: 8402, baseUrl: "https://api.deepseek.com" });
+    expect(result).toBeUndefined();
+    expect(startProxy).not.toHaveBeenCalled();
     expect(providerCalls).toHaveLength(1);
     expect(providerCalls[0]).toMatchObject({
       id: "deepseek",
@@ -125,7 +127,17 @@ describe("OpenClaw plugin lifecycle", () => {
       },
     });
     expect(serviceCalls).toHaveLength(1);
-    expect(serviceCalls[0]?.id).toBe("deepseek-router-proxy");
+    expect(serviceCalls[0]).toMatchObject({
+      id: "deepseek-router-proxy",
+      start: expect.any(Function),
+      stop: expect.any(Function),
+    });
+
+    await serviceCalls[0]!.start();
+    expect(startProxy).toHaveBeenCalledWith({ port: 8402, baseUrl: "https://api.deepseek.com" });
+    expect(api.logger.info).toHaveBeenCalledWith(
+      "DeepSeek Router Mini listening on http://127.0.0.1:8402/v1",
+    );
 
     await serviceCalls[0]!.stop();
     expect(close).toHaveBeenCalledTimes(1);
@@ -143,15 +155,11 @@ describe("OpenClaw plugin lifecycle", () => {
     const api = {
       config: {},
       registerProvider: vi.fn(),
-      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
     };
 
-    await registerOpenClawPlugin(api, { startProxy });
+    registerOpenClawPlugin(api, { startProxy });
 
-    expect(startProxy).toHaveBeenCalledWith({
-      port: 9011,
-      baseUrl: "https://gateway.example.com",
-    });
     expect(api.registerProvider).toHaveBeenCalledWith(
       expect.objectContaining({
         models: expect.objectContaining({
@@ -159,6 +167,13 @@ describe("OpenClaw plugin lifecycle", () => {
         }),
       }),
     );
+    expect(startProxy).not.toHaveBeenCalled();
+
+    await serviceCalls[0]!.start();
+    expect(startProxy).toHaveBeenCalledWith({
+      port: 9011,
+      baseUrl: "https://gateway.example.com",
+    });
   });
 
   it("uses pluginConfig port and upstreamUrl for runtime and local provider config", async () => {
@@ -174,12 +189,11 @@ describe("OpenClaw plugin lifecycle", () => {
         upstreamUrl: "https://plugin.example.com",
       },
       registerProvider: vi.fn(),
-      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
     };
 
-    await registerOpenClawPlugin(api, { startProxy });
+    registerOpenClawPlugin(api, { startProxy });
 
-    expect(startProxy).toHaveBeenCalledWith({ port: 9999, baseUrl: "https://plugin.example.com" });
     expect(api.registerProvider).toHaveBeenCalledWith(
       expect.objectContaining({
         models: expect.objectContaining({
@@ -197,6 +211,9 @@ describe("OpenClaw plugin lifecycle", () => {
         },
       },
     });
+
+    await serviceCalls[0]!.start();
+    expect(startProxy).toHaveBeenCalledWith({ port: 9999, baseUrl: "https://plugin.example.com" });
   });
 
   it("prefers pluginConfig over environment variables", async () => {
@@ -215,12 +232,11 @@ describe("OpenClaw plugin lifecycle", () => {
         upstreamUrl: "https://plugin.example.com",
       },
       registerProvider: vi.fn(),
-      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
     };
 
-    await registerOpenClawPlugin(api, { startProxy });
+    registerOpenClawPlugin(api, { startProxy });
 
-    expect(startProxy).toHaveBeenCalledWith({ port: 9999, baseUrl: "https://plugin.example.com" });
     expect(api.config).toMatchObject({
       models: {
         providers: {
@@ -230,6 +246,9 @@ describe("OpenClaw plugin lifecycle", () => {
         },
       },
     });
+
+    await serviceCalls[0]!.start();
+    expect(startProxy).toHaveBeenCalledWith({ port: 9999, baseUrl: "https://plugin.example.com" });
   });
 
   it("falls back to env/default when pluginConfig port is invalid", async () => {
@@ -246,12 +265,11 @@ describe("OpenClaw plugin lifecycle", () => {
         port: "nope",
       },
       registerProvider: vi.fn(),
-      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
     };
 
-    await registerOpenClawPlugin(api, { startProxy });
+    registerOpenClawPlugin(api, { startProxy });
 
-    expect(startProxy).toHaveBeenCalledWith({ port: 9011, baseUrl: "https://api.deepseek.com" });
     expect(api.config).toMatchObject({
       models: {
         providers: {
@@ -261,45 +279,51 @@ describe("OpenClaw plugin lifecycle", () => {
         },
       },
     });
+
+    await serviceCalls[0]!.start();
+    expect(startProxy).toHaveBeenCalledWith({ port: 9011, baseUrl: "https://api.deepseek.com" });
   });
 
-  it("only registers provider and injects config in discovery mode", async () => {
-    const startProxy = vi.fn();
-    const api = {
-      config: {},
-      registrationMode: "discovery",
-      pluginConfig: {
-        port: 9999,
-        upstreamUrl: "https://plugin.example.com",
-      },
-      registerProvider: vi.fn(),
-      registerService: vi.fn(),
-    };
+  it.each(["discovery", "cli-metadata", "setup-only", "tool-discovery"])(
+    "only registers provider and injects config in %s mode",
+    (registrationMode) => {
+      const startProxy = vi.fn();
+      const api = {
+        config: {},
+        registrationMode,
+        pluginConfig: {
+          port: 9999,
+          upstreamUrl: "https://plugin.example.com",
+        },
+        registerProvider: vi.fn(),
+        registerService: vi.fn(),
+      };
 
-    await registerOpenClawPlugin(api, { startProxy });
+      registerOpenClawPlugin(api, { startProxy });
 
-    expect(startProxy).not.toHaveBeenCalled();
-    expect(api.registerService).not.toHaveBeenCalled();
-    expect(api.registerProvider).toHaveBeenCalledWith(
-      expect.objectContaining({
-        models: expect.objectContaining({
-          baseUrl: "http://127.0.0.1:9999/v1",
-        }),
-      }),
-    );
-    expect(api.config).toMatchObject({
-      models: {
-        providers: {
-          deepseek: {
+      expect(startProxy).not.toHaveBeenCalled();
+      expect(api.registerService).not.toHaveBeenCalled();
+      expect(api.registerProvider).toHaveBeenCalledWith(
+        expect.objectContaining({
+          models: expect.objectContaining({
             baseUrl: "http://127.0.0.1:9999/v1",
-            api: "openai-completions",
+          }),
+        }),
+      );
+      expect(api.config).toMatchObject({
+        models: {
+          providers: {
+            deepseek: {
+              baseUrl: "http://127.0.0.1:9999/v1",
+              api: "openai-completions",
+            },
           },
         },
-      },
-    });
-  });
+      });
+    },
+  );
 
-  it("closes the previous proxy when a later registration becomes active", async () => {
+  it("closes the previous proxy when a later service starts", async () => {
     const firstClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
     const secondClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
     const startProxy = vi
@@ -317,11 +341,13 @@ describe("OpenClaw plugin lifecycle", () => {
     const api = {
       config: {},
       registerProvider: vi.fn(),
-      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
     };
 
-    await registerOpenClawPlugin(api, { startProxy });
-    await registerOpenClawPlugin(api, { startProxy });
+    registerOpenClawPlugin(api, { startProxy });
+    await serviceCalls[0]!.start();
+    registerOpenClawPlugin(api, { startProxy });
+    await serviceCalls[1]!.start();
 
     expect(firstClose).toHaveBeenCalledTimes(1);
 
@@ -347,12 +373,14 @@ describe("OpenClaw plugin lifecycle", () => {
     const api = {
       config: {},
       registerProvider: vi.fn(),
-      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
     };
 
-    await registerOpenClawPlugin(api, { startProxy });
+    registerOpenClawPlugin(api, { startProxy });
     const firstService = serviceCalls[0]!;
-    await registerOpenClawPlugin(api, { startProxy });
+    await firstService.start();
+    registerOpenClawPlugin(api, { startProxy });
+    await serviceCalls[1]!.start();
 
     await firstService.stop();
     expect(firstClose).toHaveBeenCalledTimes(1);
@@ -362,60 +390,9 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(secondClose).toHaveBeenCalledTimes(1);
   });
 
-  it("closes the newly started proxy when service registration fails", async () => {
+  it("throws synchronously when service registration fails without starting a proxy", () => {
     const registerError = new Error("duplicate service id");
-    const firstClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
-    const secondClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
-    const startProxy = vi
-      .fn()
-      .mockResolvedValueOnce({
-        port: 8402,
-        baseUrl: "https://api.deepseek.com",
-        close: firstClose,
-      })
-      .mockResolvedValueOnce({
-        port: 8402,
-        baseUrl: "https://api.deepseek.com",
-        close: secondClose,
-      });
-    const registerService = vi
-      .fn<(service: { id: string; stop: () => Promise<void> }) => void>()
-      .mockImplementationOnce(() => {
-        throw registerError;
-      })
-      .mockImplementationOnce((service) => {
-        serviceCalls.push(service);
-      });
-    const api = {
-      config: {},
-      registerProvider: vi.fn(),
-      registerService,
-    };
-
-    await expect(registerOpenClawPlugin(api, { startProxy })).rejects.toThrow(registerError);
-
-    expect(firstClose).toHaveBeenCalledTimes(1);
-    expect(serviceCalls).toHaveLength(0);
-
-    await registerOpenClawPlugin(api, { startProxy });
-
-    expect(startProxy).toHaveBeenCalledTimes(2);
-    expect(firstClose).toHaveBeenCalledTimes(1);
-    expect(serviceCalls).toHaveLength(1);
-
-    await serviceCalls[0]!.stop();
-    expect(secondClose).toHaveBeenCalledTimes(1);
-  });
-
-  it("surfaces cleanup failures when service registration fails after starting a proxy", async () => {
-    const registerError = new Error("duplicate service id");
-    const cleanupError = new Error("failed to close new proxy");
-    const close = vi.fn<() => Promise<void>>().mockRejectedValue(cleanupError);
-    const startProxy = vi.fn().mockResolvedValue({
-      port: 8402,
-      baseUrl: "https://api.deepseek.com",
-      close,
-    });
+    const startProxy = vi.fn();
     const api = {
       config: {},
       registerProvider: vi.fn(),
@@ -424,233 +401,35 @@ describe("OpenClaw plugin lifecycle", () => {
       }),
     };
 
-    let thrown: unknown;
-    try {
-      await registerOpenClawPlugin(api, { startProxy });
-    } catch (error) {
-      thrown = error;
-    }
-
-    expect(thrown).toBeInstanceOf(AggregateError);
-    expect((thrown as AggregateError).message).toContain("proxy cleanup failed");
-    expect((thrown as AggregateError).errors).toEqual([registerError, cleanupError]);
-    expect(close).toHaveBeenCalledTimes(1);
-    expect(serviceCalls).toHaveLength(0);
+    expect(() => registerOpenClawPlugin(api, { startProxy })).toThrow(registerError);
+    expect(startProxy).not.toHaveBeenCalled();
+    expect(api.registerProvider).toHaveBeenCalledTimes(1);
+    expect(api.config).toMatchObject({
+      models: {
+        providers: {
+          deepseek: {
+            baseUrl: "http://127.0.0.1:8402/v1",
+          },
+        },
+      },
+    });
   });
 
-  it("does not register provider or mutate config when proxy startup fails", async () => {
-    const error = new Error("listen EADDRINUSE: address already in use 127.0.0.1:8402");
-    const config = { models: { providers: { keep: { baseUrl: "https://keep.example.com" } } } };
+  it("throws synchronously when provider registration fails without registering a service", () => {
+    const providerError = new Error("provider registry unavailable");
+    const startProxy = vi.fn();
     const api = {
-      config,
-      registerProvider: vi.fn(),
+      config: {},
+      registerProvider: vi.fn(() => {
+        throw providerError;
+      }),
       registerService: vi.fn(),
-      logger: {
-        error: vi.fn(),
-      },
     };
 
-    await expect(
-      registerOpenClawPlugin(api, {
-        startProxy: vi.fn().mockRejectedValue(error),
-      }),
-    ).rejects.toThrow("EADDRINUSE");
-
-    expect(api.registerProvider).not.toHaveBeenCalled();
-    expect(api.config).toEqual({
-      models: {
-        providers: {
-          keep: { baseUrl: "https://keep.example.com" },
-        },
-      },
-    });
+    expect(() => registerOpenClawPlugin(api, { startProxy })).toThrow(providerError);
     expect(api.registerService).not.toHaveBeenCalled();
-  });
-
-  it("does not register provider or mutate config when service registration fails", async () => {
-    const registerError = new Error("duplicate service id");
-    const close = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
-    const startProxy = vi.fn().mockResolvedValue({
-      port: 8402,
-      baseUrl: "https://api.deepseek.com",
-      close,
-    });
-    const config = { models: { providers: { keep: { baseUrl: "https://keep.example.com" } } } };
-    const api = {
-      config,
-      registerProvider: vi.fn(),
-      registerService: vi.fn(() => {
-        throw registerError;
-      }),
-    };
-
-    await expect(registerOpenClawPlugin(api, { startProxy })).rejects.toThrow(registerError);
-
-    expect(close).toHaveBeenCalledTimes(1);
-    expect(api.registerProvider).not.toHaveBeenCalled();
-    expect(api.config).toEqual({
-      models: {
-        providers: {
-          keep: { baseUrl: "https://keep.example.com" },
-        },
-      },
-    });
-  });
-
-  it("closes the new proxy and does not mutate config when provider registration fails", async () => {
-    const providerError = new Error("provider registry unavailable");
-    const close = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
-    const startProxy = vi.fn().mockResolvedValue({
-      port: 8402,
-      baseUrl: "https://api.deepseek.com",
-      close,
-    });
-    const config = { models: { providers: { keep: { baseUrl: "https://keep.example.com" } } } };
-    const api = {
-      config,
-      registerProvider: vi.fn(() => {
-        throw providerError;
-      }),
-      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
-    };
-
-    await expect(registerOpenClawPlugin(api, { startProxy })).rejects.toThrow(providerError);
-
-    expect(api.config).toEqual({
-      models: {
-        providers: {
-          keep: { baseUrl: "https://keep.example.com" },
-        },
-      },
-    });
-    expect(close).toHaveBeenCalledTimes(1);
-
-    await serviceCalls[0]!.stop();
-    expect(close).toHaveBeenCalledTimes(1);
-  });
-
-  it("unregisters the service after provider registration fails so retry can reuse the id", async () => {
-    const providerError = new Error("provider registry unavailable");
-    const firstClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
-    const secondClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
-    const services = new Map<string, { id: string; stop: () => Promise<void> }>();
-    const startProxy = vi
-      .fn()
-      .mockResolvedValueOnce({
-        port: 8402,
-        baseUrl: "https://api.deepseek.com",
-        close: firstClose,
-      })
-      .mockResolvedValueOnce({
-        port: 8402,
-        baseUrl: "https://api.deepseek.com",
-        close: secondClose,
-      });
-    const registerProvider = vi
-      .fn()
-      .mockImplementationOnce(() => {
-        throw providerError;
-      })
-      .mockImplementationOnce(() => undefined);
-    const unregisterService = vi.fn((id: string) => {
-      services.delete(id);
-    });
-    const api = {
-      config: {},
-      registerProvider,
-      registerService: (service: { id: string; stop: () => Promise<void> }) => {
-        if (services.has(service.id)) {
-          throw new Error(`duplicate service id: ${service.id}`);
-        }
-        services.set(service.id, service);
-      },
-      unregisterService,
-    };
-
-    await expect(registerOpenClawPlugin(api, { startProxy })).rejects.toThrow(providerError);
-
-    expect(unregisterService).toHaveBeenCalledWith("deepseek-router-proxy");
-    expect(services.has("deepseek-router-proxy")).toBe(false);
-    expect(firstClose).toHaveBeenCalledTimes(1);
+    expect(startProxy).not.toHaveBeenCalled();
     expect(api.config).toEqual({});
-
-    await registerOpenClawPlugin(api, { startProxy });
-
-    expect(services.has("deepseek-router-proxy")).toBe(true);
-    expect(secondClose).not.toHaveBeenCalled();
-
-    await services.get("deepseek-router-proxy")!.stop();
-    expect(secondClose).toHaveBeenCalledTimes(1);
-  });
-
-  it("surfaces unregister and cleanup failures when provider registration fails", async () => {
-    const providerError = new Error("provider registry unavailable");
-    const unregisterError = new Error("failed to unregister service");
-    const cleanupError = new Error("failed to close new proxy");
-    const close = vi.fn<() => Promise<void>>().mockRejectedValue(cleanupError);
-    const startProxy = vi.fn().mockResolvedValue({
-      port: 8402,
-      baseUrl: "https://api.deepseek.com",
-      close,
-    });
-    const unregisterService = vi.fn(() => {
-      throw unregisterError;
-    });
-    const api = {
-      config: {},
-      registerProvider: vi.fn(() => {
-        throw providerError;
-      }),
-      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
-      unregisterService,
-    };
-
-    let thrown: unknown;
-    try {
-      await registerOpenClawPlugin(api, { startProxy });
-    } catch (error) {
-      thrown = error;
-    }
-
-    expect(thrown).toBeInstanceOf(AggregateError);
-    expect((thrown as AggregateError).message).toContain("provider registration failed");
-    expect((thrown as AggregateError).errors).toEqual([providerError, cleanupError, unregisterError]);
-    expect((thrown as AggregateError).cause).toBeInstanceOf(AggregateError);
-    expect(unregisterService).toHaveBeenCalledWith("deepseek-router-proxy");
-    expect(close).toHaveBeenCalledTimes(1);
-    expect(api.config).toEqual({});
-  });
-
-  it("surfaces cleanup failures when provider registration fails", async () => {
-    const providerError = new Error("provider registry unavailable");
-    const cleanupError = new Error("failed to close new proxy");
-    const close = vi.fn<() => Promise<void>>().mockRejectedValue(cleanupError);
-    const startProxy = vi.fn().mockResolvedValue({
-      port: 8402,
-      baseUrl: "https://api.deepseek.com",
-      close,
-    });
-    const api = {
-      config: {},
-      registerProvider: vi.fn(() => {
-        throw providerError;
-      }),
-      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
-    };
-
-    let thrown: unknown;
-    try {
-      await registerOpenClawPlugin(api, { startProxy });
-    } catch (error) {
-      thrown = error;
-    }
-
-    expect(thrown).toBeInstanceOf(AggregateError);
-    expect((thrown as AggregateError).message).toContain("proxy cleanup failed");
-    expect((thrown as AggregateError).errors).toEqual([providerError, cleanupError]);
-    expect((thrown as AggregateError).cause).toBeInstanceOf(AggregateError);
-    expect(api.config).toEqual({});
-    expect(close).toHaveBeenCalledTimes(1);
   });
 
   it("runs the underlying proxy close once for concurrent stop calls", async () => {
@@ -671,10 +450,11 @@ describe("OpenClaw plugin lifecycle", () => {
     const api = {
       config: {},
       registerProvider: vi.fn(),
-      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
     };
 
-    await registerOpenClawPlugin(api, { startProxy });
+    registerOpenClawPlugin(api, { startProxy });
+    await serviceCalls[0]!.start();
 
     const firstStop = serviceCalls[0]!.stop();
     const secondStop = serviceCalls[0]!.stop();
@@ -701,10 +481,11 @@ describe("OpenClaw plugin lifecycle", () => {
     const api = {
       config: {},
       registerProvider: vi.fn(),
-      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
     };
 
-    await registerOpenClawPlugin(api, { startProxy });
+    registerOpenClawPlugin(api, { startProxy });
+    await serviceCalls[0]!.start();
 
     const firstStop = serviceCalls[0]!.stop();
     const secondStop = serviceCalls[0]!.stop();
@@ -739,26 +520,28 @@ describe("OpenClaw plugin lifecycle", () => {
     const api = {
       config: {},
       registerProvider: vi.fn(),
-      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
       logger: {
         error: vi.fn(),
       },
     };
 
-    await registerOpenClawPlugin(api, { startProxy });
+    registerOpenClawPlugin(api, { startProxy });
+    await serviceCalls[0]!.start();
+    registerOpenClawPlugin(api, { startProxy });
 
-    await expect(registerOpenClawPlugin(api, { startProxy })).rejects.toThrow(closeError);
+    await expect(serviceCalls[1]!.start()).rejects.toThrow(closeError);
     expect(startProxy).toHaveBeenCalledTimes(1);
     expect(firstClose).toHaveBeenCalledTimes(1);
-    expect(serviceCalls).toHaveLength(1);
 
-    await registerOpenClawPlugin(api, { startProxy });
+    await serviceCalls[0]!.stop();
+    registerOpenClawPlugin(api, { startProxy });
+    await serviceCalls[2]!.start();
 
     expect(startProxy).toHaveBeenCalledTimes(2);
     expect(firstClose).toHaveBeenCalledTimes(2);
-    expect(serviceCalls).toHaveLength(2);
 
-    await serviceCalls[1]!.stop();
+    await serviceCalls[2]!.stop();
     expect(secondClose).toHaveBeenCalledTimes(1);
   });
 
@@ -767,20 +550,27 @@ describe("OpenClaw plugin lifecycle", () => {
     const api = {
       config: {},
       registerProvider: vi.fn(),
-      registerService: vi.fn(),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
       logger: {
         error: vi.fn(),
       },
     };
 
-    await expect(
-      registerOpenClawPlugin(api, {
-        startProxy: vi.fn().mockRejectedValue(error),
-      }),
-    ).rejects.toThrow("EADDRINUSE");
-    expect(api.registerProvider).not.toHaveBeenCalled();
-    expect(api.config).toEqual({});
-    expect(api.registerService).not.toHaveBeenCalled();
+    registerOpenClawPlugin(api, {
+      startProxy: vi.fn().mockRejectedValue(error),
+    });
+
+    await expect(serviceCalls[0]!.start()).rejects.toThrow("EADDRINUSE");
+    expect(api.registerProvider).toHaveBeenCalledTimes(1);
+    expect(api.config).toMatchObject({
+      models: {
+        providers: {
+          deepseek: {
+            baseUrl: "http://127.0.0.1:8402/v1",
+          },
+        },
+      },
+    });
     expect(api.logger.error).toHaveBeenCalledWith(
       "DeepSeek Router Mini failed to start on port 8402: listen EADDRINUSE: address already in use 127.0.0.1:8402",
     );
@@ -800,5 +590,26 @@ describe("OpenClaw plugin default export", () => {
     expect(typeof mod.default.register).toBe("function");
     expect(typeof mod.startProxy).toBe("function");
     expect(mod.DEEPSEEK_OPENCLAW_MODELS).toHaveLength(3);
+  });
+
+  it("returns synchronously from default register and only registers a runtime service", async () => {
+    const mod = await import("../src/index.js");
+    const services: OpenClawService[] = [];
+    const api = {
+      config: {},
+      registerProvider: vi.fn(),
+      registerService: (service: OpenClawService) => services.push(service),
+    };
+
+    const result = mod.default.register(api);
+
+    expect(result).toBeUndefined();
+    expect(api.registerProvider).toHaveBeenCalledTimes(1);
+    expect(services).toHaveLength(1);
+    expect(services[0]).toMatchObject({
+      id: "deepseek-router-proxy",
+      start: expect.any(Function),
+      stop: expect.any(Function),
+    });
   });
 });
