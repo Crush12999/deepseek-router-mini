@@ -20,7 +20,6 @@ export type OpenClawPluginApi = {
   config: JsonObject;
   registerProvider: (provider: DeepSeekProvider) => void;
   registerService: (service: OpenClawService) => void;
-  unregisterProvider?: (id: string) => void | Promise<void>;
   unregisterService?: (id: string) => void | Promise<void>;
   logger?: {
     info?: (message: string) => void;
