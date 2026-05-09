@@ -359,6 +359,70 @@ describe("OpenClaw plugin lifecycle", () => {
     });
   });
 
+  it("closes the new proxy and does not mutate config when provider registration fails", async () => {
+    const providerError = new Error("provider registry unavailable");
+    const close = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close,
+    });
+    const config = { models: { providers: { keep: { baseUrl: "https://keep.example.com" } } } };
+    const api = {
+      config,
+      registerProvider: vi.fn(() => {
+        throw providerError;
+      }),
+      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
+    };
+
+    await expect(registerOpenClawPlugin(api, { startProxy })).rejects.toThrow(providerError);
+
+    expect(api.config).toEqual({
+      models: {
+        providers: {
+          keep: { baseUrl: "https://keep.example.com" },
+        },
+      },
+    });
+    expect(close).toHaveBeenCalledTimes(1);
+
+    await serviceCalls[0]!.stop();
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces cleanup failures when provider registration fails", async () => {
+    const providerError = new Error("provider registry unavailable");
+    const cleanupError = new Error("failed to close new proxy");
+    const close = vi.fn<() => Promise<void>>().mockRejectedValue(cleanupError);
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close,
+    });
+    const api = {
+      config: {},
+      registerProvider: vi.fn(() => {
+        throw providerError;
+      }),
+      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
+    };
+
+    let thrown: unknown;
+    try {
+      await registerOpenClawPlugin(api, { startProxy });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(AggregateError);
+    expect((thrown as AggregateError).message).toContain("proxy cleanup failed");
+    expect((thrown as AggregateError).errors).toEqual([providerError, cleanupError]);
+    expect((thrown as AggregateError).cause).toBe(providerError);
+    expect(api.config).toEqual({});
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
   it("runs the underlying proxy close once for concurrent stop calls", async () => {
     const closeResolvers: Array<() => void> = [];
     const closeStarted = vi.fn();

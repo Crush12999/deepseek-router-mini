@@ -130,6 +130,18 @@ async function cleanupUnregisteredProxy(proxy: ProxyHandle): Promise<void> {
   }
 }
 
+function createCleanupFailureError(
+  operation: string,
+  operationError: unknown,
+  cleanupError: unknown,
+): AggregateError {
+  return new AggregateError(
+    [operationError, cleanupError],
+    `${operation} failed and proxy cleanup failed`,
+    { cause: operationError },
+  );
+}
+
 async function replaceActiveProxy(proxy: ProxyHandle): Promise<void> {
   const previous = activeProxy;
   if (activeProxy === proxy) {
@@ -173,16 +185,23 @@ export async function registerOpenClawPlugin(
     try {
       await cleanupUnregisteredProxy(registeredProxy);
     } catch (cleanupError) {
-      throw new AggregateError(
-        [error, cleanupError],
-        "OpenClaw service registration failed and proxy cleanup failed",
-      );
+      throw createCleanupFailureError("OpenClaw service registration", error, cleanupError);
+    }
+    throw error;
+  }
+
+  try {
+    api.registerProvider(createDeepSeekProvider(providerBaseUrl));
+  } catch (error) {
+    try {
+      await cleanupUnregisteredProxy(registeredProxy);
+    } catch (cleanupError) {
+      throw createCleanupFailureError("OpenClaw provider registration", error, cleanupError);
     }
     throw error;
   }
 
   injectDeepSeekModelsConfig(api.config, providerBaseUrl);
-  api.registerProvider(createDeepSeekProvider(providerBaseUrl));
 
   api.logger?.info?.(`DeepSeek Router Mini listening on ${providerBaseUrl}`);
 }
