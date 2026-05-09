@@ -24,6 +24,9 @@ describe("OpenClaw package metadata", () => {
       description: "DeepSeek-only local routing proxy for OpenClaw",
       version: "0.1.0",
       main: "./dist/index.js",
+      activation: {
+        onStartup: true,
+      },
       configSchema: {
         type: "object",
         properties: {

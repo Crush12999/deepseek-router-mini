@@ -18,9 +18,40 @@ describe("router", () => {
     });
   });
 
-  it("routes tools to pro", () => {
-    expect(selectModel({ prompt: "Call the tool", hasTools: true })).toMatchObject({
+  it("does not let ambient tools override a simple prompt", () => {
+    expect(selectModel({ prompt: "Summarize this briefly", hasTools: true })).toMatchObject({
+      model: "deepseek-v4-flash",
+      category: "simple",
+      reason: "simple",
+    });
+  });
+
+  it("does not let agent system prompts override a simple user prompt", () => {
+    expect(
+      selectModel({
+        prompt: "Summarize briefly: OpenClaw routes simple tasks.",
+        systemPrompt: "You can debug failing tests across multiple files when asked.",
+        hasTools: true,
+      }),
+    ).toMatchObject({
+      model: "deepseek-v4-flash",
+      category: "simple",
+      reason: "simple",
+    });
+  });
+
+  it("routes code that needs tools to pro", () => {
+    expect(selectModel({ prompt: "Write a TypeScript function and call the tool", hasTools: true })).toMatchObject({
       model: "deepseek-v4-pro",
+      category: "code",
+      reason: "tools",
+    });
+  });
+
+  it("routes real edit requests with tools to pro", () => {
+    expect(selectModel({ prompt: "Use apply_patch to rename a symbol in src/plugin.ts", hasTools: true })).toMatchObject({
+      model: "deepseek-v4-pro",
+      category: "code",
       reason: "tools",
     });
   });

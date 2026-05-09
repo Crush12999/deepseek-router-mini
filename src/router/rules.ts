@@ -11,13 +11,17 @@ export const SIMPLE_PATTERNS = [
 ];
 
 export const CODE_PATTERNS = [
+  /\bapply_patch\b/i,
   /\btypescript\b/i,
   /\bjavascript\b/i,
   /\bfunction\b/i,
   /\bclass\b/i,
+  /\brename\b/i,
   /\bwrite\s+(some\s+)?code\b/i,
   /\bgenerate\s+code\b/i,
+  /\bedit\s+(the\s+)?file\b/i,
   /\bimplement\b/i,
+  /\b[a-z0-9_-]+\.(ts|tsx|js|jsx|mjs|cjs|json|md|py|rs|go|java|kt|swift|rb|php|css|scss|html|yml|yaml)\b/i,
   /代码/,
   /函数/,
 ];

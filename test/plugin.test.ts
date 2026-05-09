@@ -216,6 +216,52 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(startProxy).toHaveBeenCalledWith({ port: 9999, baseUrl: "https://plugin.example.com" });
   });
 
+  it("passes OpenClaw provider apiKey and headers through to the proxy runtime", async () => {
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {
+        models: {
+          providers: {
+            deepseek: {
+              api_key: "config-key",
+              headers: {
+                "X-Provider": "yes",
+                "X-Override": "provider",
+                "X-Ignored": 123,
+              },
+              request: {
+                headers: {
+                  "X-Override": "request",
+                  "X-Request": "yes",
+                },
+              },
+            },
+          },
+        },
+      },
+      registerProvider: vi.fn(),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPlugin(api, { startProxy });
+    await serviceCalls[0]!.start();
+
+    expect(startProxy).toHaveBeenCalledWith({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      apiKey: "config-key",
+      headers: {
+        "X-Provider": "yes",
+        "X-Override": "request",
+        "X-Request": "yes",
+      },
+    });
+  });
+
   it("prefers pluginConfig over environment variables", async () => {
     vi.stubEnv("DEEPSEEK_ROUTER_PORT", "9011");
     vi.stubEnv("DEEPSEEK_BASE_URL", "https://env.example.com");
@@ -437,6 +483,39 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(services.has("deepseek-router-proxy")).toBe(false);
     expect(startProxy).not.toHaveBeenCalled();
     expect(api.config).toEqual({});
+  });
+
+  it("keeps the runtime service when OpenClaw already registered the built-in deepseek provider", () => {
+    const duplicateProviderError = new Error("provider already registered: deepseek (deepseek)");
+    const api = {
+      config: {},
+      registerProvider: vi.fn(() => {
+        throw duplicateProviderError;
+      }),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+      unregisterService: vi.fn(),
+      logger: {
+        info: vi.fn(),
+      },
+    };
+
+    expect(() => registerOpenClawPlugin(api, { startProxy: vi.fn() })).not.toThrow();
+
+    expect(serviceCalls).toHaveLength(1);
+    expect(api.unregisterService).not.toHaveBeenCalled();
+    expect(api.config).toMatchObject({
+      models: {
+        providers: {
+          deepseek: {
+            baseUrl: "http://127.0.0.1:8402/v1",
+            api: "openai-completions",
+          },
+        },
+      },
+    });
+    expect(api.logger.info).toHaveBeenCalledWith(
+      "DeepSeek provider already registered; keeping router service active",
+    );
   });
 
   it("runs the underlying proxy close once for concurrent stop calls", async () => {

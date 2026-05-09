@@ -144,7 +144,7 @@ describe("proxy", () => {
     expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
   });
 
-  it("routes auto requests to pro for tools", async () => {
+  it("routes auto code requests with tools to pro", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
     const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
@@ -156,7 +156,7 @@ describe("proxy", () => {
       body: JSON.stringify({
         model: "auto",
         tools: [{ type: "function", function: { name: "search" } }],
-        messages: [{ role: "user", content: "use tool" }],
+        messages: [{ role: "user", content: "Write a TypeScript function and use the tool" }],
       }),
     });
 
@@ -164,6 +164,88 @@ describe("proxy", () => {
     expect(res.headers.get("x-deepseek-router-model")).toBe("deepseek-v4-pro");
     expect(res.headers.get("x-deepseek-router-routed")).toBe("true");
     expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-pro" });
+  });
+
+  it("keeps simple auto agent-style requests with ambient tools on flash", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "auto",
+        tools: [{ type: "function", function: { name: "apply_patch" } }],
+        messages: [{ role: "user", content: "Summarize briefly: OpenClaw routes simple tasks." }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-deepseek-router-model")).toBe("deepseek-v4-flash");
+    expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
+  });
+
+  it("routes by the latest user message instead of agent bootstrap text", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "auto",
+        tools: [{ type: "function", function: { name: "apply_patch" } }],
+        messages: [
+          {
+            role: "assistant",
+            content: "Bootstrap: use apply_patch for src/plugin.ts when editing files.",
+          },
+          { role: "user", content: "Summarize briefly: OpenClaw routes simple tasks." },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-deepseek-router-model")).toBe("deepseek-v4-flash");
+    expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
+  });
+
+  it("routes by the final OpenClaw CLI turn inside a bootstrap-wrapped user message", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "auto",
+        tools: [{ type: "function", function: { name: "apply_patch" } }],
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text:
+                  "[BEGIN BOOTSTRAP.md]\nUse apply_patch for src/plugin.ts when editing files.\n[END BOOTSTRAP.md]\n\n" +
+                  "Follow the BOOTSTRAP.md instructions above now.\n\n" +
+                  "[Sun 2026-05-10 01:47 GMT+8] Summarize briefly: OpenClaw routes simple tasks.",
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-deepseek-router-model")).toBe("deepseek-v4-flash");
+    expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
   });
 
   it("lets custom authorization override api key", async () => {
@@ -186,6 +268,51 @@ describe("proxy", () => {
     expect(res.status).toBe(200);
     expect(upstream.requests[0]?.headers.authorization).toBe("Custom token");
     expect(upstream.requests[0]?.headers["x-custom"]).toBe("yes");
+  });
+
+  it("overrides request headers case-insensitively instead of duplicating values", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxy({
+      baseUrl: upstream.baseUrl,
+      port: 0,
+      headers: { "X-Custom": "config-value", "X-Override": "request-value" },
+    });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-custom": "incoming-value",
+        "x-override": "incoming-value",
+      },
+      body: JSON.stringify({ model: "deepseek-v4-flash", messages: [] }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(upstream.requests[0]?.headers["x-custom"]).toBe("config-value");
+    expect(upstream.requests[0]?.headers["x-override"]).toBe("request-value");
+  });
+
+  it("does not add a duplicate content-type when custom headers use different casing", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxy({
+      baseUrl: upstream.baseUrl,
+      port: 0,
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+    });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "deepseek-v4-flash", messages: [] }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(upstream.requests[0]?.headers["content-type"]).toBe("application/json; charset=utf-8");
   });
 
   it("keeps auto sessions pinned to pro after upgrade", async () => {

@@ -52,14 +52,25 @@ function readBody(req: IncomingMessage): Promise<string> {
 
 type ExtractedPrompt = {
   text: string;
+  routeText: string;
   system?: string;
   openingText: string;
 };
+
+const OPENCLAW_CLI_TURN_PATTERN =
+  /(?:^|\n)\[[^\]\n]+?\]\s+([\s\S]*?)(?=(?:\n\[[^\]\n]+?\]\s+)|$)/g;
+
+function extractRouteTextFromUserMessage(text: string): string {
+  const matches = [...text.matchAll(OPENCLAW_CLI_TURN_PATTERN)];
+  const last = matches.at(-1)?.[1]?.trim();
+  return last || text;
+}
 
 function extractPrompt(messages: unknown[]): ExtractedPrompt {
   const parts: string[] = [];
   let system: string | undefined;
   let openingText = "";
+  let lastUserText = "";
 
   for (const msg of messages) {
     if (!msg || typeof msg !== "object") continue;
@@ -84,13 +95,17 @@ function extractPrompt(messages: unknown[]): ExtractedPrompt {
       system = system ? `${system}\n${text}` : text;
     } else {
       parts.push(text);
+      if (role === "user" && text.trim()) {
+        lastUserText = extractRouteTextFromUserMessage(text);
+      }
       if (!openingText && text.trim()) {
         openingText = text;
       }
     }
   }
 
-  return { text: parts.join(" "), system, openingText };
+  const text = parts.join(" ");
+  return { text, routeText: lastUserText || text, system, openingText };
 }
 
 // ---------------------------------------------------------------------------
@@ -100,15 +115,25 @@ function extractPrompt(messages: unknown[]): ExtractedPrompt {
 function buildUpstreamHeaders(req: IncomingMessage, cfg: RouterConfig): Record<string, string> {
   const headers: Record<string, string> = {};
 
+  const setHeader = (key: string, value: string): void => {
+    const existingKey = Object.keys(headers).find((candidate) => candidate.toLowerCase() === key.toLowerCase());
+    if (existingKey) {
+      delete headers[existingKey];
+    }
+    headers[key] = value;
+  };
+
   for (const [key, value] of Object.entries(req.headers)) {
     if (HOP_BY_HOP.has(key.toLowerCase())) continue;
     if (value !== undefined) {
-      headers[key] = Array.isArray(value) ? value.join(", ") : value;
+      setHeader(key, Array.isArray(value) ? value.join(", ") : value);
     }
   }
 
   // Custom headers override request headers
-  Object.assign(headers, cfg.headers);
+  for (const [key, value] of Object.entries(cfg.headers)) {
+    setHeader(key, value);
+  }
 
   // Add auth if missing (header names are case-insensitive per HTTP spec)
   const hasAuth = Object.keys(headers).some((k) => k.toLowerCase() === "authorization");
@@ -117,8 +142,8 @@ function buildUpstreamHeaders(req: IncomingMessage, cfg: RouterConfig): Record<s
   }
 
   // Ensure content-type is set
-  if (!headers["content-type"]) {
-    headers["content-type"] = "application/json";
+  if (!Object.keys(headers).some((k) => k.toLowerCase() === "content-type")) {
+    setHeader("content-type", "application/json");
   }
 
   return headers;
@@ -225,7 +250,7 @@ function chooseModel(
 
   // Route decision
   const input: RouteInput = {
-    prompt: prompt.text,
+    prompt: prompt.routeText,
     systemPrompt: prompt.system,
     hasTools: Array.isArray(body.tools) && body.tools.length > 0,
     estimatedInputChars: prompt.text.length + (prompt.system?.length ?? 0),

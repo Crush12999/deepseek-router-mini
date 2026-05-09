@@ -112,6 +112,56 @@ function resolvePluginRuntimeConfig(api: OpenClawPluginApi): { port: number; ups
   };
 }
 
+function readProviderConfig(api: OpenClawPluginApi): JsonObject {
+  const models = api.config.models;
+  if (!models || typeof models !== "object" || Array.isArray(models)) return {};
+
+  const providers = (models as JsonObject).providers;
+  if (!providers || typeof providers !== "object" || Array.isArray(providers)) return {};
+
+  const provider = (providers as JsonObject)[DEEPSEEK_PROVIDER_ID];
+  if (!provider || typeof provider !== "object" || Array.isArray(provider)) return {};
+
+  return provider as JsonObject;
+}
+
+function readStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+  const headers: Record<string, string> = {};
+  for (const [key, headerValue] of Object.entries(value)) {
+    if (typeof headerValue === "string") {
+      headers[key] = headerValue;
+    }
+  }
+  return headers;
+}
+
+function resolveProviderRuntimeOverrides(api: OpenClawPluginApi): Pick<ProxyOptions, "apiKey" | "headers"> {
+  const provider = readProviderConfig(api);
+  const request = provider.request && typeof provider.request === "object" && !Array.isArray(provider.request)
+    ? (provider.request as JsonObject)
+    : {};
+  const apiKey = typeof provider.apiKey === "string"
+    ? provider.apiKey
+    : typeof provider.api_key === "string"
+      ? provider.api_key
+      : undefined;
+  const headers = {
+    ...readStringRecord(provider.headers),
+    ...readStringRecord(request.headers),
+  };
+
+  return {
+    ...(apiKey ? { apiKey } : {}),
+    ...(Object.keys(headers).length > 0 ? { headers } : {}),
+  };
+}
+
+function isDuplicateProviderRegistrationError(error: unknown): boolean {
+  return error instanceof Error && /provider already registered:\s*deepseek\b/i.test(error.message);
+}
+
 function shouldStartRuntimeProxy(registrationMode: string | undefined): boolean {
   if (registrationMode === undefined) return true;
   return RUNTIME_REGISTRATION_MODES.has(registrationMode);
@@ -186,7 +236,11 @@ function createProxyService(
         }
 
         await closeActiveProxy();
-        const proxy = await runtime.startProxy({ port, baseUrl: upstreamUrl });
+        const proxy = await runtime.startProxy({
+          port,
+          baseUrl: upstreamUrl,
+          ...resolveProviderRuntimeOverrides(api),
+        });
         serviceProxy = proxy;
         await replaceActiveProxy(proxy);
         api.logger?.info?.(`DeepSeek Router Mini listening on ${providerBaseUrl}`);
@@ -222,6 +276,12 @@ export function registerOpenClawPlugin(api: OpenClawPluginApi, runtime: PluginRu
   try {
     api.registerProvider(createDeepSeekProvider(providerBaseUrl));
   } catch (error) {
+    if (isDuplicateProviderRegistrationError(error)) {
+      api.logger?.info?.("DeepSeek provider already registered; keeping router service active");
+      injectDeepSeekModelsConfig(api.config, providerBaseUrl);
+      return;
+    }
+
     if (shouldRegisterRuntimeService) {
       api.unregisterService?.(serviceId);
     }

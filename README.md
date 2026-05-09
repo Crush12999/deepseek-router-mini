@@ -8,7 +8,7 @@ It supports only three public model IDs:
 - `deepseek-v4-flash`
 - `deepseek-v4-pro`
 
-`auto` is routed locally. Simple and ordinary code requests use `deepseek-v4-flash`; tool calling, debugging, complex reasoning, long-context work, and multi-file tasks use `deepseek-v4-pro`.
+`auto` is routed locally. Simple and ordinary code requests use `deepseek-v4-flash`; debugging, complex reasoning, long-context work, multi-file tasks, and code requests that actually need tool use route to `deepseek-v4-pro`.
 
 ## Install
 
