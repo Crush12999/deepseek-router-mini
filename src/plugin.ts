@@ -84,17 +84,24 @@ function parsePluginPort(value: string | undefined): number {
 
 async function closeProxyOnce(proxy: ProxyHandle): Promise<void> {
   if (closedProxies.has(proxy)) return;
+
+  await proxy.close();
   closedProxies.add(proxy);
 
   if (activeProxy === proxy) {
     activeProxy = undefined;
   }
-
-  await proxy.close();
 }
 
 function createStopProxy(proxy: ProxyHandle): () => Promise<void> {
   return () => closeProxyOnce(proxy);
+}
+
+async function closeActiveProxy(): Promise<void> {
+  const previous = activeProxy;
+  if (previous) {
+    await closeProxyOnce(previous);
+  }
 }
 
 async function replaceActiveProxy(proxy: ProxyHandle): Promise<void> {
@@ -103,11 +110,11 @@ async function replaceActiveProxy(proxy: ProxyHandle): Promise<void> {
     return;
   }
 
-  activeProxy = proxy;
-
   if (previous) {
     await closeProxyOnce(previous);
   }
+
+  activeProxy = proxy;
 }
 
 export async function registerOpenClawPlugin(
@@ -123,6 +130,7 @@ export async function registerOpenClawPlugin(
 
   let stopRegisteredProxy: () => Promise<void>;
   try {
+    await closeActiveProxy();
     const registeredProxy = await runtime.startProxy({ port, baseUrl: upstreamUrl });
     stopRegisteredProxy = createStopProxy(registeredProxy);
     await replaceActiveProxy(registeredProxy);

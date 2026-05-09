@@ -81,8 +81,11 @@ describe("OpenClaw plugin lifecycle", () => {
   });
 
   afterEach(async () => {
-    await Promise.all(serviceCalls.map((service) => service.stop()));
-    vi.unstubAllEnvs();
+    try {
+      await Promise.allSettled(serviceCalls.map((service) => service.stop()));
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("registers provider, injects config, starts proxy, and registers a stop service", async () => {
@@ -216,6 +219,51 @@ describe("OpenClaw plugin lifecycle", () => {
     await firstService.stop();
     expect(firstClose).toHaveBeenCalledTimes(1);
     expect(secondClose).not.toHaveBeenCalled();
+
+    await serviceCalls[1]!.stop();
+    expect(secondClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not start a replacement proxy when closing the active proxy fails", async () => {
+    const closeError = new Error("failed to close old proxy");
+    const firstClose = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(closeError)
+      .mockResolvedValueOnce(undefined);
+    const secondClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const startProxy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        port: 8402,
+        baseUrl: "https://api.deepseek.com",
+        close: firstClose,
+      })
+      .mockResolvedValueOnce({
+        port: 8402,
+        baseUrl: "https://api.deepseek.com",
+        close: secondClose,
+      });
+    const api = {
+      config: {},
+      registerProvider: vi.fn(),
+      registerService: (service: { id: string; stop: () => Promise<void> }) => serviceCalls.push(service),
+      logger: {
+        error: vi.fn(),
+      },
+    };
+
+    await registerOpenClawPlugin(api, { startProxy });
+
+    await expect(registerOpenClawPlugin(api, { startProxy })).rejects.toThrow(closeError);
+    expect(startProxy).toHaveBeenCalledTimes(1);
+    expect(firstClose).toHaveBeenCalledTimes(1);
+    expect(serviceCalls).toHaveLength(1);
+
+    await registerOpenClawPlugin(api, { startProxy });
+
+    expect(startProxy).toHaveBeenCalledTimes(2);
+    expect(firstClose).toHaveBeenCalledTimes(2);
+    expect(serviceCalls).toHaveLength(2);
 
     await serviceCalls[1]!.stop();
     expect(secondClose).toHaveBeenCalledTimes(1);
