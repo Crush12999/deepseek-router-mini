@@ -104,6 +104,16 @@ async function closeActiveProxy(): Promise<void> {
   }
 }
 
+async function cleanupUnregisteredProxy(proxy: ProxyHandle): Promise<void> {
+  try {
+    await closeProxyOnce(proxy);
+  } finally {
+    if (activeProxy === proxy) {
+      activeProxy = undefined;
+    }
+  }
+}
+
 async function replaceActiveProxy(proxy: ProxyHandle): Promise<void> {
   const previous = activeProxy;
   if (activeProxy === proxy) {
@@ -129,9 +139,10 @@ export async function registerOpenClawPlugin(
   injectDeepSeekModelsConfig(api.config, providerBaseUrl);
 
   let stopRegisteredProxy: () => Promise<void>;
+  let registeredProxy: ProxyHandle;
   try {
     await closeActiveProxy();
-    const registeredProxy = await runtime.startProxy({ port, baseUrl: upstreamUrl });
+    registeredProxy = await runtime.startProxy({ port, baseUrl: upstreamUrl });
     stopRegisteredProxy = createStopProxy(registeredProxy);
     await replaceActiveProxy(registeredProxy);
   } catch (error) {
@@ -140,10 +151,15 @@ export async function registerOpenClawPlugin(
     throw error;
   }
 
-  api.registerService({
-    id: "deepseek-router-proxy",
-    stop: stopRegisteredProxy,
-  });
+  try {
+    api.registerService({
+      id: "deepseek-router-proxy",
+      stop: stopRegisteredProxy,
+    });
+  } catch (error) {
+    await cleanupUnregisteredProxy(registeredProxy).catch(() => undefined);
+    throw error;
+  }
 
   api.logger?.info?.(`DeepSeek Router Mini listening on ${providerBaseUrl}`);
 }

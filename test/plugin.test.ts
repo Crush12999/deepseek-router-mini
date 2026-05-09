@@ -224,6 +224,51 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(secondClose).toHaveBeenCalledTimes(1);
   });
 
+  it("closes the newly started proxy when service registration fails", async () => {
+    const registerError = new Error("duplicate service id");
+    const firstClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const secondClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const startProxy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        port: 8402,
+        baseUrl: "https://api.deepseek.com",
+        close: firstClose,
+      })
+      .mockResolvedValueOnce({
+        port: 8402,
+        baseUrl: "https://api.deepseek.com",
+        close: secondClose,
+      });
+    const registerService = vi
+      .fn<(service: { id: string; stop: () => Promise<void> }) => void>()
+      .mockImplementationOnce(() => {
+        throw registerError;
+      })
+      .mockImplementationOnce((service) => {
+        serviceCalls.push(service);
+      });
+    const api = {
+      config: {},
+      registerProvider: vi.fn(),
+      registerService,
+    };
+
+    await expect(registerOpenClawPlugin(api, { startProxy })).rejects.toThrow(registerError);
+
+    expect(firstClose).toHaveBeenCalledTimes(1);
+    expect(serviceCalls).toHaveLength(0);
+
+    await registerOpenClawPlugin(api, { startProxy });
+
+    expect(startProxy).toHaveBeenCalledTimes(2);
+    expect(firstClose).toHaveBeenCalledTimes(1);
+    expect(serviceCalls).toHaveLength(1);
+
+    await serviceCalls[0]!.stop();
+    expect(secondClose).toHaveBeenCalledTimes(1);
+  });
+
   it("does not start a replacement proxy when closing the active proxy fails", async () => {
     const closeError = new Error("failed to close old proxy");
     const firstClose = vi
