@@ -50,7 +50,6 @@ export type {
 } from "./router/index.js";
 export {
   DEFAULT_SESSION_CONFIG,
-  SessionPinStore,
   SessionStore,
   deriveSessionId,
   hashRequestContent,

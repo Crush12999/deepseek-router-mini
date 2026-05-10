@@ -261,37 +261,6 @@ export function deriveSessionId(
   return hashRequestContent(firstUserContent);
 }
 
-export type SessionPinStoreOptions = {
-  enabled?: boolean;
-};
-
-export class SessionPinStore {
-  private readonly store: SessionStore;
-
-  constructor(options: SessionPinStoreOptions = {}) {
-    this.store = new SessionStore({ enabled: options.enabled ?? true });
-  }
-
-  get(sessionId: string | undefined): RealModelId | undefined {
-    return this.store.getSession(sessionId)?.model;
-  }
-
-  getTier(sessionId: string | undefined): Tier | undefined {
-    return this.store.getSession(sessionId)?.tier;
-  }
-
-  observe(sessionId: string | undefined, model: RealModelId, tier?: Tier): void {
-    if (!sessionId) return;
-    if (model === "deepseek-v4-pro") {
-      this.store.setSession(sessionId, model, tier ?? "COMPLEX");
-    }
-  }
-
-  close(): void {
-    this.store.close();
-  }
-}
-
 function pickHeaderValue(value: string | string[] | undefined): string | undefined {
   if (typeof value === "string") {
     const trimmed = value.trim();

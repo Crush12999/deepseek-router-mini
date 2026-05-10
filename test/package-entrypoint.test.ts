@@ -90,6 +90,8 @@ for (const legacyKey of [
 ]) {
   if (legacyKey in mod) throw new Error("legacy export leaked from entrypoint: " + legacyKey);
 }
+const removedSessionPinExport = ["Session", "Pin", "Store"].join("");
+if (removedSessionPinExport in mod) throw new Error("removed session pin store leaked from entrypoint");
 for (const key of Object.keys(mod)) {
   if (key.includes("DEEPSEEK") || key.includes("DeepSeek")) {
     throw new Error(\`legacy export leaked from entrypoint: \${key}\`);
