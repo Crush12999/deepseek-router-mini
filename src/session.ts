@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { isValidModel } from "./models.js";
 import type { RealModelId } from "./models.js";
 import type { Tier, TierConfig } from "./router/types.js";
 
@@ -313,5 +314,5 @@ function hashHex(value: string, length: number): string {
 }
 
 function isRealModelId(model: string | undefined): model is RealModelId {
-  return model === "deepseek-v4-flash" || model === "deepseek-v4-pro";
+  return model !== undefined && model !== "auto" && isValidModel(model);
 }

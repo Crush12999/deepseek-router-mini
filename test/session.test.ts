@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import {
   DEFAULT_SESSION_CONFIG,
@@ -243,6 +245,15 @@ describe("SessionStore", () => {
     } finally {
       store.close();
     }
+  });
+});
+
+describe("session model registry coupling", () => {
+  it("does not hardcode concrete model ids in session internals", () => {
+    const source = readFileSync(fileURLToPath(new URL("../src/session.ts", import.meta.url)), "utf8");
+
+    expect(source).not.toContain('"deepseek-v4-flash"');
+    expect(source).not.toContain('"deepseek-v4-pro"');
   });
 });
 
