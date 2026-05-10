@@ -4,7 +4,7 @@
 
 ## 适用场景与能力边界
 
-DeepSeek Router Mini 是一个轻量本地路由代理。它对本地 HTTP 客户端和 OpenClaw 暴露 `POST /v1/chat/completions`，再根据请求中的模型 ID 与提示词特征，把请求转发到 DeepSeek 兼容上游。
+DeepSeek Router Mini 是一个轻量本地路由代理。它对本地 HTTP 客户端和 OpenClaw 暴露 `POST /v1/chat/completions`，再根据请求中的模型 ID 与提示词特征，把请求转发到 `upstreamBaseUrl + /chat/completions`。
 
 本地 Router API 和上游 API base 是两层概念，必须分离：
 
@@ -12,7 +12,7 @@ DeepSeek Router Mini 是一个轻量本地路由代理。它对本地 HTTP 客�
 - OpenClaw Provider 的 `models.providers.deepseek.baseUrl`：本地代理地址，必须是 `http://127.0.0.1:<port>/v1`。
 - 上游 API base：实际转发到 DeepSeek 兼容上游时使用，优先级是 `pluginConfig.upstreamUrl` > `DEEPSEEK_BASE_URL` > `https://api.deepseek.com`。
 
-实际上游请求 URL 按 `trimTrailingSlash(upstreamBaseUrl) + /chat/completions` 生成。上游 `baseUrl` 是否带 `/v1`、`/v4` 或不带版本，由用户配置决定；项目不自动追加版本段、不猜 provider、不根据域名分支。
+实际上游请求 URL 按 `trimTrailingSlash(upstreamBaseUrl) + /chat/completions` 生成。上游 `baseUrl` 是否带 `/v1`、`/v4` 或不带版本，由用户配置决定；项目不自动追加版本段、不猜 provider、不根据域名分支。`upstreamUrl` 或 `DEEPSEEK_BASE_URL` 不要包含完整资源路径 `/chat/completions`。
 
 适合使用的场景：
 
@@ -478,7 +478,7 @@ node dist/cli.js --base-url https://api.deepseek.com
 | `--help`、`-h`     | 输出帮助并退出。               |
 | `--version`、`-v`  | 输出版本并退出。               |
 | `--port <number>`  | 覆盖本地监听端口。             |
-| `--base-url <url>` | 覆盖 DeepSeek 兼容上游根地址。 |
+| `--base-url <url>` | 覆盖 DeepSeek 兼容上游 API base。 |
 
 CLI 参数优先于环境变量中的同类配置。
 
@@ -593,7 +593,7 @@ header 合并规则：
 
 ### GET /health
 
-用于确认本地代理已经启动，并查看当前上游根地址。
+用于确认本地代理已经启动，并查看当前上游 API base。
 
 ```bash
 curl -sS http://127.0.0.1:8402/health

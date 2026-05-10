@@ -216,6 +216,48 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(startProxy).toHaveBeenCalledWith({ port: 9999, baseUrl: "https://plugin.example.com" });
   });
 
+  it("keeps local provider baseUrl separate from versioned pluginConfig upstreamUrl", async () => {
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://gateway.example.com/v4",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {},
+      pluginConfig: {
+        upstreamUrl: "https://gateway.example.com/v4",
+      },
+      registerProvider: vi.fn(),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPlugin(api, { startProxy });
+
+    expect(api.registerProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        models: expect.objectContaining({
+          baseUrl: "http://127.0.0.1:8402/v1",
+        }),
+      }),
+    );
+    expect(api.config).toMatchObject({
+      models: {
+        providers: {
+          deepseek: {
+            baseUrl: "http://127.0.0.1:8402/v1",
+            api: "openai-completions",
+          },
+        },
+      },
+    });
+
+    await serviceCalls[0]!.start();
+    expect(startProxy).toHaveBeenCalledWith({
+      port: 8402,
+      baseUrl: "https://gateway.example.com/v4",
+    });
+  });
+
   it("passes OpenClaw provider apiKey and headers through to the proxy runtime", async () => {
     const startProxy = vi.fn().mockResolvedValue({
       port: 8402,

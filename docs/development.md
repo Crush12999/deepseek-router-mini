@@ -52,7 +52,7 @@ OpenClaw Gateway
 - OpenClaw Provider 的 `models.providers.deepseek.baseUrl`：本地代理地址，必须是 `http://127.0.0.1:<port>/v1`。OpenClaw 的 `openai-completions` 适配器会在该 `baseUrl` 后追加 `/chat/completions`，最终落到本插件暴露的 `POST /v1/chat/completions`。
 - 插件运行时的上游 API base：实际转发到 DeepSeek 兼容上游时使用，优先级是 `pluginConfig.upstreamUrl` > `DEEPSEEK_BASE_URL` > `https://api.deepseek.com`。
 
-实际转发到上游时，绝不能使用 OpenClaw Provider 的 `baseUrl`。上游请求 URL 始终按 `trimTrailingSlash(upstreamBaseUrl) + /chat/completions` 生成。上游 `baseUrl` 是否带 `/v1`、`/v4` 或不带版本，由用户配置决定；项目不自动追加版本段、不猜 provider、不根据域名分支。
+实际转发到上游时，绝不能使用 OpenClaw Provider 的 `baseUrl`。上游请求 URL 始终按 `trimTrailingSlash(upstreamBaseUrl) + /chat/completions` 生成。上游 `baseUrl` 是否带 `/v1`、`/v4` 或不带版本，由用户配置决定；项目不自动追加版本段、不猜 provider、不根据域名分支。`upstreamBaseUrl` 不应包含完整资源路径 `/chat/completions`。
 
 示例：
 
@@ -203,7 +203,7 @@ Follow the BOOTSTRAP.md instructions above now.
 - `main`: `./dist/index.js`
 - `activation.onStartup`: `true`
 - `configSchema.port`: 本地代理端口，默认 `8402`
-- `configSchema.upstreamUrl`: 上游 DeepSeek 兼容地址，默认 `https://api.deepseek.com`
+- `configSchema.upstreamUrl`: 上游 DeepSeek 兼容 API base，默认 `https://api.deepseek.com`
 
 `package.json` 同时声明：
 
@@ -896,7 +896,7 @@ export DEEPSEEK_BASE_URL="https://gateway.example.com/v1"
 export DEEPSEEK_BASE_URL="https://gateway.example.com/v4"
 ```
 
-代理只会去掉末尾 `/`，再追加 `/chat/completions`。
+代理只会去掉末尾 `/`，再追加 `/chat/completions`。不要把完整资源路径 `/chat/completions` 写进 `DEEPSEEK_BASE_URL` 或 `pluginConfig.upstreamUrl`。
 
 ## 12. 后续演进
 

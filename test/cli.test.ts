@@ -42,7 +42,11 @@ describe("cli", () => {
       startProxy,
     });
 
-    expect(log.mock.calls[0]?.[0]).toContain("deepseek-router-mini");
+    const help = log.mock.calls[0]?.[0] as string;
+    expect(help).toContain("deepseek-router-mini");
+    expect(help).toMatch(/deepseek-router-mini --base-url URL\s+Use a DeepSeek-compatible upstream API base URL/);
+    expect(help).toMatch(/--base-url <url>\s+Upstream API base URL/);
+    expect(help).toMatch(/DEEPSEEK_BASE_URL\s+Upstream API base URL/);
     expect(exit).toHaveBeenCalledWith(0);
   });
 });

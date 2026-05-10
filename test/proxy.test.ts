@@ -139,9 +139,47 @@ describe("proxy", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("x-deepseek-router-model")).toBe("deepseek-v4-flash");
     expect(res.headers.get("x-deepseek-router-routed")).toBe("false");
-    expect(upstream.requests[0]?.url).toBe("/v1/chat/completions");
+    expect(upstream.requests[0]?.url).toBe("/chat/completions");
     expect(upstream.requests[0]?.headers.authorization).toBe("Bearer secret");
     expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
+  });
+
+  it("forwards to an upstream v1 API base without changing the local route", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: `${upstream.baseUrl}/v1`, port: 0 });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "deepseek-v4-flash",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(upstream.requests[0]?.url).toBe("/v1/chat/completions");
+  });
+
+  it("forwards to an upstream v4 API base without changing the local route", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: `${upstream.baseUrl}/v4`, port: 0 });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "deepseek-v4-flash",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(upstream.requests[0]?.url).toBe("/v4/chat/completions");
   });
 
   it("routes auto code requests with tools to pro", async () => {

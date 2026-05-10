@@ -89,17 +89,17 @@ function helpText(): string {
 Usage:
   deepseek-router-mini                 Start the local proxy
   deepseek-router-mini --port 9000      Listen on a custom port
-  deepseek-router-mini --base-url URL   Use a DeepSeek-compatible upstream
+  deepseek-router-mini --base-url URL   Use a DeepSeek-compatible upstream API base URL
 
 Options:
   --help, -h                            Show help
   --version, -v                         Show version
   --port <number>                       Local port, default ${DEFAULT_PORT}
-  --base-url <url>                      Upstream base URL
+  --base-url <url>                      Upstream API base URL
 
 Environment:
   DEEPSEEK_API_KEY                      Upstream API key
-  DEEPSEEK_BASE_URL                     Upstream base URL
+  DEEPSEEK_BASE_URL                     Upstream API base URL
   DEEPSEEK_ROUTER_PORT                  Local proxy port
   DEEPSEEK_ROUTER_HEADERS               Extra upstream headers as JSON`;
 }

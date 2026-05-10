@@ -38,7 +38,7 @@ describe("OpenClaw package metadata", () => {
           upstreamUrl: {
             type: "string",
             default: "https://api.deepseek.com",
-            description: "DeepSeek-compatible upstream URL. Can also be set with DEEPSEEK_BASE_URL.",
+            description: "DeepSeek-compatible upstream API base URL. Can also be set with DEEPSEEK_BASE_URL.",
           },
         },
       },

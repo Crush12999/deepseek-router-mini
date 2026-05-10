@@ -198,7 +198,7 @@ async function fetchUpstream(
   model: RealModelId,
 ): Promise<AttemptResult> {
   try {
-    const response = await fetch(`${cfg.baseUrl}/v1/chat/completions`, {
+    const response = await fetch(`${cfg.baseUrl}/chat/completions`, {
       method: "POST",
       headers: buildUpstreamHeaders(req, cfg),
       body: JSON.stringify({ ...body, model }),
