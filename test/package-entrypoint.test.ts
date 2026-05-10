@@ -64,6 +64,24 @@ if (pricing.inputPrice !== 0.56 || pricing.outputPrice !== 1.68) {
 if (mod.validateModelId("deepseek-v4-flash").ok !== true) {
   throw new Error("missing validateModelId export");
 }
+if (typeof mod.route !== "function") throw new Error("missing route export");
+if (mod.DEFAULT_ROUTING_CONFIG?.overrides?.ambiguousDefaultTier !== "MEDIUM") {
+  throw new Error("missing DEFAULT_ROUTING_CONFIG export");
+}
+if (typeof mod.getFallbackChain !== "function") throw new Error("missing getFallbackChain export");
+if (typeof mod.getFallbackChainFiltered !== "function") {
+  throw new Error("missing getFallbackChainFiltered export");
+}
+if (typeof mod.filterByToolCalling !== "function") {
+  throw new Error("missing filterByToolCalling export");
+}
+if (typeof mod.filterByVision !== "function") throw new Error("missing filterByVision export");
+if (typeof mod.filterByExcludeList !== "function") {
+  throw new Error("missing filterByExcludeList export");
+}
+if (typeof mod.calculateModelCost !== "function") {
+  throw new Error("missing calculateModelCost export");
+}
 for (const legacyKey of [
   "DEEPSEEK_MODELS",
   "DEEPSEEK_OPENCLAW_MODELS",

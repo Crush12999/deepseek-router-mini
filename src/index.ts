@@ -20,8 +20,34 @@ export {
   validateModelId,
 } from "./models.js";
 export type { ModelRole, RealModelId, SupportedModelId, XiaoyiModel } from "./models.js";
-export { selectModel } from "./router/selector.js";
-export type { RouteDecision, RouteInput, TaskCategory } from "./router/types.js";
+export {
+  DEFAULT_ROUTING_CONFIG,
+  RulesStrategy,
+  calculateModelCost,
+  filterByExcludeList,
+  filterByToolCalling,
+  filterByVision,
+  getFallbackChain,
+  getFallbackChainFiltered,
+  getStrategy,
+  registerStrategy,
+  route,
+  selectModel,
+} from "./router/index.js";
+export type {
+  ModelPricing,
+  RouteDecision,
+  RouteInput,
+  RouterOptions,
+  RouterStrategy,
+  RoutingConfig,
+  RoutingDecision,
+  ScoringConfig,
+  ScoringResult,
+  TaskCategory,
+  Tier,
+  TierConfig,
+} from "./router/index.js";
 export { SessionPinStore, deriveSessionId } from "./session.js";
 export { startProxy } from "./proxy.js";
 export type { ProxyHandle, ProxyOptions } from "./proxy.js";
