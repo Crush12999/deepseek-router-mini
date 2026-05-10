@@ -291,6 +291,18 @@ Provider 的关键字段：
 
 所有模型声明 `reasoning: true`、`input: ["text"]`，API 适配器为 `openai-completions`。
 
+OpenClaw 对外可选模型由 `src/provider.ts` 中的 `XIAOYI_OPENCLAW_MODELS` 决定。当前它从 `XIAOYI_MODELS` 派生 3 个模型，因此 `openclaw.json` 中会出现 `auto`、`deepseek-v4-flash` 和 `deepseek-v4-pro`。如果希望 OpenClaw UI / agent 配置只暴露 `auto`，应只过滤 `XIAOYI_OPENCLAW_MODELS`：
+
+```ts
+export const XIAOYI_OPENCLAW_MODELS: OpenClawModelDefinition[] = XIAOYI_MODELS
+  .filter((model) => model.id === "auto")
+  .map((model) => ({
+    // 保持现有 OpenClaw 模型元数据映射逻辑。
+  }));
+```
+
+不要为此修改 `src/models.ts` 中的 `SUPPORTED_MODEL_IDS` 或 `MODEL_ROLES`。代理内部仍需要知道 Flash / Pro，才能完成 `auto` 路由、fallback、显式模型校验和 session pin。
+
 ### 5.5 重复 Xiaoyi Provider 处理
 
 OpenClaw 或其它插件可能已经注册了 `xiaoyiprovider` Provider。当前实现只特殊处理错误信息匹配：
