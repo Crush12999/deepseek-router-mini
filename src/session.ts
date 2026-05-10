@@ -20,6 +20,7 @@ export type SessionEntry = {
   outputTokens: number;
   costEstimate: number;
   lastEscalationRequestHash?: string;
+  pendingEscalationRequestHash?: string;
 };
 
 export type SessionConfig = {
@@ -95,6 +96,7 @@ export class SessionStore {
       outputTokens: existing?.outputTokens ?? 0,
       costEstimate: existing?.costEstimate ?? 0,
       lastEscalationRequestHash: existing?.lastEscalationRequestHash,
+      pendingEscalationRequestHash: existing?.pendingEscalationRequestHash,
     };
 
     this.sessions.set(sessionId, entry);
@@ -152,6 +154,10 @@ export class SessionStore {
     const entry = this.getSession(sessionId);
     if (!entry || entry.escalated) return false;
     if (entry.lastEscalationRequestHash === requestHash) return false;
+    if (entry.pendingEscalationRequestHash === requestHash) return false;
+    if (entry.pendingEscalationRequestHash && entry.pendingEscalationRequestHash !== requestHash) {
+      entry.pendingEscalationRequestHash = undefined;
+    }
 
     if (entry.lastRequestHash === requestHash) {
       entry.sameRequestStrikes += 1;
@@ -163,7 +169,7 @@ export class SessionStore {
 
     if (entry.sameRequestStrikes < this.config.maxSameRequestStrikes) return false;
 
-    entry.lastEscalationRequestHash = requestHash;
+    entry.pendingEscalationRequestHash = requestHash;
     entry.sameRequestStrikes = 0;
     return true;
   }
@@ -176,7 +182,10 @@ export class SessionStore {
     if (!entry || entry.escalated) return undefined;
 
     const currentIndex = TIER_ORDER.indexOf(entry.tier);
-    if (currentIndex === -1 || currentIndex >= TIER_ORDER.length - 1) return undefined;
+    if (currentIndex === -1 || currentIndex >= TIER_ORDER.length - 1) {
+      entry.pendingEscalationRequestHash = undefined;
+      return undefined;
+    }
 
     for (const nextTier of TIER_ORDER.slice(currentIndex + 1)) {
       const model = tierConfigs[nextTier]?.primary;
@@ -186,12 +195,15 @@ export class SessionStore {
         entry.escalated = true;
         entry.sameRequestStrikes = 0;
         entry.lastRequestHash = undefined;
+        entry.lastEscalationRequestHash = entry.pendingEscalationRequestHash;
+        entry.pendingEscalationRequestHash = undefined;
         entry.updatedAt = Date.now();
         entry.expiresAt = entry.updatedAt + this.config.ttlMs;
         return { model, tier: nextTier };
       }
     }
 
+    entry.pendingEscalationRequestHash = undefined;
     return undefined;
   }
 

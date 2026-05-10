@@ -159,7 +159,7 @@ describe("SessionStore", () => {
     expect(DEFAULT_SESSION_CONFIG.cleanupIntervalMs).toBeGreaterThan(0);
   });
 
-  it("triggers three-strike escalation once and resets strikes", () => {
+  it("triggers three-strike escalation once and suppresses pending retry spam", () => {
     const store = new SessionStore();
     const tierConfigs: Record<Tier, TierConfig> = {
       SIMPLE: { primary: "deepseek-v4-flash", fallback: [] },
@@ -188,6 +188,59 @@ describe("SessionStore", () => {
       expect(store.recordRequestHash("s1", "aaa")).toBe(false);
       expect(store.recordRequestHash("s1", "aaa")).toBe(false);
       expect(store.recordRequestHash("s1", "aaa")).toBe(false);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("allows a failed three-strike escalation to be retried after the threshold is reached again", () => {
+    const store = new SessionStore();
+    const missingNextTier: Partial<Record<Tier, TierConfig>> = {
+      SIMPLE: { primary: "deepseek-v4-flash", fallback: [] },
+      MEDIUM: { primary: "deepseek-v4-flash", fallback: [] },
+    };
+
+    try {
+      store.setSession("s1", "deepseek-v4-flash", "MEDIUM");
+
+      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
+      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
+      expect(store.recordRequestHash("s1", "aaa")).toBe(true);
+      expect(store.escalateSession("s1", missingNextTier as unknown as Record<Tier, TierConfig>)).toBeUndefined();
+      expect(store.getSession("s1")).toMatchObject({
+        model: "deepseek-v4-flash",
+        tier: "MEDIUM",
+        escalated: false,
+      });
+
+      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
+      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
+      expect(store.recordRequestHash("s1", "aaa")).toBe(true);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("allows an already-reasoning three-strike escalation to be retried after the threshold is reached again", () => {
+    const store = new SessionStore();
+    const tierConfigs: Record<Tier, TierConfig> = {
+      SIMPLE: { primary: "deepseek-v4-flash", fallback: [] },
+      MEDIUM: { primary: "deepseek-v4-flash", fallback: [] },
+      COMPLEX: { primary: "deepseek-v4-pro", fallback: [] },
+      REASONING: { primary: "deepseek-v4-pro", fallback: [] },
+    };
+
+    try {
+      store.setSession("s1", "deepseek-v4-pro", "REASONING");
+
+      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
+      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
+      expect(store.recordRequestHash("s1", "aaa")).toBe(true);
+      expect(store.escalateSession("s1", tierConfigs)).toBeUndefined();
+
+      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
+      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
+      expect(store.recordRequestHash("s1", "aaa")).toBe(true);
     } finally {
       store.close();
     }
