@@ -84,12 +84,12 @@ export function parseArgs(rawArgs: string[]): ParsedArgs {
 // ---------------------------------------------------------------------------
 
 function helpText(): string {
-  return `deepseek-router-mini v${VERSION}
+  return `xiaoyi-router v${VERSION}
 
 Usage:
-  deepseek-router-mini                 Start the local proxy
-  deepseek-router-mini --port 9000      Listen on a custom port
-  deepseek-router-mini --base-url URL   Use a DeepSeek-compatible upstream API base URL
+  xiaoyi-router                        Start the local proxy
+  xiaoyi-router --port 9000            Listen on a custom port
+  xiaoyi-router --base-url URL         Use a DeepSeek-compatible upstream API base URL
 
 Options:
   --help, -h                            Show help
@@ -98,10 +98,10 @@ Options:
   --base-url <url>                      Upstream API base URL
 
 Environment:
-  DEEPSEEK_API_KEY                      Upstream API key
-  DEEPSEEK_BASE_URL                     Upstream API base URL
-  DEEPSEEK_ROUTER_PORT                  Local proxy port
-  DEEPSEEK_ROUTER_HEADERS               Extra upstream headers as JSON`;
+  XIAOYI_API_KEY                        Upstream API key
+  XIAOYI_BASE_URL                       Upstream API base URL
+  XIAOYI_ROUTER_PORT                    Local proxy port
+  XIAOYI_ROUTER_HEADERS                 Extra upstream headers as JSON`;
 }
 
 // ---------------------------------------------------------------------------
@@ -149,7 +149,7 @@ export async function runCli(rawArgs: string[], runtime: Partial<CliRuntime> = {
 
   // Start proxy
   const handle = await rt.startProxy({ port: args.port, baseUrl: args.baseUrl });
-  rt.log(`deepseek-router-mini listening on http://127.0.0.1:${handle.port}`);
+  rt.log(`xiaoyi-router listening on http://127.0.0.1:${handle.port}`);
 
   // Graceful shutdown
   const shutdown = async () => {

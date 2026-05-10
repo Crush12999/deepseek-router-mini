@@ -4,10 +4,11 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { RouterConfig, RouterConfigInput } from "./config.js";
 import { resolveConfig } from "./config.js";
 import type { RealModelId, SupportedModelId } from "./models.js";
-import { validateModelId } from "./models.js";
-import type { RouteInput } from "./router/types.js";
-import { selectModel } from "./router/selector.js";
-import { deriveSessionId, SessionPinStore } from "./session.js";
+import { MODEL_ROLES, getModelPricing, validateModelId } from "./models.js";
+import { DEFAULT_ROUTING_CONFIG, getFallbackChain, route } from "./router/index.js";
+import type { ModelPricing } from "./router/index.js";
+import type { RouterOptions, RoutingDecision, Tier, TierConfig } from "./router/types.js";
+import { deriveSessionId, hashRequestContent, SessionStore } from "./session.js";
 
 export const VERSION = "0.1.0";
 
@@ -25,6 +26,11 @@ const HOP_BY_HOP = new Set([
 ]);
 
 const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+const PUBLIC_HEADER_PREFIXES = [
+  "x-xiaoyi-router-",
+  ["x", "deepseek", "router"].join("-") + "-",
+] as const;
+const TIER_ORDER: Tier[] = ["SIMPLE", "MEDIUM", "COMPLEX", "REASONING"];
 
 export type ProxyOptions = RouterConfigInput;
 
@@ -161,12 +167,24 @@ function writeJson(res: ServerResponse, status: number, body: unknown): void {
   }
 }
 
+function writeJsonWithHeaders(
+  res: ServerResponse,
+  status: number,
+  body: unknown,
+  headers: Record<string, string>,
+): void {
+  for (const [key, value] of Object.entries(headers)) {
+    res.setHeader(key, value);
+  }
+  writeJson(res, status, body);
+}
+
 function copyResponseHeaders(response: Response, extraHeaders: Record<string, string>): Record<string, string> {
   const headers: Record<string, string> = {};
   for (const [key, value] of response.headers.entries()) {
     const lower = key.toLowerCase();
     if (HOP_BY_HOP.has(lower)) continue;
-    if (lower.startsWith("x-deepseek-router-")) continue;
+    if (PUBLIC_HEADER_PREFIXES.some((prefix) => lower.startsWith(prefix))) continue;
     headers[key] = value;
   }
   Object.assign(headers, extraHeaders);
@@ -226,38 +244,219 @@ async function discardBody(response: Response): Promise<void> {
 // Model selection
 // ---------------------------------------------------------------------------
 
+type SelectedModel = {
+  model: RealModelId;
+  tier: Tier;
+  decision?: RoutingDecision;
+  fallbackChain: RealModelId[];
+  sessionId?: string;
+  routed: boolean;
+  userExplicit: boolean;
+  explicit: boolean;
+  pendingEscalation: boolean;
+  tierConfigs: Record<Tier, TierConfig>;
+};
+
+function buildModelPricing(): Map<string, ModelPricing> {
+  return new Map(
+    [MODEL_ROLES.light, MODEL_ROLES.strong].map((modelId) => [
+      modelId,
+      getModelPricing(modelId),
+    ]),
+  );
+}
+
+function extractToolNames(tools: unknown): string[] {
+  if (!Array.isArray(tools)) return [];
+
+  return tools
+    .map((tool) => {
+      if (!tool || typeof tool !== "object") return undefined;
+      const record = tool as Record<string, unknown>;
+      const fn = record.function;
+      if (fn && typeof fn === "object") {
+        const name = (fn as Record<string, unknown>).name;
+        if (typeof name === "string") return name;
+      }
+      const name = record.name;
+      return typeof name === "string" ? name : undefined;
+    })
+    .filter((name): name is string => Boolean(name));
+}
+
+function getMaxOutputTokens(body: Record<string, unknown>): number {
+  const maxTokens = body.max_tokens;
+  if (typeof maxTokens === "number" && Number.isFinite(maxTokens) && maxTokens > 0) {
+    return Math.ceil(maxTokens);
+  }
+
+  const maxCompletionTokens = body.max_completion_tokens;
+  if (
+    typeof maxCompletionTokens === "number" &&
+    Number.isFinite(maxCompletionTokens) &&
+    maxCompletionTokens > 0
+  ) {
+    return Math.ceil(maxCompletionTokens);
+  }
+
+  return 1024;
+}
+
+function buildRouterOptions(hasTools: boolean): RouterOptions {
+  return {
+    config: DEFAULT_ROUTING_CONFIG,
+    modelPricing: buildModelPricing(),
+    hasTools,
+  };
+}
+
+function toRealModelId(model: string): RealModelId {
+  if (model === MODEL_ROLES.light || model === MODEL_ROLES.strong) {
+    return model;
+  }
+
+  return MODEL_ROLES.strong;
+}
+
+function toRealFallbackChain(models: string[], selectedModel: RealModelId): RealModelId[] {
+  const chain = models.map(toRealModelId);
+  if (!chain.includes(selectedModel)) {
+    chain.unshift(selectedModel);
+  }
+
+  return [...new Set(chain)];
+}
+
+function getExplicitTier(model: RealModelId): Tier {
+  return model === MODEL_ROLES.strong ? "COMPLEX" : "MEDIUM";
+}
+
+function getExplicitFallbackChain(model: RealModelId): RealModelId[] {
+  return model === MODEL_ROLES.light ? [MODEL_ROLES.light, MODEL_ROLES.strong] : [MODEL_ROLES.strong];
+}
+
+function isReusableSessionPinModel(model: RealModelId): boolean {
+  return model !== MODEL_ROLES.light;
+}
+
+function getActualTier(
+  model: RealModelId,
+  selected: Pick<SelectedModel, "model" | "tier" | "tierConfigs">,
+): Tier {
+  if (model === selected.model) return selected.tier;
+
+  const selectedIndex = TIER_ORDER.indexOf(selected.tier);
+  for (const tier of TIER_ORDER.slice(Math.max(0, selectedIndex + 1))) {
+    if (selected.tierConfigs[tier]?.primary === model) {
+      return tier;
+    }
+  }
+
+  for (const tier of TIER_ORDER) {
+    if (selected.tierConfigs[tier]?.primary === model) {
+      return tier;
+    }
+  }
+
+  return selected.tier;
+}
+
 function chooseModel(
   requestedModel: SupportedModelId,
   body: { messages?: unknown[]; tools?: unknown[] },
   headers: IncomingMessage["headers"],
-  pins: SessionPinStore,
+  sessionStore: SessionStore,
   cfg: RouterConfig,
-): { model: RealModelId; routed: boolean; sessionId?: string } {
+): SelectedModel {
   const prompt = extractPrompt(body.messages ?? []);
-  const sessionId = deriveSessionId(headers, prompt.openingText);
+  const sessionId = deriveSessionId(headers, body.messages ?? []);
+  const toolNames = extractToolNames(body.tools);
+  const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
 
   if (requestedModel !== "auto") {
-    return { model: requestedModel as RealModelId, routed: false, sessionId };
+    const model = requestedModel as RealModelId;
+    const tier = getExplicitTier(model);
+    return {
+      model,
+      tier,
+      fallbackChain: getExplicitFallbackChain(model),
+      sessionId,
+      routed: false,
+      userExplicit: true,
+      explicit: true,
+      pendingEscalation: false,
+      tierConfigs: DEFAULT_ROUTING_CONFIG.tiers,
+    };
   }
 
-  // Session pinning
-  if (cfg.sessionPinning) {
-    const pinned = pins.get(sessionId);
-    if (pinned) {
-      return { model: pinned, routed: true, sessionId };
+  const requestHash = sessionId ? hashRequestContent(prompt.routeText, toolNames) : undefined;
+  const existing = cfg.sessionPinning ? sessionStore.getSession(sessionId) : undefined;
+
+  if (existing) {
+    const shouldEscalate = requestHash ? sessionStore.recordRequestHash(sessionId, requestHash) : false;
+    const escalated = shouldEscalate
+      ? sessionStore.escalateSession(sessionId, DEFAULT_ROUTING_CONFIG.tiers)
+      : undefined;
+    const entry = sessionStore.getSession(sessionId) ?? existing;
+
+    if (!escalated && !isReusableSessionPinModel(entry.model)) {
+      if (!requestHash) {
+        sessionStore.touchSession(sessionId);
+      }
+    } else {
+      const model = escalated?.model ?? entry.model;
+      const tier = escalated?.tier ?? entry.tier;
+      const chain = model === MODEL_ROLES.light
+        ? toRealFallbackChain(getFallbackChain(tier, DEFAULT_ROUTING_CONFIG.tiers), model)
+        : [model];
+
+      if (!requestHash) {
+        sessionStore.touchSession(sessionId);
+      }
+
+      return {
+        model,
+        tier,
+        fallbackChain: chain,
+        sessionId,
+        routed: true,
+        userExplicit: entry.userExplicit,
+        explicit: false,
+        pendingEscalation: Boolean(escalated),
+        tierConfigs: DEFAULT_ROUTING_CONFIG.tiers,
+      };
     }
   }
 
-  // Route decision
-  const input: RouteInput = {
-    prompt: prompt.routeText,
-    systemPrompt: prompt.system,
-    hasTools: Array.isArray(body.tools) && body.tools.length > 0,
-    estimatedInputChars: prompt.text.length + (prompt.system?.length ?? 0),
-  };
+  const decision = route(
+    prompt.routeText,
+    prompt.system,
+    getMaxOutputTokens(body as Record<string, unknown>),
+    buildRouterOptions(hasTools),
+  );
+  const model = toRealModelId(decision.model);
+  const tierConfigs = decision.tierConfigs ?? DEFAULT_ROUTING_CONFIG.tiers;
+  const fallbackChain = toRealFallbackChain(getFallbackChain(decision.tier, tierConfigs), model);
 
-  const decision = selectModel(input);
-  return { model: decision.model, routed: true, sessionId };
+  if (!isReusableSessionPinModel(model)) {
+    sessionStore.setSession(sessionId, model, decision.tier, false);
+  }
+  if (!existing && requestHash) {
+    sessionStore.recordRequestHash(sessionId, requestHash);
+  }
+
+  return {
+    model,
+    tier: decision.tier,
+    decision,
+    fallbackChain,
+    sessionId,
+    routed: true,
+    userExplicit: false,
+    explicit: false,
+    pendingEscalation: false,
+    tierConfigs,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -268,7 +467,7 @@ async function proxyChat(
   req: IncomingMessage,
   res: ServerResponse,
   cfg: RouterConfig,
-  pins: SessionPinStore,
+  sessionStore: SessionStore,
 ): Promise<void> {
   // Read body
   const rawBody = await readBody(req);
@@ -307,43 +506,77 @@ async function proxyChat(
     validation.model,
     bodyObj as { messages?: unknown[]; tools?: unknown[] },
     req.headers,
-    pins,
+    sessionStore,
     cfg,
   );
 
-  // Observe "auto" requests for session pinning (before fetch)
-  if (validation.model === "auto" && selected.sessionId) {
-    pins.observe(selected.sessionId, selected.model);
-  }
-
-  // Fetch upstream with fallback from Flash to Pro
   let actualModel = selected.model;
   let fallback = false;
-  let attempt = await fetchUpstream(cfg, req, bodyObj, selected.model);
+  let attempt: AttemptResult | undefined;
 
-  if (!attempt.ok && selected.model === "deepseek-v4-flash") {
+  for (const [index, model] of selected.fallbackChain.entries()) {
+    actualModel = model;
+    fallback = index > 0;
+    attempt = await fetchUpstream(cfg, req, bodyObj, model);
+
+    if (attempt.ok) {
+      break;
+    }
+
+    const hasNext = index < selected.fallbackChain.length - 1;
+    if (!hasNext) {
+      break;
+    }
+
     if (attempt.reason === "retryable") {
       await discardBody(attempt.response);
     }
-    actualModel = "deepseek-v4-pro";
-    fallback = true;
-    attempt = await fetchUpstream(cfg, req, bodyObj, actualModel);
-    if (validation.model === "auto" && selected.sessionId) {
-      pins.observe(selected.sessionId, actualModel);
-    }
+  }
+
+  if (!attempt) {
+    const headers: Record<string, string> = {
+      "x-xiaoyi-router-model": actualModel,
+      "x-xiaoyi-router-routed": String(selected.routed),
+      "x-xiaoyi-router-fallback": String(fallback),
+      "x-xiaoyi-router-upstream": cfg.baseUrl,
+    };
+    writeJsonWithHeaders(res, 502, { error: "Upstream request failed" }, headers);
+    return;
   }
 
   const headers: Record<string, string> = {
-    "x-deepseek-router-model": actualModel,
-    "x-deepseek-router-routed": String(selected.routed),
-    "x-deepseek-router-fallback": String(fallback),
+    "x-xiaoyi-router-model": actualModel,
+    "x-xiaoyi-router-routed": String(selected.routed),
+    "x-xiaoyi-router-fallback": String(fallback),
+    "x-xiaoyi-router-upstream": cfg.baseUrl,
   };
 
   if (!attempt.ok && attempt.reason === "network_error") {
-    writeJson(res, 502, {
-      error: attempt.error instanceof Error ? attempt.error.message : "DeepSeek upstream failed",
-    });
+    if (selected.pendingEscalation) {
+      sessionStore.clearSession(selected.sessionId);
+    }
+    writeJsonWithHeaders(
+      res,
+      502,
+      {
+        error: attempt.error instanceof Error ? attempt.error.message : "Upstream request failed",
+      },
+      headers,
+    );
     return;
+  }
+
+  if (!attempt.ok && selected.pendingEscalation) {
+    sessionStore.clearSession(selected.sessionId);
+  }
+
+  if (attempt.ok && selected.sessionId && !selected.explicit && isReusableSessionPinModel(actualModel)) {
+    sessionStore.setSession(
+      selected.sessionId,
+      actualModel,
+      getActualTier(actualModel, selected),
+      selected.userExplicit,
+    );
   }
 
   const responseHeaders = copyResponseHeaders(attempt.response, headers);
@@ -360,7 +593,7 @@ async function proxyChat(
 
 export async function startProxy(options: ProxyOptions = {}): Promise<ProxyHandle> {
   const cfg = resolveConfig(options);
-  const pins = new SessionPinStore({ enabled: cfg.sessionPinning });
+  const sessionStore = new SessionStore({ enabled: cfg.sessionPinning });
 
   const server = http.createServer((req, res) => {
     void (async () => {
@@ -374,7 +607,7 @@ export async function startProxy(options: ProxyOptions = {}): Promise<ProxyHandl
         }
 
         if (req.method === "POST" && url === "/v1/chat/completions") {
-          await proxyChat(req, res, cfg, pins);
+          await proxyChat(req, res, cfg, sessionStore);
           return;
         }
 
@@ -409,6 +642,13 @@ export async function startProxy(options: ProxyOptions = {}): Promise<ProxyHandl
   return {
     port,
     baseUrl: cfg.baseUrl,
-    close: () => new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve()))),
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((err) => {
+          sessionStore.close();
+          if (err) reject(err);
+          else resolve();
+        });
+      }),
   };
 }

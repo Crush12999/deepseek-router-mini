@@ -43,24 +43,24 @@ export function parseHeaderJson(value: string | undefined): Record<string, strin
     }
     return headers;
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith("Invalid DEEPSEEK_ROUTER_HEADERS")) {
+    if (error instanceof Error && error.message.startsWith("Invalid XIAOYI_ROUTER_HEADERS")) {
       throw error;
     }
     throw new Error(
-      `Invalid DEEPSEEK_ROUTER_HEADERS: ${error instanceof Error ? error.message : String(error)}`,
+      `Invalid XIAOYI_ROUTER_HEADERS: ${error instanceof Error ? error.message : String(error)}`,
       { cause: error },
     );
   }
 }
 
 export function resolveConfig(input: RouterConfigInput = {}): RouterConfig {
-  const envHeaders = parseHeaderJson(process.env.DEEPSEEK_ROUTER_HEADERS);
+  const envHeaders = parseHeaderJson(process.env.XIAOYI_ROUTER_HEADERS);
 
   return {
-    baseUrl: normalizeBaseUrl(input.baseUrl ?? process.env.DEEPSEEK_BASE_URL ?? DEFAULT_BASE_URL),
-    apiKey: input.apiKey ?? process.env.DEEPSEEK_API_KEY,
+    baseUrl: normalizeBaseUrl(input.baseUrl ?? process.env.XIAOYI_BASE_URL ?? DEFAULT_BASE_URL),
+    apiKey: input.apiKey ?? process.env.XIAOYI_API_KEY,
     headers: { ...envHeaders, ...(input.headers ?? {}) },
-    port: input.port ?? parsePort(process.env.DEEPSEEK_ROUTER_PORT) ?? DEFAULT_PORT,
+    port: input.port ?? parsePort(process.env.XIAOYI_ROUTER_PORT) ?? DEFAULT_PORT,
     defaultModel: input.defaultModel ?? "auto",
     sessionPinning: input.sessionPinning ?? true,
   };

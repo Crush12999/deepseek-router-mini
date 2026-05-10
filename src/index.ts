@@ -6,31 +6,77 @@ export { VERSION } from "./proxy.js";
 
 export { resolveConfig } from "./config.js";
 export type { RouterConfig, RouterConfigInput } from "./config.js";
-export { DEEPSEEK_MODELS, validateModelId } from "./models.js";
-export type { RealModelId, SupportedModelId } from "./models.js";
-export { selectModel } from "./router/selector.js";
-export type { RouteDecision, RouteInput, TaskCategory } from "./router/types.js";
-export { SessionPinStore, deriveSessionId } from "./session.js";
+export {
+  MODEL_ROLES,
+  SUPPORTED_MODEL_IDS,
+  XIAOYI_MODELS,
+  getDefaultModelForRole,
+  getModel,
+  getModelContextWindow,
+  getModelPricing,
+  isRealModel,
+  supportsToolCalling,
+  supportsVision,
+  validateModelId,
+} from "./models.js";
+export type { ModelRole, RealModelId, SupportedModelId, XiaoyiModel } from "./models.js";
+export {
+  DEFAULT_ROUTING_CONFIG,
+  RulesStrategy,
+  calculateModelCost,
+  filterByExcludeList,
+  filterByToolCalling,
+  filterByVision,
+  getFallbackChain,
+  getFallbackChainFiltered,
+  getStrategy,
+  registerStrategy,
+  route,
+  selectModel,
+} from "./router/index.js";
+export type {
+  ModelPricing,
+  RouteDecision,
+  RouteInput,
+  RouterOptions,
+  RouterStrategy,
+  RoutingConfig,
+  RoutingDecision,
+  ScoringConfig,
+  ScoringResult,
+  TaskCategory,
+  Tier,
+  TierConfig,
+} from "./router/index.js";
+export {
+  DEFAULT_SESSION_CONFIG,
+  SessionStore,
+  deriveSessionId,
+  hashRequestContent,
+} from "./session.js";
+export type { SessionConfig, SessionEntry, SessionStats } from "./session.js";
 export { startProxy } from "./proxy.js";
 export type { ProxyHandle, ProxyOptions } from "./proxy.js";
 export {
-  DEEPSEEK_OPENCLAW_MODELS,
-  DEEPSEEK_PROVIDER_API,
-  DEEPSEEK_PROVIDER_ID,
-  createDeepSeekProvider,
+  XIAOYI_OPENCLAW_MODELS,
+  XIAOYI_PROVIDER_API,
+  XIAOYI_PROVIDER_DESCRIPTION,
+  XIAOYI_PROVIDER_ID,
+  XIAOYI_PROVIDER_NAME,
+  createXiaoyiProvider,
 } from "./provider.js";
-export type { DeepSeekProvider, OpenClawModelDefinition } from "./provider.js";
+export type { OpenClawModelDefinition, XiaoyiProvider } from "./provider.js";
 export {
-  injectDeepSeekModelsConfig,
+  injectXiaoyiModelsConfig,
   localProviderBaseUrl,
   registerOpenClawPlugin,
 } from "./plugin.js";
 export type { OpenClawPlugin, OpenClawPluginApi, OpenClawService, PluginRuntime } from "./plugin.js";
 
 const plugin: OpenClawPlugin = {
-  id: "deepseek-router-mini",
-  name: "DeepSeek Router Mini",
-  description: "DeepSeek-only local routing proxy for OpenClaw",
+  id: "xiaoyi-router",
+  name: "Xiaoyi Router",
+  description: "Xiaoyi local routing proxy for OpenClaw",
   version: VERSION,
   register: registerOpenClawPlugin,
 };

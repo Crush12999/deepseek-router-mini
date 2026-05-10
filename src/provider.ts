@@ -1,13 +1,15 @@
-import { DEEPSEEK_MODELS } from "./models.js";
+import { XIAOYI_MODELS } from "./models.js";
 import type { SupportedModelId } from "./models.js";
 
-export const DEEPSEEK_PROVIDER_ID = "deepseek";
-export const DEEPSEEK_PROVIDER_API = "openai-completions";
+export const XIAOYI_PROVIDER_ID = "xiaoyiprovider";
+export const XIAOYI_PROVIDER_NAME = "Xiaoyi Provider";
+export const XIAOYI_PROVIDER_DESCRIPTION = "Xiaoyi local routing provider for DeepSeek-compatible models";
+export const XIAOYI_PROVIDER_API = "openai-completions";
 
 export type OpenClawModelDefinition = {
   id: SupportedModelId;
   name: string;
-  api: typeof DEEPSEEK_PROVIDER_API;
+  api: typeof XIAOYI_PROVIDER_API;
   reasoning: boolean;
   input: ["text"];
   cost: {
@@ -20,30 +22,31 @@ export type OpenClawModelDefinition = {
   maxTokens: number;
 };
 
-export type DeepSeekProvider = {
-  id: typeof DEEPSEEK_PROVIDER_ID;
-  name: "DeepSeek";
-  aliases: ["ds"];
+export type XiaoyiProvider = {
+  id: typeof XIAOYI_PROVIDER_ID;
+  name: typeof XIAOYI_PROVIDER_NAME;
+  description: typeof XIAOYI_PROVIDER_DESCRIPTION;
+  aliases: ["xiaoyi"];
   auth: [];
   models: {
-    api: typeof DEEPSEEK_PROVIDER_API;
+    api: typeof XIAOYI_PROVIDER_API;
     baseUrl: string;
     models: OpenClawModelDefinition[];
   };
 };
 
 function modelName(id: SupportedModelId, name: string): string {
-  return id === "auto" ? "DeepSeek Auto" : name;
+  return id === "auto" ? "Xiaoyi Auto" : name;
 }
 
 function cacheReadCost(inputPrice: number): number {
   return Number((inputPrice * 0.25).toFixed(2));
 }
 
-export const DEEPSEEK_OPENCLAW_MODELS: OpenClawModelDefinition[] = DEEPSEEK_MODELS.map((model) => ({
+export const XIAOYI_OPENCLAW_MODELS: OpenClawModelDefinition[] = XIAOYI_MODELS.map((model) => ({
   id: model.id,
   name: modelName(model.id, model.name),
-  api: DEEPSEEK_PROVIDER_API,
+  api: XIAOYI_PROVIDER_API,
   reasoning: true,
   input: ["text"],
   cost: {
@@ -56,16 +59,17 @@ export const DEEPSEEK_OPENCLAW_MODELS: OpenClawModelDefinition[] = DEEPSEEK_MODE
   maxTokens: model.maxOutput,
 }));
 
-export function createDeepSeekProvider(localProviderBaseUrl: string): DeepSeekProvider {
+export function createXiaoyiProvider(localProviderBaseUrl: string): XiaoyiProvider {
   return {
-    id: DEEPSEEK_PROVIDER_ID,
-    name: "DeepSeek",
-    aliases: ["ds"],
+    id: XIAOYI_PROVIDER_ID,
+    name: XIAOYI_PROVIDER_NAME,
+    description: XIAOYI_PROVIDER_DESCRIPTION,
+    aliases: ["xiaoyi"],
     auth: [],
     models: {
-      api: DEEPSEEK_PROVIDER_API,
+      api: XIAOYI_PROVIDER_API,
       baseUrl: localProviderBaseUrl,
-      models: DEEPSEEK_OPENCLAW_MODELS,
+      models: XIAOYI_OPENCLAW_MODELS,
     },
   };
 }

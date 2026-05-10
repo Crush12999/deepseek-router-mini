@@ -1,19 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  DEEPSEEK_OPENCLAW_MODELS,
-  DEEPSEEK_PROVIDER_ID,
-  createDeepSeekProvider,
+  XIAOYI_OPENCLAW_MODELS,
+  XIAOYI_PROVIDER_ID,
+  createXiaoyiProvider,
 } from "../src/provider.js";
 
-describe("OpenClaw DeepSeek provider", () => {
-  it("defines the deepseek provider with aliases and a local OpenAI-compatible baseUrl", () => {
-    const provider = createDeepSeekProvider("http://127.0.0.1:8402/v1");
+describe("OpenClaw xiaoyi provider", () => {
+  it("defines the xiaoyiprovider provider with aliases and a local OpenAI-compatible baseUrl", () => {
+    const provider = createXiaoyiProvider("http://127.0.0.1:8402/v1");
 
     expect(provider).toMatchObject({
-      id: DEEPSEEK_PROVIDER_ID,
-      name: "DeepSeek",
-      aliases: ["ds"],
+      id: XIAOYI_PROVIDER_ID,
+      name: "Xiaoyi Provider",
+      aliases: ["xiaoyi"],
     });
     expect(provider.models.baseUrl).toBe("http://127.0.0.1:8402/v1");
     expect(provider.models.api).toBe("openai-completions");
@@ -21,16 +21,16 @@ describe("OpenClaw DeepSeek provider", () => {
   });
 
   it("exposes complete OpenClaw model definitions", () => {
-    expect(DEEPSEEK_OPENCLAW_MODELS.map((model) => model.id)).toEqual([
+    expect(XIAOYI_OPENCLAW_MODELS.map((model) => model.id)).toEqual([
       "auto",
       "deepseek-v4-flash",
       "deepseek-v4-pro",
     ]);
 
-    expect(DEEPSEEK_OPENCLAW_MODELS).toEqual([
+    expect(XIAOYI_OPENCLAW_MODELS).toEqual([
       {
         id: "auto",
-        name: "DeepSeek Auto",
+        name: "Xiaoyi Auto",
         api: "openai-completions",
         reasoning: true,
         input: ["text"],

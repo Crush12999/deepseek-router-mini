@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DEEPSEEK_OPENCLAW_MODELS } from "../src/provider.js";
+import { XIAOYI_OPENCLAW_MODELS, XIAOYI_PROVIDER_ID, XIAOYI_PROVIDER_NAME } from "../src/provider.js";
 import type { OpenClawService } from "../src/plugin.js";
 import {
-  injectDeepSeekModelsConfig,
+  injectXiaoyiModelsConfig,
   localProviderBaseUrl,
   registerOpenClawPlugin,
 } from "../src/plugin.js";
@@ -13,30 +13,31 @@ describe("OpenClaw plugin config injection", () => {
     expect(localProviderBaseUrl(8402)).toBe("http://127.0.0.1:8402/v1");
   });
 
-  it("creates missing models.providers.deepseek without inventing an apiKey", () => {
+  it("creates missing models.providers.xiaoyiprovider without inventing an apiKey", () => {
     const config: Record<string, unknown> = {};
 
-    injectDeepSeekModelsConfig(config, "http://127.0.0.1:8402/v1");
+    injectXiaoyiModelsConfig(config, "http://127.0.0.1:8402/v1");
 
     expect(config).toEqual({
       models: {
         providers: {
-          deepseek: {
+          xiaoyiprovider: {
             baseUrl: "http://127.0.0.1:8402/v1",
             api: "openai-completions",
-            apiKey: undefined,
-            models: DEEPSEEK_OPENCLAW_MODELS,
+            models: XIAOYI_OPENCLAW_MODELS,
           },
         },
       },
     });
+    const provider = (config.models as { providers: Record<string, Record<string, unknown>> }).providers.xiaoyiprovider;
+    expect(provider).not.toHaveProperty("apiKey");
   });
 
   it("preserves apiKey, headers, and unknown provider fields while repairing managed fields", () => {
     const config = {
       models: {
         providers: {
-          deepseek: {
+          xiaoyiprovider: {
             baseUrl: "https://api.deepseek.com/v1",
             api: "wrong-api",
             apiKey: "sk-user",
@@ -48,27 +49,27 @@ describe("OpenClaw plugin config injection", () => {
       },
     };
 
-    injectDeepSeekModelsConfig(config, "http://127.0.0.1:9000/v1");
+    injectXiaoyiModelsConfig(config, "http://127.0.0.1:9000/v1");
 
-    expect(config.models.providers.deepseek).toEqual({
+    expect(config.models.providers.xiaoyiprovider).toEqual({
       baseUrl: "http://127.0.0.1:9000/v1",
       api: "openai-completions",
       apiKey: "sk-user",
       headers: { "X-User": "yes" },
       customField: { keep: true },
-      models: DEEPSEEK_OPENCLAW_MODELS,
+      models: XIAOYI_OPENCLAW_MODELS,
     });
   });
 
   it("is idempotent across repeated injection", () => {
     const config: Record<string, unknown> = {};
 
-    injectDeepSeekModelsConfig(config, "http://127.0.0.1:8402/v1");
-    injectDeepSeekModelsConfig(config, "http://127.0.0.1:8402/v1");
+    injectXiaoyiModelsConfig(config, "http://127.0.0.1:8402/v1");
+    injectXiaoyiModelsConfig(config, "http://127.0.0.1:8402/v1");
 
     const providers = (config.models as { providers: Record<string, unknown> }).providers;
-    expect(Object.keys(providers)).toEqual(["deepseek"]);
-    expect((providers.deepseek as { models: unknown[] }).models).toHaveLength(3);
+    expect(Object.keys(providers)).toEqual(["xiaoyiprovider"]);
+    expect(((providers.xiaoyiprovider) as { models: unknown[] }).models).toHaveLength(3);
   });
 });
 
@@ -77,8 +78,8 @@ describe("OpenClaw plugin lifecycle", () => {
 
   beforeEach(() => {
     serviceCalls.length = 0;
-    vi.stubEnv("DEEPSEEK_ROUTER_PORT", undefined);
-    vi.stubEnv("DEEPSEEK_BASE_URL", undefined);
+    vi.stubEnv("XIAOYI_ROUTER_PORT", undefined);
+    vi.stubEnv("XIAOYI_BASE_URL", undefined);
   });
 
   afterEach(async () => {
@@ -113,13 +114,13 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(startProxy).not.toHaveBeenCalled();
     expect(providerCalls).toHaveLength(1);
     expect(providerCalls[0]).toMatchObject({
-      id: "deepseek",
+      id: "xiaoyiprovider",
       models: { baseUrl: "http://127.0.0.1:8402/v1" },
     });
     expect(api.config).toMatchObject({
       models: {
         providers: {
-          deepseek: {
+          xiaoyiprovider: {
             baseUrl: "http://127.0.0.1:8402/v1",
             api: "openai-completions",
           },
@@ -128,7 +129,7 @@ describe("OpenClaw plugin lifecycle", () => {
     });
     expect(serviceCalls).toHaveLength(1);
     expect(serviceCalls[0]).toMatchObject({
-      id: "deepseek-router-proxy",
+      id: "xiaoyi-router-proxy",
       start: expect.any(Function),
       stop: expect.any(Function),
     });
@@ -136,16 +137,16 @@ describe("OpenClaw plugin lifecycle", () => {
     await serviceCalls[0]!.start();
     expect(startProxy).toHaveBeenCalledWith({ port: 8402, baseUrl: "https://api.deepseek.com" });
     expect(api.logger.info).toHaveBeenCalledWith(
-      "DeepSeek Router Mini listening on http://127.0.0.1:8402/v1",
+      "Xiaoyi Router listening on http://127.0.0.1:8402/v1",
     );
 
     await serviceCalls[0]!.stop();
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it("uses DEEPSEEK_ROUTER_PORT and DEEPSEEK_BASE_URL when present", async () => {
-    vi.stubEnv("DEEPSEEK_ROUTER_PORT", "9011");
-    vi.stubEnv("DEEPSEEK_BASE_URL", "https://gateway.example.com");
+  it("uses XIAOYI_ROUTER_PORT and XIAOYI_BASE_URL when present", async () => {
+    vi.stubEnv("XIAOYI_ROUTER_PORT", "9011");
+    vi.stubEnv("XIAOYI_BASE_URL", "https://gateway.example.com");
 
     const startProxy = vi.fn().mockResolvedValue({
       port: 9011,
@@ -204,7 +205,7 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(api.config).toMatchObject({
       models: {
         providers: {
-          deepseek: {
+          xiaoyiprovider: {
             baseUrl: "http://127.0.0.1:9999/v1",
             api: "openai-completions",
           },
@@ -243,7 +244,7 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(api.config).toMatchObject({
       models: {
         providers: {
-          deepseek: {
+          xiaoyiprovider: {
             baseUrl: "http://127.0.0.1:8402/v1",
             api: "openai-completions",
           },
@@ -268,7 +269,7 @@ describe("OpenClaw plugin lifecycle", () => {
       config: {
         models: {
           providers: {
-            deepseek: {
+            xiaoyiprovider: {
               api_key: "config-key",
               headers: {
                 "X-Provider": "yes",
@@ -304,9 +305,86 @@ describe("OpenClaw plugin lifecycle", () => {
     });
   });
 
+  it("prefers provider apiKey over api_key for proxy runtime", async () => {
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {
+        models: {
+          providers: {
+            xiaoyiprovider: {
+              apiKey: "camel-key",
+              api_key: "snake-key",
+            },
+          },
+        },
+      },
+      registerProvider: vi.fn(),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPlugin(api, { startProxy });
+    await serviceCalls[0]!.start();
+
+    expect(startProxy).toHaveBeenCalledWith({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      apiKey: "camel-key",
+    });
+  });
+
+  it("passes provider request headers over provider headers for proxy runtime", async () => {
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {
+        models: {
+          providers: {
+            xiaoyiprovider: {
+              headers: {
+                Authorization: "Bearer provider-token",
+                "x-uid": "provider-user",
+                "x-provider-only": "yes",
+              },
+              request: {
+                headers: {
+                  authorization: "Bearer request-token",
+                  "x-uid": "request-user",
+                  "x-request-only": "yes",
+                },
+              },
+            },
+          },
+        },
+      },
+      registerProvider: vi.fn(),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPlugin(api, { startProxy });
+    await serviceCalls[0]!.start();
+
+    expect(startProxy).toHaveBeenCalledWith({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      headers: {
+        authorization: "Bearer request-token",
+        "x-uid": "request-user",
+        "x-provider-only": "yes",
+        "x-request-only": "yes",
+      },
+    });
+  });
+
   it("prefers pluginConfig over environment variables", async () => {
-    vi.stubEnv("DEEPSEEK_ROUTER_PORT", "9011");
-    vi.stubEnv("DEEPSEEK_BASE_URL", "https://env.example.com");
+    vi.stubEnv("XIAOYI_ROUTER_PORT", "9011");
+    vi.stubEnv("XIAOYI_BASE_URL", "https://env.example.com");
 
     const startProxy = vi.fn().mockResolvedValue({
       port: 9999,
@@ -328,7 +406,7 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(api.config).toMatchObject({
       models: {
         providers: {
-          deepseek: {
+          xiaoyiprovider: {
             baseUrl: "http://127.0.0.1:9999/v1",
           },
         },
@@ -340,7 +418,7 @@ describe("OpenClaw plugin lifecycle", () => {
   });
 
   it("falls back to env/default when pluginConfig port is invalid", async () => {
-    vi.stubEnv("DEEPSEEK_ROUTER_PORT", "9011");
+    vi.stubEnv("XIAOYI_ROUTER_PORT", "9011");
 
     const startProxy = vi.fn().mockResolvedValue({
       port: 9011,
@@ -361,7 +439,7 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(api.config).toMatchObject({
       models: {
         providers: {
-          deepseek: {
+          xiaoyiprovider: {
             baseUrl: "http://127.0.0.1:9011/v1",
           },
         },
@@ -401,7 +479,7 @@ describe("OpenClaw plugin lifecycle", () => {
       expect(api.config).toMatchObject({
         models: {
           providers: {
-            deepseek: {
+            xiaoyiprovider: {
               baseUrl: "http://127.0.0.1:9999/v1",
               api: "openai-completions",
             },
@@ -521,18 +599,20 @@ describe("OpenClaw plugin lifecycle", () => {
     };
 
     expect(() => registerOpenClawPlugin(api, { startProxy })).toThrow(providerError);
-    expect(unregisterService).toHaveBeenCalledWith("deepseek-router-proxy");
-    expect(services.has("deepseek-router-proxy")).toBe(false);
+    expect(unregisterService).toHaveBeenCalledWith("xiaoyi-router-proxy");
+    expect(services.has("xiaoyi-router-proxy")).toBe(false);
     expect(startProxy).not.toHaveBeenCalled();
     expect(api.config).toEqual({});
   });
 
-  it("keeps the runtime service when OpenClaw already registered the built-in deepseek provider", () => {
-    const duplicateProviderError = new Error("provider already registered: deepseek (deepseek)");
+  it.each([
+    "provider already registered: xiaoyiprovider",
+    "provider already registered: xiaoyiprovider (xiaoyiprovider)",
+  ])("recovers when OpenClaw reports duplicate xiaoyi provider id: %s", (message) => {
     const api = {
       config: {},
       registerProvider: vi.fn(() => {
-        throw duplicateProviderError;
+        throw new Error(message);
       }),
       registerService: (service: OpenClawService) => serviceCalls.push(service),
       unregisterService: vi.fn(),
@@ -548,7 +628,7 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(api.config).toMatchObject({
       models: {
         providers: {
-          deepseek: {
+          xiaoyiprovider: {
             baseUrl: "http://127.0.0.1:8402/v1",
             api: "openai-completions",
           },
@@ -556,8 +636,103 @@ describe("OpenClaw plugin lifecycle", () => {
       },
     });
     expect(api.logger.info).toHaveBeenCalledWith(
-      "DeepSeek provider already registered; keeping router service active",
+      "Xiaoyi provider already registered; keeping router service active",
     );
+  });
+
+  it.each([
+    'provider already registered: "xiaoyiprovider"',
+    "Provider already registered: 'XIAOYIPROVIDER'",
+    "provider already registered: [xiaoyiprovider]",
+    "provider already registered: xiaoyi-provider",
+  ])("recovers from duplicate xiaoyi provider id variants: %s", (message) => {
+    const api = {
+      config: {},
+      registerProvider: vi.fn(() => {
+        throw new Error(message);
+      }),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+      unregisterService: vi.fn(),
+      logger: {
+        info: vi.fn(),
+      },
+    };
+
+    expect(() => registerOpenClawPlugin(api, { startProxy: vi.fn() })).not.toThrow();
+
+    expect(serviceCalls).toHaveLength(1);
+    expect(api.unregisterService).not.toHaveBeenCalled();
+    expect(api.config).toMatchObject({
+      models: {
+        providers: {
+          [XIAOYI_PROVIDER_ID]: {
+            baseUrl: "http://127.0.0.1:8402/v1",
+            api: "openai-completions",
+          },
+        },
+      },
+    });
+  });
+
+  it.each([
+    `provider already registered: ${XIAOYI_PROVIDER_NAME}`,
+    `Provider already registered: "${XIAOYI_PROVIDER_NAME.toUpperCase()}"`,
+  ])("recovers from duplicate xiaoyi provider display-name variants: %s", (message) => {
+    const api = {
+      config: {},
+      registerProvider: vi.fn(() => {
+        throw new Error(message);
+      }),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+      unregisterService: vi.fn(),
+      logger: {
+        info: vi.fn(),
+      },
+    };
+
+    expect(() => registerOpenClawPlugin(api, { startProxy: vi.fn() })).not.toThrow();
+
+    expect(serviceCalls).toHaveLength(1);
+    expect(api.unregisterService).not.toHaveBeenCalled();
+    expect(api.config).toMatchObject({
+      models: {
+        providers: {
+          [XIAOYI_PROVIDER_ID]: {
+            baseUrl: "http://127.0.0.1:8402/v1",
+            api: "openai-completions",
+          },
+        },
+      },
+    });
+  });
+
+  it.each([
+    "provider already registered: openai",
+    "provider already registered: xiaoyi",
+    "provider already registered: openai, xiaoyi",
+    "provider already registered: openai (xiaoyi)",
+    'provider already registered: "other-provider"',
+  ])("rethrows duplicate messages for unrelated providers: %s", (message) => {
+    const duplicateProviderError = new Error(message);
+    const services = new Map<string, OpenClawService>();
+    const unregisterService = vi.fn((id: string) => {
+      services.delete(id);
+    });
+    const api = {
+      config: {},
+      registerProvider: vi.fn(() => {
+        throw duplicateProviderError;
+      }),
+      registerService: (service: OpenClawService) => {
+        services.set(service.id, service);
+      },
+      unregisterService,
+    };
+
+    expect(() => registerOpenClawPlugin(api, { startProxy: vi.fn() })).toThrow(duplicateProviderError);
+    expect(unregisterService).toHaveBeenCalledWith("xiaoyi-router-proxy");
+    expect(services.has("xiaoyi-router-proxy")).toBe(false);
+    expect(api.config).toEqual({});
   });
 
   it("runs the underlying proxy close once for concurrent stop calls", async () => {
@@ -693,14 +868,14 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(api.config).toMatchObject({
       models: {
         providers: {
-          deepseek: {
+          xiaoyiprovider: {
             baseUrl: "http://127.0.0.1:8402/v1",
           },
         },
       },
     });
     expect(api.logger.error).toHaveBeenCalledWith(
-      "DeepSeek Router Mini failed to start on port 8402: listen EADDRINUSE: address already in use 127.0.0.1:8402",
+      "Xiaoyi Router failed to start on port 8402: listen EADDRINUSE: address already in use 127.0.0.1:8402",
     );
   });
 });
@@ -710,14 +885,14 @@ describe("OpenClaw plugin default export", () => {
     const mod = await import("../src/index.js");
 
     expect(mod.default).toMatchObject({
-      id: "deepseek-router-mini",
-      name: "DeepSeek Router Mini",
-      description: "DeepSeek-only local routing proxy for OpenClaw",
+      id: "xiaoyi-router",
+      name: "Xiaoyi Router",
+      description: "Xiaoyi local routing proxy for OpenClaw",
     });
     expect(mod.default.version).toBe(mod.VERSION);
     expect(typeof mod.default.register).toBe("function");
     expect(typeof mod.startProxy).toBe("function");
-    expect(mod.DEEPSEEK_OPENCLAW_MODELS).toHaveLength(3);
+    expect(mod.XIAOYI_OPENCLAW_MODELS).toHaveLength(3);
   });
 
   it("returns synchronously from default register and only registers a runtime service", async () => {
@@ -735,7 +910,7 @@ describe("OpenClaw plugin default export", () => {
     expect(api.registerProvider).toHaveBeenCalledTimes(1);
     expect(services).toHaveLength(1);
     expect(services[0]).toMatchObject({
-      id: "deepseek-router-proxy",
+      id: "xiaoyi-router-proxy",
       start: expect.any(Function),
       stop: expect.any(Function),
     });

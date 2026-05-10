@@ -1,10 +1,10 @@
-# DeepSeek Router Mini 开发文档
+# Xiaoyi Router 开发文档
 
-本文面向后续维护者和贡献者，说明 `deepseek-router-mini` 的项目定位、运行架构、OpenClaw 集成方式、路由规则、请求转发细节、开发流程和排查方法。文档基于当前源码、测试、插件清单、设计规格和实现计划整理，避免把未实现的设想写成现有能力。
+本文面向后续维护者和贡献者，说明 `xiaoyi-router` 的项目定位、运行架构、OpenClaw 集成方式、路由规则、请求转发细节、开发流程和排查方法。文档基于当前源码、测试、插件清单、设计规格和实现计划整理，避免把未实现的设想写成现有能力。
 
 ## 1. 项目定位与设计目标
 
-`deepseek-router-mini` 是一个面向 DeepSeek 兼容 Chat Completions API 的本地路由代理，也可以作为 OpenClaw 插件加载。它只暴露 3 个公共模型 ID：
+`xiaoyi-router` 是一个面向 OpenAI 兼容 Chat Completions API 的本地路由代理，也可以作为 OpenClaw 插件加载。它只暴露 3 个公共模型 ID：
 
 | 模型 ID             | 含义                         | 是否直接转发到上游        |
 | ------------------- | ---------------------------- | ------------------------- |
@@ -16,8 +16,8 @@
 
 - 为 OpenAI 兼容 Chat Completions 客户端提供一个很小的本地代理，只实现项目需要的接口。
 - 让用户使用 `auto` 时，由本地规则把普通请求发给 Flash，把复杂请求发给 Pro。
-- 在 OpenClaw 中以插件形式注册 DeepSeek Provider，并把 OpenClaw 的 DeepSeek Provider 配置指向本地代理。
-- 保留用户已有 DeepSeek 密钥和自定义 Header，不在插件中写入真实密钥。
+- 在 OpenClaw 中以插件形式注册 Xiaoyi Provider，并把 OpenClaw 的 Xiaoyi Provider 配置指向本地代理。
+- 保留用户已有上游密钥和自定义 Header，不在插件中写入真实密钥。
 - 对显式 Flash 请求提供有限 fallback：当 Flash 上游返回可重试状态或网络错误时，改用 Pro 再试一次。
 - 避免引入钱包、x402、USDC、BlockRun、Solana、缓存等非目标能力。
 
@@ -27,30 +27,30 @@
 
 项目由 7 个主要部分组成：
 
-- CLI：通过 `deepseek-router-mini` 或 `node dist/cli.js` 启动本地代理。
+- CLI：通过 `xiaoyi-router` 或 `node dist/cli.js` 启动本地代理。
 - 本地代理：监听 `127.0.0.1:<port>`，处理健康检查和 Chat Completions 请求。
 - OpenClaw 插件：默认导出插件对象，OpenClaw 启动时调用 `register(api)`。
-- Provider 注入：注册 `deepseek` Provider，并修复 `api.config.models.providers.deepseek`。
+- Provider 注入：注册 `xiaoyiprovider` Provider，并修复 `api.config.models.providers.xiaoyiprovider`。
 - 路由器：根据 `auto` 请求的文本、工具、长度等因素选择 Flash 或 Pro。
 - 会话钉住：同一会话一旦升级到 Pro，后续 `auto` 请求继续走 Pro。
-- 上游转发：把请求发往 DeepSeek 兼容上游，默认是 `https://api.deepseek.com`。
+- 上游转发：把请求发往 OpenAI 兼容上游，默认是 `https://api.deepseek.com`。
 
 典型 OpenClaw 请求流如下：
 
 ```text
 OpenClaw Gateway
-  -> deepseek Provider 配置 baseUrl = http://127.0.0.1:8402/v1
+  -> xiaoyiprovider Provider 配置 baseUrl = http://127.0.0.1:8402/v1
   -> POST /v1/chat/completions
-  -> deepseek-router-mini 本地代理
+  -> xiaoyi-router 本地代理
   -> auto 路由、会话钉住、fallback
   -> POST https://api.deepseek.com/chat/completions
-  -> 返回响应并追加 x-deepseek-router-* 响应头
+  -> 返回响应并追加 x-xiaoyi-router-* 响应头
 ```
 
 需要特别区分两个 `baseUrl`。本地 Router API 和上游 API base 是两层概念，必须分离：
 
-- OpenClaw Provider 的 `models.providers.deepseek.baseUrl`：本地代理地址，必须是 `http://127.0.0.1:<port>/v1`。OpenClaw 的 `openai-completions` 适配器会在该 `baseUrl` 后追加 `/chat/completions`，最终落到本插件暴露的 `POST /v1/chat/completions`。
-- 插件运行时的上游 API base：实际转发到 DeepSeek 兼容上游时使用，优先级是 `pluginConfig.upstreamUrl` > `DEEPSEEK_BASE_URL` > `https://api.deepseek.com`。
+- OpenClaw Provider 的 `models.providers.xiaoyiprovider.baseUrl`：本地代理地址，必须是 `http://127.0.0.1:<port>/v1`。OpenClaw 的 `openai-completions` 适配器会在该 `baseUrl` 后追加 `/chat/completions`，最终落到本插件暴露的 `POST /v1/chat/completions`。
+- 插件运行时的上游 API base：实际转发到 OpenAI 兼容上游时使用，优先级是 `pluginConfig.upstreamUrl` > `XIAOYI_BASE_URL` > `https://api.deepseek.com`。
 
 实际转发到上游时，绝不能使用 OpenClaw Provider 的 `baseUrl`。上游请求 URL 始终按 `trimTrailingSlash(upstreamBaseUrl) + /chat/completions` 生成。上游 `baseUrl` 是否带 `/v1`、`/v4` 或不带版本，由用户配置决定；项目不自动追加版本段、不猜 provider、不根据域名分支。`upstreamBaseUrl` 不应包含完整资源路径 `/chat/completions`。
 
@@ -102,7 +102,7 @@ OpenClaw Gateway
 | -------------------------- | -------------------------------------------------------------------------------- |
 | `src/config.ts`            | 解析代理配置，包含默认端口、默认上游、环境变量、额外 Header JSON。               |
 | `src/models.ts`            | 定义唯一支持的 3 个模型 ID、模型元数据和模型 ID 校验。                           |
-| `src/provider.ts`          | 定义 OpenClaw DeepSeek Provider、模型价格、能力、上下文窗口等元数据。            |
+| `src/provider.ts`          | 定义 OpenClaw Xiaoyi Provider、模型价格、能力、上下文窗口等元数据。            |
 | `src/plugin.ts`            | 实现 OpenClaw 插件注册、Provider 注册、配置注入、服务生命周期和代理句柄管理。    |
 | `src/proxy.ts`             | 实现 HTTP 服务、请求解析、模型选择、Header 合并、上游转发、fallback 和响应透传。 |
 | `src/router/classifier.ts` | 用正则规则把文本分为 `simple`、`standard`、`code`、`complex`。                   |
@@ -122,9 +122,9 @@ OpenClaw Gateway
 
 显式模型的处理规则：
 
-- `deepseek-v4-flash`：直接转发到上游 Flash，`x-deepseek-router-routed` 为 `false`。
-- `deepseek-v4-pro`：直接转发到上游 Pro，`x-deepseek-router-routed` 为 `false`。
-- `auto`：本地选择真实上游模型，`x-deepseek-router-routed` 为 `true`。
+- `deepseek-v4-flash`：直接转发到上游 Flash，`x-xiaoyi-router-routed` 为 `false`。
+- `deepseek-v4-pro`：直接转发到上游 Pro，`x-xiaoyi-router-routed` 为 `false`。
+- `auto`：本地选择真实上游模型，`x-xiaoyi-router-routed` 为 `true`。
 
 ### 4.2 分类优先级
 
@@ -139,7 +139,7 @@ OpenClaw Gateway
 
 ### 4.3 `auto` 到 Flash / Pro 的选择
 
-`selectModel()` 的决策规则如下：
+`selectModel()` 的决策规则如下。面向用户的语义是：简单摘要、短文本和常规轻量任务默认 Flash；复杂推理、长上下文、工具密集、代码 / agentic 和结构化高风险任务默认 Pro。
 
 | 条件                                | 目标模型            | 原因                           |
 | ----------------------------------- | ------------------- | ------------------------------ |
@@ -178,11 +178,11 @@ Follow the BOOTSTRAP.md instructions above now.
 
 ### 4.5 会话钉住
 
-`SessionPinStore` 只钉住 Pro，不钉住 Flash：
+会话钉住逻辑只钉住 Pro，不钉住 Flash：
 
 - 如果某个 `auto` 会话被路由到 Pro，后续同一会话的 `auto` 请求继续走 Pro。
 - 如果某个 `auto` 会话只走 Flash，不会写入 pin。
-- 显式 Flash / Pro 请求不改变 `x-deepseek-router-routed`，但代理仍会派生会话 ID 供内部流程使用。
+- 显式 Flash / Pro 请求不改变 `x-xiaoyi-router-routed`，但代理仍会派生会话 ID 供内部流程使用。
 
 会话 ID 来源：
 
@@ -196,14 +196,14 @@ Follow the BOOTSTRAP.md instructions above now.
 
 `openclaw.plugin.json` 是插件清单，当前内容包含：
 
-- `id`: `deepseek-router-mini`
-- `name`: `DeepSeek Router Mini`
-- `description`: `DeepSeek-only local routing proxy for OpenClaw`
+- `id`: `xiaoyi-router`
+- `name`: `Xiaoyi Router`
+- `description`: `Xiaoyi local routing proxy for OpenClaw`
 - `version`: `0.1.0`
 - `main`: `./dist/index.js`
 - `activation.onStartup`: `true`
 - `configSchema.port`: 本地代理端口，默认 `8402`
-- `configSchema.upstreamUrl`: 上游 DeepSeek 兼容 API base，默认 `https://api.deepseek.com`
+- `configSchema.upstreamUrl`: 上游 OpenAI 兼容 API base，默认 `https://api.deepseek.com`
 
 `package.json` 同时声明：
 
@@ -224,9 +224,9 @@ Follow the BOOTSTRAP.md instructions above now.
 
 ```ts
 const plugin = {
-  id: "deepseek-router-mini",
-  name: "DeepSeek Router Mini",
-  description: "DeepSeek-only local routing proxy for OpenClaw",
+  id: "xiaoyi-router",
+  name: "Xiaoyi Router",
+  description: "Xiaoyi local routing proxy for OpenClaw",
   version: VERSION,
   register: registerOpenClawPlugin,
 };
@@ -234,7 +234,7 @@ const plugin = {
 export default plugin;
 ```
 
-同时它保留公共命名导出，例如 `startProxy`、`resolveConfig`、`selectModel`、`DEEPSEEK_OPENCLAW_MODELS` 等，便于测试和外部集成。
+同时它保留公共命名导出，例如 `startProxy`、`resolveConfig`、`selectModel`、`XIAOYI_OPENCLAW_MODELS` 等，便于测试和外部集成。
 
 ### 5.3 `registerService`
 
@@ -242,7 +242,7 @@ export default plugin;
 
 ```ts
 api.registerService({
-  id: "deepseek-router-proxy",
+  id: "xiaoyi-router-proxy",
   async start() {
     // 启动本地代理
   },
@@ -265,17 +265,17 @@ api.registerService({
 
 ### 5.4 `registerProvider`
 
-插件会注册一个 DeepSeek Provider：
+插件会注册一个 Xiaoyi Provider：
 
 ```ts
-createDeepSeekProvider("http://127.0.0.1:8402/v1");
+createXiaoyiProvider("http://127.0.0.1:8402/v1");
 ```
 
 Provider 的关键字段：
 
-- `id`: `deepseek`
-- `name`: `DeepSeek`
-- `aliases`: `["ds"]`
+- `id`: `xiaoyiprovider`
+- `name`: `Xiaoyi Provider`
+- `aliases`: `["xiaoyi"]`
 - `auth`: `[]`
 - `models.api`: `openai-completions`
 - `models.baseUrl`: 本地代理 `/v1` 地址
@@ -285,37 +285,37 @@ Provider 的关键字段：
 
 | 模型 ID             | 名称              | 输入价格 | 输出价格 | Cache Read | Cache Write |  上下文 | 最大输出 |
 | ------------------- | ----------------- | -------: | -------: | ---------: | ----------: | ------: | -------: |
-| `auto`              | DeepSeek Auto     |        0 |        0 |          0 |           0 | 1000000 |    64000 |
+| `auto`              | Xiaoyi Auto       |        0 |        0 |          0 |           0 | 1000000 |    64000 |
 | `deepseek-v4-flash` | DeepSeek V4 Flash |     0.28 |     0.42 |       0.07 |        0.28 | 1000000 |    64000 |
 | `deepseek-v4-pro`   | DeepSeek V4 Pro   |     0.56 |     1.68 |       0.14 |        0.56 | 1000000 |    64000 |
 
 所有模型声明 `reasoning: true`、`input: ["text"]`，API 适配器为 `openai-completions`。
 
-### 5.5 重复 DeepSeek Provider 处理
+### 5.5 重复 Xiaoyi Provider 处理
 
-OpenClaw 或其它插件可能已经注册了 `deepseek` Provider。当前实现只特殊处理错误信息匹配：
+OpenClaw 或其它插件可能已经注册了 `xiaoyiprovider` Provider。当前实现只特殊处理错误信息匹配：
 
 ```text
-provider already registered: deepseek
+provider already registered: xiaoyiprovider
 ```
 
 当捕获到这类错误时，插件会：
 
 - 保留已经注册的运行时服务。
-- 继续注入或修复 `api.config.models.providers.deepseek`。
-- 记录日志：`DeepSeek provider already registered; keeping router service active`。
+- 继续注入或修复 `api.config.models.providers.xiaoyiprovider`。
+- 记录日志：`Xiaoyi provider already registered; keeping router service active`。
 - 不再抛出异常。
 
-如果 `registerProvider()` 抛出其它错误，插件会尝试 `unregisterService("deepseek-router-proxy")`，然后重新抛出错误，避免留下半注册状态。
+如果 `registerProvider()` 抛出其它错误，插件会尝试 `unregisterService("xiaoyi-router-proxy")`，然后重新抛出错误，避免留下半注册状态。
 
 ### 5.6 Config 透传
 
 插件不会把真实密钥写入 manifest 或 auth profile。它只读取 OpenClaw 运行时配置，并在服务启动时把可用配置传给代理：
 
-- `models.providers.deepseek.apiKey`
-- `models.providers.deepseek.api_key`
-- `models.providers.deepseek.headers`
-- `models.providers.deepseek.request.headers`
+- `models.providers.xiaoyiprovider.apiKey`
+- `models.providers.xiaoyiprovider.api_key`
+- `models.providers.xiaoyiprovider.headers`
+- `models.providers.xiaoyiprovider.request.headers`
 
 `headers` 和 `request.headers` 只接受字符串值，非字符串 Header 会被忽略。`request.headers` 会覆盖同名的 `headers`。
 
@@ -329,26 +329,26 @@ provider already registered: deepseek
 
 | 配置项           | 优先级                                                                |
 | ---------------- | --------------------------------------------------------------------- |
-| `baseUrl`        | 函数入参 `baseUrl` > `DEEPSEEK_BASE_URL` > `https://api.deepseek.com` |
-| `apiKey`         | 函数入参 `apiKey` > `DEEPSEEK_API_KEY`                                |
-| `headers`        | `DEEPSEEK_ROUTER_HEADERS` 先合入，函数入参 `headers` 后覆盖           |
-| `port`           | 函数入参 `port` > `DEEPSEEK_ROUTER_PORT` > `8402`                     |
+| `baseUrl`        | 函数入参 `baseUrl` > `XIAOYI_BASE_URL` > `https://api.deepseek.com` |
+| `apiKey`         | 函数入参 `apiKey` > `XIAOYI_API_KEY`                                |
+| `headers`        | `XIAOYI_ROUTER_HEADERS` 先合入，函数入参 `headers` 后覆盖           |
+| `port`           | 函数入参 `port` > `XIAOYI_ROUTER_PORT` > `8402`                     |
 | `defaultModel`   | 函数入参 `defaultModel` > `auto`                                      |
 | `sessionPinning` | 函数入参 `sessionPinning` > `true`                                    |
 
 这里的 `baseUrl` 是插件运行时上游 API base，不是 OpenClaw Provider 的本地 `baseUrl`。它只参与上游请求 URL 计算，规则是去掉末尾 `/` 后追加 `/chat/completions`。
 
-`DEEPSEEK_ROUTER_HEADERS` 必须是 JSON 对象，并且每个值都必须是字符串：
+`XIAOYI_ROUTER_HEADERS` 必须是 JSON 对象，并且每个值都必须是字符串：
 
 ```bash
-export DEEPSEEK_ROUTER_HEADERS='{"X-Request-Source":"deepseek-router-mini"}'
+export XIAOYI_ROUTER_HEADERS='{"X-Request-Source":"xiaoyi-router"}'
 ```
 
 错误示例：
 
 ```bash
-export DEEPSEEK_ROUTER_HEADERS='["bad"]'
-export DEEPSEEK_ROUTER_HEADERS='{"X-Debug":true}'
+export XIAOYI_ROUTER_HEADERS='["bad"]'
+export XIAOYI_ROUTER_HEADERS='{"X-Debug":true}'
 ```
 
 这两种都会在解析时抛出错误。
@@ -359,25 +359,24 @@ export DEEPSEEK_ROUTER_HEADERS='{"X-Debug":true}'
 
 | 配置项        | 优先级                                                                            |
 | ------------- | --------------------------------------------------------------------------------- |
-| `port`        | `api.pluginConfig.port` > `DEEPSEEK_ROUTER_PORT` > `8402`                         |
-| `upstreamUrl` | `api.pluginConfig.upstreamUrl` > `DEEPSEEK_BASE_URL` > `https://api.deepseek.com` |
+| `port`        | `api.pluginConfig.port` > `XIAOYI_ROUTER_PORT` > `8402`                         |
+| `upstreamUrl` | `api.pluginConfig.upstreamUrl` > `XIAOYI_BASE_URL` > `https://api.deepseek.com` |
 
-无效端口会被忽略。例如 `pluginConfig.port = "nope"` 时，如果 `DEEPSEEK_ROUTER_PORT=9011`，最终端口是 `9011`。
+无效端口会被忽略。例如 `pluginConfig.port = "nope"` 时，如果 `XIAOYI_ROUTER_PORT=9011`，最终端口是 `9011`。
 
 `upstreamUrl` 是上游 API base。它可以是 `https://api.deepseek.com`、`https://gateway.example.com/v1` 或 `https://gateway.example.com/v4` 这类地址，插件不会为它自动补版本段。
 
 ### 6.3 OpenClaw Provider 配置注入
 
-`injectDeepSeekModelsConfig(config, providerBaseUrl)` 会保证：
+`injectXiaoyiModelsConfig(config, providerBaseUrl)` 会保证：
 
 ```json
 {
   "models": {
     "providers": {
-      "deepseek": {
+      "xiaoyiprovider": {
         "baseUrl": "http://127.0.0.1:8402/v1",
         "api": "openai-completions",
-        "apiKey": "<保留原值或 undefined>",
         "models": ["<完整 OpenClaw 模型定义>"]
       }
     }
@@ -388,8 +387,8 @@ export DEEPSEEK_ROUTER_HEADERS='{"X-Debug":true}'
 注入规则：
 
 - 如果 `models` 或 `providers` 不存在，会创建对象。
-- 如果 `deepseek` Provider 不存在，会创建配置，但不会伪造真实 `apiKey`。
-- 如果 `deepseek` Provider 已存在，会保留已有 `apiKey`、`headers`、未知字段等。
+- 如果 `xiaoyiprovider` Provider 不存在，会创建配置，但不会伪造真实 `apiKey`。
+- 如果 `xiaoyiprovider` Provider 已存在，会保留已有 `apiKey`、`headers`、未知字段等；不存在 `apiKey` 时不会新增该字段。
 - 始终修复插件管理的字段：`baseUrl`、`api`、`models`。
 - 可重复执行，不会追加重复 Provider，也不会把模型列表变成重复列表。
 - 这里的 `baseUrl` 始终指向本地代理的 `/v1`。OpenClaw 的 `openai-completions` 适配器会补上 `/chat/completions`，所以本地 HTTP 服务必须暴露 `POST /v1/chat/completions`。
@@ -453,7 +452,7 @@ trimTrailingSlash(upstreamBaseUrl) + /chat/completions
 上游 Header 来源包括：
 
 1. 客户端请求 Header。
-2. 代理配置 Header，例如 `DEEPSEEK_ROUTER_HEADERS` 或 OpenClaw Provider 透传 Header。
+2. 代理配置 Header，例如 `XIAOYI_ROUTER_HEADERS` 或 OpenClaw Provider 透传 Header。
 3. 代理配置中的 `apiKey`。
 
 合并规则：
@@ -461,26 +460,28 @@ trimTrailingSlash(upstreamBaseUrl) + /chat/completions
 - 跳过 hop-by-hop Header，例如 `connection`、`host`、`content-length`、`transfer-encoding` 等。
 - Header 名按大小写不敏感方式去重。
 - 配置 Header 覆盖客户端请求 Header。
-- 如果最终没有 `Authorization`，并且配置里有 `apiKey`，代理会补充 `Authorization: Bearer <apiKey>`。
-- 如果已经有 `Authorization`，不会再用 `apiKey` 覆盖。
+- `apiKey` 可选：如果最终没有 `Authorization`，并且配置里有 `apiKey`，代理会补充 `Authorization: Bearer <apiKey>`；如果没有配置 `apiKey`，代理不会发送 `Authorization`。
+- 如果请求或配置里已经有 `Authorization`，遵循当前实现的 Header 合并语义，不会再用 `apiKey` 覆盖。
+- `x-uid` 可通过 provider `headers` 或 `request.headers` 透传。
 - 如果最终没有 `Content-Type`，代理会补充 `content-type: application/json`。
 
-OpenClaw 场景下，常见情况是 Gateway 已经根据 Provider 配置注入了 `Authorization`。如果 OpenClaw 没有注入，代理仍可使用 `DEEPSEEK_API_KEY` 或插件启动时透传的 `apiKey` 兜底。
+OpenClaw 场景下，常见情况是 Gateway 已经根据 Provider 配置注入了 `Authorization`。如果 OpenClaw 没有注入，代理仍可使用 `XIAOYI_API_KEY` 或插件启动时透传的 `apiKey` 兜底。
 
 ### 7.5 响应头处理
 
 代理会复制上游响应 Header，但会过滤：
 
 - hop-by-hop Header
-- 上游响应中已有的 `x-deepseek-router-*` Header
+- 上游响应中已有的 `x-xiaoyi-router-*` Header
 
-然后追加 3 个路由 Header：
+然后追加下列路由 Header：
 
-| Header                       | 含义                               |
-| ---------------------------- | ---------------------------------- |
-| `x-deepseek-router-model`    | 实际发往上游的模型，Flash 或 Pro。 |
-| `x-deepseek-router-routed`   | 是否经过 `auto` 路由。             |
-| `x-deepseek-router-fallback` | 是否从 Flash fallback 到 Pro。     |
+| Header                       | 含义                                |
+| ---------------------------- | ----------------------------------- |
+| `x-xiaoyi-router-model`    | 实际发往上游的模型，Flash 或 Pro。  |
+| `x-xiaoyi-router-routed`   | 是否经过 `auto` 路由。              |
+| `x-xiaoyi-router-fallback` | 是否从 Flash fallback 到 Pro。      |
+| `x-xiaoyi-router-upstream` | 当前代理配置的真实上游 API base。   |
 
 ### 7.6 Fallback
 
@@ -494,7 +495,8 @@ fallback 规则：
 
 - 如果首次目标模型是 `deepseek-v4-flash`，且上游返回可重试状态，代理会丢弃响应体，再用 `deepseek-v4-pro` 重试。
 - 如果首次目标模型是 `deepseek-v4-flash`，且发生网络错误，也会用 Pro 重试。
-- 如果首次目标模型已经是 `deepseek-v4-pro`，不会降级，也不会再试 Flash。
+- 显式 `deepseek-v4-flash` 请求同样允许在可重试失败时 fallback 到 `deepseek-v4-pro`。
+- 显式 `deepseek-v4-pro` 请求不会降级，也不会再试 Flash。
 - 对 `auto` 请求，如果 fallback 后实际走 Pro，会把该会话钉住到 Pro。
 
 ### 7.7 流式响应
@@ -532,7 +534,7 @@ npm run build
 使用默认上游和默认端口：
 
 ```bash
-export DEEPSEEK_API_KEY="<your-deepseek-api-key>"
+export XIAOYI_API_KEY="<your-upstream-api-key>"
 npm run build
 node dist/cli.js
 ```
@@ -546,13 +548,13 @@ node dist/cli.js --port 8402
 指定上游：
 
 ```bash
-DEEPSEEK_BASE_URL="https://api.deepseek.com" node dist/cli.js --port 8402
+XIAOYI_BASE_URL="https://api.deepseek.com" node dist/cli.js --port 8402
 ```
 
 指定额外上游 Header：
 
 ```bash
-export DEEPSEEK_ROUTER_HEADERS='{"X-Request-Source":"deepseek-router-mini"}'
+export XIAOYI_ROUTER_HEADERS='{"X-Request-Source":"xiaoyi-router"}'
 node dist/cli.js --port 8402
 ```
 
@@ -569,7 +571,7 @@ Chat Completions：
 ```bash
 curl -s http://127.0.0.1:8402/v1/chat/completions \
   -H 'content-type: application/json' \
-  -H 'authorization: Bearer <your-deepseek-api-key>' \
+  -H 'authorization: Bearer <your-upstream-api-key>' \
   -d '{
     "model": "auto",
     "messages": [
@@ -647,7 +649,7 @@ npm run format
 - 非法 JSON 返回 400。
 - 流式响应透传。
 
-这类测试不需要真实 DeepSeek key，因为它们使用本地假上游。
+这类测试不需要真实上游 key，因为它们使用本地假上游。
 
 ### 9.3 真实 OpenClaw 验证建议
 
@@ -662,13 +664,13 @@ npm pack
 然后在 OpenClaw 环境安装打包文件：
 
 ```bash
-openclaw plugins install ./deepseek-router-mini-0.1.0.tgz --force
+openclaw plugins install ./xiaoyi-router-0.1.0.tgz --force
 ```
 
 如果 OpenClaw 安全扫描拦截安装，并且你确认正在安装本仓库刚构建的本地包，可以临时加上：
 
 ```bash
-openclaw plugins install ./deepseek-router-mini-0.1.0.tgz --force --dangerously-force-unsafe-install
+openclaw plugins install ./xiaoyi-router-0.1.0.tgz --force --dangerously-force-unsafe-install
 ```
 
 刷新插件 registry 并重启 Gateway：
@@ -682,37 +684,37 @@ openclaw gateway restart
 
 ```bash
 openclaw plugins list --json
-openclaw plugins inspect deepseek-router-mini --json
+openclaw plugins inspect xiaoyi-router --json
 openclaw models list
 ```
 
 验证重点：
 
-- `openclaw models list` 能看到或可配置到 `deepseek/auto`、`deepseek/deepseek-v4-flash`、`deepseek/deepseek-v4-pro`。
-- `deepseek/auto` 的请求被发送到 `http://127.0.0.1:<port>/v1`。
-- 配置了真实 DeepSeek key 后请求成功。
+- `openclaw models list` 能看到或可配置到 `xiaoyiprovider/auto`、`xiaoyiprovider/deepseek-v4-flash`、`xiaoyiprovider/deepseek-v4-pro`。
+- `xiaoyiprovider/auto` 的请求被发送到 `http://127.0.0.1:<port>/v1`。
+- 配置了真实上游 key 后请求成功。
 - 未配置真实 key 时，模型可以显示，请求失败信息应清晰。
 - 卸载或关闭插件时代理服务能停止。
 
 建议再用 `openclaw agents` 和 `openclaw agent` 覆盖真实 CLI 用例：
 
 ```bash
-openclaw agents add deepseek-router-dev \
-  --workspace /tmp/openclaw-deepseek-router-workspace \
-  --agent-dir /tmp/openclaw-deepseek-router-agent \
-  --model deepseek/auto \
+openclaw agents add xiaoyi-router-dev \
+  --workspace /tmp/openclaw-xiaoyi-router-workspace \
+  --agent-dir /tmp/openclaw-xiaoyi-router-agent \
+  --model xiaoyiprovider/auto \
   --non-interactive
 
 openclaw agent \
-  --agent deepseek-router-dev \
+  --agent xiaoyi-router-dev \
   --message "Translate hello to Chinese."
 
 openclaw agent \
-  --agent deepseek-router-dev \
+  --agent xiaoyi-router-dev \
   --message "Debug a failing test across multiple files and explain the likely root cause."
 ```
 
-`openclaw agent` 的文本或 JSON 输出通常只显示 OpenClaw 侧配置的 `deepseek/auto`，不一定暴露本代理添加的响应头。要证明最终分别路由到 Flash 和 Pro，应同时用 `curl -i http://127.0.0.1:<port>/v1/chat/completions` 检查 `x-deepseek-router-model`，或在上游 / Gateway 日志中确认实际转发请求体里的 `model` 字段。
+`openclaw agent` 的文本或 JSON 输出通常只显示 OpenClaw 侧配置的 `xiaoyiprovider/auto`，不一定暴露本代理添加的响应头。要证明最终分别路由到 Flash 和 Pro，应同时用 `curl -i http://127.0.0.1:<port>/v1/chat/completions` 检查 `x-xiaoyi-router-model`，或在上游 / Gateway 日志中确认实际转发请求体里的 `model` 字段。
 
 不要把真实 API key 写进测试日志、文档、提交信息或截图。需要展示配置时使用占位符：
 
@@ -720,8 +722,8 @@ openclaw agent \
 {
   "models": {
     "providers": {
-      "deepseek": {
-        "apiKey": "<your-deepseek-api-key>"
+      "xiaoyiprovider": {
+        "apiKey": "<your-upstream-api-key>"
       }
     }
   }
@@ -757,7 +759,7 @@ npm pack
 安装到 OpenClaw：
 
 ```bash
-openclaw plugins install ./deepseek-router-mini-0.1.0.tgz --force
+openclaw plugins install ./xiaoyi-router-0.1.0.tgz --force
 ```
 
 刷新并重启：
@@ -770,14 +772,14 @@ openclaw gateway restart
 如果端口冲突，修改插件配置或环境变量后重启：
 
 ```bash
-export DEEPSEEK_ROUTER_PORT=9011
+export XIAOYI_ROUTER_PORT=9011
 openclaw gateway restart
 ```
 
 如果需要临时指定上游：
 
 ```bash
-export DEEPSEEK_BASE_URL="https://api.deepseek.com"
+export XIAOYI_BASE_URL="https://api.deepseek.com"
 openclaw gateway restart
 ```
 
@@ -804,20 +806,20 @@ deepseek-v4-flash
 deepseek-v4-pro
 ```
 
-不要直接传 `deepseek/auto` 给代理。`deepseek/auto` 是 OpenClaw UI / 配置层的 Provider + 模型表示，发到本地代理时模型 ID 应是 `auto`。
+不要直接传 `xiaoyiprovider/auto` 给代理。`xiaoyiprovider/auto` 是 OpenClaw UI / 配置层的 Provider + 模型表示，发到本地代理时模型 ID 应是 `auto`。
 
 ### 11.3 端口被占用
 
 插件服务启动失败时会记录类似信息：
 
 ```text
-DeepSeek Router Mini failed to start on port 8402: listen EADDRINUSE
+Xiaoyi Router failed to start on port 8402: listen EADDRINUSE
 ```
 
 处理方式：
 
 ```bash
-export DEEPSEEK_ROUTER_PORT=9011
+export XIAOYI_ROUTER_PORT=9011
 openclaw gateway restart
 ```
 
@@ -827,10 +829,10 @@ openclaw gateway restart
 
 检查以下来源是否至少有一个提供了有效 key：
 
-- 客户端请求 Header：`Authorization: Bearer <your-deepseek-api-key>`
-- 代理环境变量：`DEEPSEEK_API_KEY`
-- OpenClaw Provider 配置：`models.providers.deepseek.apiKey`
-- OpenClaw Provider 配置：`models.providers.deepseek.api_key`
+- 客户端请求 Header：`Authorization: Bearer <your-upstream-api-key>`
+- 代理环境变量：`XIAOYI_API_KEY`
+- OpenClaw Provider 配置：`models.providers.xiaoyiprovider.apiKey`
+- OpenClaw Provider 配置：`models.providers.xiaoyiprovider.api_key`
 
 如果同时存在自定义 `Authorization` Header 和 `apiKey`，最终会使用自定义 Header。
 
@@ -867,36 +869,37 @@ openclaw gateway restart
 ```bash
 curl -i http://127.0.0.1:8402/v1/chat/completions \
   -H 'content-type: application/json' \
-  -H 'authorization: Bearer <your-deepseek-api-key>' \
+  -H 'authorization: Bearer <your-upstream-api-key>' \
   -d '{"model":"auto","messages":[{"role":"user","content":"Summarize briefly."}]}'
 ```
 
 重点观察：
 
-- `x-deepseek-router-model`
-- `x-deepseek-router-routed`
-- `x-deepseek-router-fallback`
+- `x-xiaoyi-router-model`
+- `x-xiaoyi-router-routed`
+- `x-xiaoyi-router-fallback`
+- `x-xiaoyi-router-upstream`
 
 当前响应头不会直接暴露 `selectModel()` 的 `reason` 字段。如需线上排查更细粒度原因，需要后续增加观测性能力。
 
 ### 11.7 如何配置上游 `baseUrl` 的版本段
 
-`DEEPSEEK_BASE_URL` 或 `pluginConfig.upstreamUrl` 表示插件运行时上游 API base。项目不会替你决定 `/v1`、`/v4` 这类版本段，也不会根据域名猜测上游 provider。
+`XIAOYI_BASE_URL` 或 `pluginConfig.upstreamUrl` 表示插件运行时上游 API base。项目不会替你决定 `/v1`、`/v4` 这类版本段，也不会根据域名猜测上游 provider。
 
-默认 DeepSeek 上游：
+默认上游：
 
 ```bash
-export DEEPSEEK_BASE_URL="https://api.deepseek.com"
+export XIAOYI_BASE_URL="https://api.deepseek.com"
 ```
 
 如果你的兼容网关把 Chat Completions 放在 `/v1` 或 `/v4` 下，需要在上游 API base 中显式写出该版本段：
 
 ```bash
-export DEEPSEEK_BASE_URL="https://gateway.example.com/v1"
-export DEEPSEEK_BASE_URL="https://gateway.example.com/v4"
+export XIAOYI_BASE_URL="https://gateway.example.com/v1"
+export XIAOYI_BASE_URL="https://gateway.example.com/v4"
 ```
 
-代理只会去掉末尾 `/`，再追加 `/chat/completions`。不要把完整资源路径 `/chat/completions` 写进 `DEEPSEEK_BASE_URL` 或 `pluginConfig.upstreamUrl`。
+代理只会去掉末尾 `/`，再追加 `/chat/completions`。不要把完整资源路径 `/chat/completions` 写进 `XIAOYI_BASE_URL` 或 `pluginConfig.upstreamUrl`。
 
 ## 12. 后续演进
 

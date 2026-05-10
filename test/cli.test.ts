@@ -43,10 +43,14 @@ describe("cli", () => {
     });
 
     const help = log.mock.calls[0]?.[0] as string;
-    expect(help).toContain("deepseek-router-mini");
-    expect(help).toMatch(/deepseek-router-mini --base-url URL\s+Use a DeepSeek-compatible upstream API base URL/);
+    expect(help).toContain("xiaoyi-router");
+    expect(help).toMatch(/xiaoyi-router --base-url URL\s+Use a DeepSeek-compatible upstream API base URL/);
     expect(help).toMatch(/--base-url <url>\s+Upstream API base URL/);
-    expect(help).toMatch(/DEEPSEEK_BASE_URL\s+Upstream API base URL/);
+    expect(help).toMatch(/XIAOYI_API_KEY\s+Upstream API key/);
+    expect(help).toMatch(/XIAOYI_BASE_URL\s+Upstream API base URL/);
+    expect(help).toMatch(/XIAOYI_ROUTER_PORT\s+Local proxy port/);
+    expect(help).toMatch(/XIAOYI_ROUTER_HEADERS\s+Extra upstream headers as JSON/);
+    expect(help).not.toContain(["DEEPSEEK", ""].join("_"));
     expect(exit).toHaveBeenCalledWith(0);
   });
 });
