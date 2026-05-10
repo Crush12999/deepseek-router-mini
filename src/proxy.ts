@@ -235,7 +235,7 @@ function chooseModel(
   cfg: RouterConfig,
 ): { model: RealModelId; routed: boolean; sessionId?: string } {
   const prompt = extractPrompt(body.messages ?? []);
-  const sessionId = deriveSessionId(headers, prompt.openingText);
+  const sessionId = deriveSessionId(headers, body.messages ?? []);
 
   if (requestedModel !== "auto") {
     return { model: requestedModel as RealModelId, routed: false, sessionId };
@@ -411,6 +411,13 @@ export async function startProxy(options: ProxyOptions = {}): Promise<ProxyHandl
   return {
     port,
     baseUrl: cfg.baseUrl,
-    close: () => new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve()))),
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((err) => {
+          pins.close();
+          if (err) reject(err);
+          else resolve();
+        });
+      }),
   };
 }

@@ -48,7 +48,14 @@ export type {
   Tier,
   TierConfig,
 } from "./router/index.js";
-export { SessionPinStore, deriveSessionId } from "./session.js";
+export {
+  DEFAULT_SESSION_CONFIG,
+  SessionPinStore,
+  SessionStore,
+  deriveSessionId,
+  hashRequestContent,
+} from "./session.js";
+export type { SessionConfig, SessionEntry, SessionStats } from "./session.js";
 export { startProxy } from "./proxy.js";
 export type { ProxyHandle, ProxyOptions } from "./proxy.js";
 export {

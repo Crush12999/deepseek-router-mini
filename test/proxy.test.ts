@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { startProxy } from "../src/proxy.js";
+import { SessionPinStore } from "../src/session.js";
 
 type CapturedRequest = {
   url: string;
@@ -95,6 +96,17 @@ afterEach(async () => {
 });
 
 describe("proxy", () => {
+  it("closes the session store when the proxy closes", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const closeSpy = vi.spyOn(SessionPinStore.prototype, "close");
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+
+    await proxy.close();
+
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("serves health and does not serve models", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
