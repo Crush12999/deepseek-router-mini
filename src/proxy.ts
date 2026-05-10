@@ -525,15 +525,6 @@ async function proxyChat(
     return;
   }
 
-  if (selected.sessionId && actualModel !== selected.model) {
-    sessionStore.setSession(
-      selected.sessionId,
-      actualModel,
-      getActualTier(actualModel, selected),
-      selected.userExplicit,
-    );
-  }
-
   const headers: Record<string, string> = {
     "x-xiaoyi-router-model": actualModel,
     "x-xiaoyi-router-routed": String(selected.routed),
@@ -551,6 +542,15 @@ async function proxyChat(
       headers,
     );
     return;
+  }
+
+  if (attempt.ok && selected.sessionId && actualModel !== selected.model) {
+    sessionStore.setSession(
+      selected.sessionId,
+      actualModel,
+      getActualTier(actualModel, selected),
+      selected.userExplicit,
+    );
   }
 
   const responseHeaders = copyResponseHeaders(attempt.response, headers);

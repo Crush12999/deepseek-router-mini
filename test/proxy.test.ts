@@ -574,6 +574,58 @@ describe("proxy", () => {
     ]);
   });
 
+  it("does not pin an auto session to a fallback model when every fallback attempt fails", async () => {
+    let count = 0;
+    const upstream = await startUpstream((_req, res) => {
+      count += 1;
+      if (count === 1) {
+        res.writeHead(429, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "rate limited" }));
+        return;
+      }
+      if (count === 2) {
+        res.writeHead(503, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "unavailable" }));
+        return;
+      }
+
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ choices: [{ message: { content: "flash ok" } }] }));
+    });
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const headers = { "content-type": "application/json", "x-session-id": "failed-fallback-session" };
+
+    const failed = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: "auto",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(failed.status).toBe(503);
+
+    const next = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: "auto",
+        messages: [{ role: "user", content: "Translate hello" }],
+      }),
+    });
+
+    expect(next.status).toBe(200);
+    expect(requestedModels(upstream.requests)).toEqual([
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+      "deepseek-v4-flash",
+    ]);
+  });
+
   it("escalates the proxy path after three identical auto requests and only does it once", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
