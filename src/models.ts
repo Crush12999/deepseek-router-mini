@@ -105,7 +105,7 @@ export function supportsToolCalling(modelId: string): boolean {
   return getModel(modelId)?.toolCalling ?? false;
 }
 
-export function supportsVision(_modelId: string): boolean {
+export function supportsVision(): boolean {
   return false;
 }
 
