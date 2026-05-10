@@ -77,7 +77,7 @@ export function injectXiaoyiModelsConfig(config: JsonObject, providerBaseUrl: st
     ...existing,
     baseUrl: providerBaseUrl,
     api: XIAOYI_PROVIDER_API,
-    apiKey: existing.apiKey,
+    ...("apiKey" in existing ? { apiKey: existing.apiKey } : {}),
     models: XIAOYI_OPENCLAW_MODELS,
   };
 }

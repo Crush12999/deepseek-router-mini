@@ -24,12 +24,13 @@ describe("OpenClaw plugin config injection", () => {
           xiaoyiprovider: {
             baseUrl: "http://127.0.0.1:8402/v1",
             api: "openai-completions",
-            apiKey: undefined,
             models: XIAOYI_OPENCLAW_MODELS,
           },
         },
       },
     });
+    const provider = (config.models as { providers: Record<string, Record<string, unknown>> }).providers.xiaoyiprovider;
+    expect(provider).not.toHaveProperty("apiKey");
   });
 
   it("preserves apiKey, headers, and unknown provider fields while repairing managed fields", () => {

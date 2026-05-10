@@ -377,7 +377,6 @@ export XIAOYI_ROUTER_HEADERS='{"X-Debug":true}'
       "xiaoyiprovider": {
         "baseUrl": "http://127.0.0.1:8402/v1",
         "api": "openai-completions",
-        "apiKey": "<保留原值或 undefined>",
         "models": ["<完整 OpenClaw 模型定义>"]
       }
     }
@@ -389,7 +388,7 @@ export XIAOYI_ROUTER_HEADERS='{"X-Debug":true}'
 
 - 如果 `models` 或 `providers` 不存在，会创建对象。
 - 如果 `xiaoyiprovider` Provider 不存在，会创建配置，但不会伪造真实 `apiKey`。
-- 如果 `xiaoyiprovider` Provider 已存在，会保留已有 `apiKey`、`headers`、未知字段等。
+- 如果 `xiaoyiprovider` Provider 已存在，会保留已有 `apiKey`、`headers`、未知字段等；不存在 `apiKey` 时不会新增该字段。
 - 始终修复插件管理的字段：`baseUrl`、`api`、`models`。
 - 可重复执行，不会追加重复 Provider，也不会把模型列表变成重复列表。
 - 这里的 `baseUrl` 始终指向本地代理的 `/v1`。OpenClaw 的 `openai-completions` 适配器会补上 `/chat/completions`，所以本地 HTTP 服务必须暴露 `POST /v1/chat/completions`。
