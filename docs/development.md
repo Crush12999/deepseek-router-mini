@@ -1006,5 +1006,6 @@ export XIAOYI_BASE_URL="https://gateway.example.com/v4"
 - OpenClaw 真实版本兼容矩阵：记录不同 OpenClaw 版本对 `registerService`、`registrationMode`、Provider 配置字段的行为差异。
 - 配置校验与错误提示：对格式非法、协议不受支持或明显不可用的上游 API base 给出更清晰提示。
 - 流式 fallback 策略：当前 fallback 发生在收到可重试状态或网络错误时；如果上游流已经开始，中途失败无法安全切换模型。
+- 字段命名规范化：session 内部仍保留 `sameRequestStrikes`、`maxSameRequestStrikes` 这类历史命名。对外文档统一称为「连续重试升级」，后续如要调整字段名，应作为兼容性改造单独处理，并保留旧配置别名或迁移说明。
 
 维护这类能力时，应优先补测试：路由规则改动补 `test/router.test.ts`，代理行为改动补 `test/proxy.test.ts`，OpenClaw 生命周期改动补 `test/plugin.test.ts`。
