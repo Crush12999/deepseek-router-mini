@@ -319,6 +319,8 @@ provider already registered: xiaoyiprovider
 
 `headers` 和 `request.headers` 只接受字符串值，非字符串 Header 会被忽略。`request.headers` 会覆盖同名的 `headers`。
 
+真实 OpenClaw Gateway 场景下，优先把 Key 配到 `models.providers.xiaoyiprovider.apiKey`。源码目录里的 `.env` 只对独立代理或当前 shell 有效，默认 Gateway service 通常不会读取它。维护者做端到端验证时，不要把「仓库 `.env` 已配置」当成 OpenClaw 已配置。
+
 ## 6. 配置来源与优先级
 
 项目有两层配置：代理运行配置和 OpenClaw 插件配置。
@@ -653,70 +655,149 @@ npm run format
 
 ### 9.3 真实 OpenClaw 验证建议
 
-真实 OpenClaw 验证应放在发布前或集成分支上执行：
+真实 OpenClaw 验证应放在发布前或集成分支上执行。验证时只使用当前机器的默认 OpenClaw Gateway，不创建临时 OpenClaw profile，不额外启动第二个 Gateway，也不使用源码目录或 link 安装。这样可以更接近用户真实安装路径，并避免留下难排查的端口占用。
+
+先清理旧插件占用。历史版本可能以 `deepseek-router-mini` 安装并监听 `8402`：
+
+```bash
+openclaw plugins list --json
+lsof -nP -iTCP:8402 -sTCP:LISTEN || true
+openclaw plugins uninstall deepseek-router-mini || true
+openclaw gateway restart
+```
+
+然后从源码打包安装：
 
 ```bash
 npm install
 npm run build
-npm pack
-```
-
-然后在 OpenClaw 环境安装打包文件：
-
-```bash
-openclaw plugins install ./xiaoyi-router-0.1.0.tgz --force
-```
-
-如果 OpenClaw 安全扫描拦截安装，并且你确认正在安装本仓库刚构建的本地包，可以临时加上：
-
-```bash
-openclaw plugins install ./xiaoyi-router-0.1.0.tgz --force --dangerously-force-unsafe-install
-```
-
-刷新插件 registry 并重启 Gateway：
-
-```bash
-openclaw plugins registry --refresh
+PACKAGE_TGZ="$(npm pack --silent)"
+openclaw plugins install --dangerously-force-unsafe-install --force "./${PACKAGE_TGZ}"
 openclaw gateway restart
 ```
 
-确认插件、Provider 和模型：
+`--dangerously-force-unsafe-install` 只允许用于当前源码刚构建出的本地包。不要用它安装来源不明的 tarball。
+
+确认插件和 provider 配置：
 
 ```bash
-openclaw plugins list --json
 openclaw plugins inspect xiaoyi-router --json
-openclaw models list
+openclaw config get models.providers.xiaoyiprovider
+curl -sS http://127.0.0.1:8402/health
 ```
 
-验证重点：
+`models.providers.xiaoyiprovider` 的关键字段应是：
 
-- `openclaw models list` 能看到或可配置到 `xiaoyiprovider/auto`、`xiaoyiprovider/deepseek-v4-flash`、`xiaoyiprovider/deepseek-v4-pro`。
-- `xiaoyiprovider/auto` 的请求被发送到 `http://127.0.0.1:<port>/v1`。
-- 配置了真实上游 key 后请求成功。
-- 未配置真实 key 时，模型可以显示，请求失败信息应清晰。
-- 卸载或关闭插件时代理服务能停止。
+```text
+baseUrl: http://127.0.0.1:8402/v1
+api: openai-completions
+models: auto, deepseek-v4-flash, deepseek-v4-pro
+```
 
-建议再用 `openclaw agents` 和 `openclaw agent` 覆盖真实 CLI 用例：
+`openclaw models list` 在不同 OpenClaw 版本中的展示可能不一致。开发验证时不要只看模型列表，应以 provider 配置、本地 `/health` 和真实请求结果为准。
+
+配置真实上游 Key：
 
 ```bash
-openclaw agents add xiaoyi-router-dev \
-  --workspace /tmp/openclaw-xiaoyi-router-workspace \
-  --agent-dir /tmp/openclaw-xiaoyi-router-agent \
-  --model xiaoyiprovider/auto \
-  --non-interactive
-
-openclaw agent \
-  --agent xiaoyi-router-dev \
-  --message "Translate hello to Chinese."
-
-openclaw agent \
-  --agent xiaoyi-router-dev \
-  --message "Debug a failing test across multiple files and explain the likely root cause."
+openclaw config set models.providers.xiaoyiprovider.apiKey "$XIAOYI_API_KEY"
+openclaw gateway restart
 ```
 
-`openclaw agent` 的文本或 JSON 输出通常只显示 OpenClaw 侧配置的 `xiaoyiprovider/auto`，不一定暴露本代理添加的响应头。要证明最终分别路由到 Flash 和 Pro，应同时用 `curl -i http://127.0.0.1:<port>/v1/chat/completions` 检查 `x-xiaoyi-router-model`，或在上游 / Gateway 日志中确认实际转发请求体里的 `model` 字段。
+如果要验证 `x-uid` 透传，使用 provider `request.headers`：
 
-不要把真实 API key 写进测试日志、文档、提交信息或截图。需要展示配置时使用占位符：
+```bash
+cat <<'JSON' | openclaw config patch --stdin
+{
+  "models": {
+    "providers": {
+      "xiaoyiprovider": {
+        "request": {
+          "headers": {
+            "x-uid": "your-uid"
+          }
+        }
+      }
+    }
+  }
+}
+JSON
+openclaw gateway restart
+```
+
+先用直接代理请求证明上游可达和响应头正确：
+
+```bash
+curl -iS http://127.0.0.1:8402/v1/chat/completions \
+  -H 'content-type: application/json' \
+  -d '{
+    "model": "deepseek-v4-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Return only: ok"
+      }
+    ],
+    "max_tokens": 128,
+    "temperature": 0
+  }' | sed -n '1,60p'
+```
+
+预期响应头包含：
+
+```text
+x-xiaoyi-router-model: deepseek-v4-flash
+x-xiaoyi-router-routed: false
+x-xiaoyi-router-fallback: false
+x-xiaoyi-router-upstream: https://api.deepseek.com
+```
+
+再用 OpenClaw agent CLI 覆盖真实调用链：
+
+```bash
+tmpbase="$(mktemp -d /tmp/xiaoyi-openclaw-agent.XXXXXX)"
+openclaw agents add xiaoyi-e2e-agent \
+  --workspace "$tmpbase/workspace" \
+  --agent-dir "$tmpbase/agent" \
+  --model xiaoyiprovider/auto \
+  --non-interactive \
+  --json
+
+openclaw agent \
+  --agent xiaoyi-e2e-agent \
+  --message "Return exactly: XIAOYI_E2E_OK" \
+  --json \
+  --timeout 180
+```
+
+预期 `status` 为 `ok`，响应文本包含 `XIAOYI_E2E_OK`，agent 元数据使用 `xiaoyiprovider/auto`。
+
+`openclaw agent` 的文本或 JSON 输出通常只显示 OpenClaw 侧配置的 provider 和模型，不一定暴露本代理添加的响应头。当前插件的 Gateway 日志只覆盖启动、端口占用和重复 provider 等生命周期事件，不会逐次记录路由后的实际模型。要证明最终分别路由到 Flash 和 Pro，应同时用 `curl -i http://127.0.0.1:8402/v1/chat/completions` 检查 `x-xiaoyi-router-model`；如果上游或外层网关会记录请求体，也可以在上游侧确认实际转发的 `model` 字段。
+
+如果要验证模型 ID 改名是否足够集中，可以启动 [scripts/deepseek_openai_proxy.py](/Users/ming/Documents/Code/2026/ai_repos/deepseek-router-mini/scripts/deepseek_openai_proxy.py) 作为临时上游。脚本接受 `LLM_DeepSeekV4_Think0` 和 `LLM_DeepSeekV4_Pro_Think0`，并分别转发到 `deepseek-v4-flash` 和 `deepseek-v4-pro`，每个请求都会打印别名模型和实际上游模型：
+
+```bash
+export XIAOYI_API_KEY="<your-upstream-api-key>"
+python3 scripts/deepseek_openai_proxy.py --port 19081
+```
+
+验证时只临时修改 `src/models.ts` 的模型注册表，把 light / strong 改成上述两个别名模型，然后把插件上游指向 Python 中转：
+
+```bash
+openclaw config set plugins.entries.xiaoyi-router.config.upstreamUrl "http://127.0.0.1:19081/v1"
+openclaw gateway restart
+```
+
+这类模型改名只用于本地架构验证，不提交到 git；脚本和使用说明可以提交。验证结束后恢复 `src/models.ts` 和插件上游配置。
+
+验证结束后清理临时 agent、临时目录和本地 tarball：
+
+```bash
+openclaw agents delete xiaoyi-e2e-agent --force --json
+rm -rf "$tmpbase" /tmp/xiaoyi-openclaw-agent.*
+rm -f "./${PACKAGE_TGZ}"
+```
+
+不要把真实 API Key 写进测试日志、文档、提交信息或截图。需要展示配置时使用占位符：
 
 ```json
 {
@@ -753,35 +834,42 @@ npm pack --dry-run
 生成本地包：
 
 ```bash
-npm pack
+PACKAGE_TGZ="$(npm pack --silent)"
 ```
 
-安装到 OpenClaw：
+安装到 OpenClaw 默认 Gateway：
 
 ```bash
-openclaw plugins install ./xiaoyi-router-0.1.0.tgz --force
+openclaw plugins install --dangerously-force-unsafe-install --force "./${PACKAGE_TGZ}"
 ```
 
-刷新并重启：
+重启并确认插件配置：
 
 ```bash
-openclaw plugins registry --refresh
+openclaw gateway restart
+openclaw plugins inspect xiaoyi-router --json
+openclaw config get models.providers.xiaoyiprovider
+```
+
+发布验证时不要使用源码目录安装或 link 安装作为最终结论。它们适合本地调试，但容易被旧版本、软链路径或已有 Gateway 进程污染。
+
+如果端口冲突，优先确认是不是旧插件仍在监听：
+
+```bash
+openclaw plugins list --json
+lsof -nP -iTCP:8402 -sTCP:LISTEN || true
+openclaw plugins uninstall deepseek-router-mini || true
 openclaw gateway restart
 ```
 
-如果端口冲突，修改插件配置或环境变量后重启：
+如果确实不能释放默认端口，再修改插件配置后重启：
 
 ```bash
-export XIAOYI_ROUTER_PORT=9011
+openclaw config set plugins.entries.xiaoyi-router.config.port 9011
 openclaw gateway restart
 ```
 
-如果需要临时指定上游：
-
-```bash
-export XIAOYI_BASE_URL="https://api.deepseek.com"
-openclaw gateway restart
-```
+插件会把 `models.providers.xiaoyiprovider.baseUrl` 修复为 `http://127.0.0.1:9011/v1`。生产环境默认上游仍是 `https://api.deepseek.com`；如需接入兼容网关，可通过 `XIAOYI_BASE_URL` 或插件 `upstreamUrl` 配置覆盖，但不要把完整资源路径 `/chat/completions` 写进去。
 
 ## 11. 常见问题与排查
 
@@ -830,9 +918,16 @@ openclaw gateway restart
 检查以下来源是否至少有一个提供了有效 key：
 
 - 客户端请求 Header：`Authorization: Bearer <your-upstream-api-key>`
-- 代理环境变量：`XIAOYI_API_KEY`
 - OpenClaw Provider 配置：`models.providers.xiaoyiprovider.apiKey`
 - OpenClaw Provider 配置：`models.providers.xiaoyiprovider.api_key`
+- 代理环境变量：`XIAOYI_API_KEY`
+
+默认 OpenClaw Gateway 通常不会读取当前源码目录下的 `.env`。真实 Gateway 验证优先检查 provider 配置：
+
+```bash
+openclaw config get models.providers.xiaoyiprovider.apiKey
+openclaw config get models.providers.xiaoyiprovider
+```
 
 如果同时存在自定义 `Authorization` Header 和 `apiKey`，最终会使用自定义 Header。
 
