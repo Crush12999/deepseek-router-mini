@@ -4,7 +4,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { startProxy } from "../src/proxy.js";
-import { SessionPinStore } from "../src/session.js";
+import { SessionStore } from "../src/session.js";
 
 type CapturedRequest = {
   url: string;
@@ -88,6 +88,10 @@ async function request(port: number, path: string, init: RequestInit = {}) {
 
 const handles: Array<{ close: () => Promise<void> }> = [];
 
+function requestedModels(requests: CapturedRequest[]): string[] {
+  return requests.map((entry) => (entry.body as { model: string }).model);
+}
+
 afterEach(async () => {
   vi.restoreAllMocks();
   while (handles.length) {
@@ -99,7 +103,7 @@ describe("proxy", () => {
   it("closes the session store when the proxy closes", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
-    const closeSpy = vi.spyOn(SessionPinStore.prototype, "close");
+    const closeSpy = vi.spyOn(SessionStore.prototype, "close");
     const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
 
     await proxy.close();
@@ -271,7 +275,6 @@ describe("proxy", () => {
   it("routes auto code requests with tools to pro", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
-    const observeSpy = vi.spyOn(SessionPinStore.prototype, "observe");
     const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
     handles.push(proxy);
 
@@ -290,10 +293,9 @@ describe("proxy", () => {
     expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-pro");
     expect(res.headers.get("x-xiaoyi-router-routed")).toBe("true");
     expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-pro" });
-    expect(observeSpy).toHaveBeenCalledWith(expect.any(String), "deepseek-v4-pro", "MEDIUM");
   });
 
-  it("keeps simple auto agent-style requests with ambient tools on flash", async () => {
+  it("routes structured output system prompts to pro", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
     const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
@@ -304,7 +306,29 @@ describe("proxy", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         model: "auto",
-        tools: [{ type: "function", function: { name: "apply_patch" } }],
+        messages: [
+          { role: "system", content: "Return a strict JSON object matching the schema." },
+          { role: "user", content: "Summarize Redis briefly." },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-pro");
+    expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-pro" });
+  });
+
+  it("keeps simple auto requests without tools on flash", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "auto",
         messages: [{ role: "user", content: "Summarize briefly: OpenClaw routes simple tasks." }],
       }),
     });
@@ -326,7 +350,6 @@ describe("proxy", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         model: "auto",
-        tools: [{ type: "function", function: { name: "apply_patch" } }],
         messages: [
           {
             role: "assistant",
@@ -354,7 +377,6 @@ describe("proxy", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         model: "auto",
-        tools: [{ type: "function", function: { name: "apply_patch" } }],
         messages: [
           {
             role: "user",
@@ -458,7 +480,10 @@ describe("proxy", () => {
       headers,
       body: JSON.stringify({
         model: "auto",
-        messages: [{ role: "user", content: "Debug failing tests across multiple files" }],
+        messages: [
+          { role: "system", content: "Return a strict JSON object matching the schema." },
+          { role: "user", content: "Translate hello" },
+        ],
       }),
     });
     await request(proxy.port, "/v1/chat/completions", {
@@ -503,13 +528,10 @@ describe("proxy", () => {
     expect(res.headers.get("x-deepseek-router-model")).toBeNull();
     expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-pro");
     expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("true");
-    expect(upstream.requests.map((entry) => (entry.body as { model: string }).model)).toEqual([
-      "deepseek-v4-flash",
-      "deepseek-v4-pro",
-    ]);
+    expect(requestedModels(upstream.requests)).toEqual(["deepseek-v4-flash", "deepseek-v4-pro"]);
   });
 
-  it("preserves selected tier when pinning auto fallback to pro", async () => {
+  it("pins the actual fallback model for later auto requests", async () => {
     let count = 0;
     const upstream = await startUpstream((_req, res) => {
       count += 1;
@@ -522,7 +544,6 @@ describe("proxy", () => {
       res.end(JSON.stringify({ choices: [{ message: { content: "pro ok" } }] }));
     });
     handles.push(upstream);
-    const observeSpy = vi.spyOn(SessionPinStore.prototype, "observe");
     const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
     handles.push(proxy);
 
@@ -536,7 +557,6 @@ describe("proxy", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(observeSpy).toHaveBeenLastCalledWith("fallback-session", "deepseek-v4-pro", "MEDIUM");
 
     await request(proxy.port, "/v1/chat/completions", {
       method: "POST",
@@ -547,7 +567,73 @@ describe("proxy", () => {
       }),
     });
 
-    expect(observeSpy).toHaveBeenLastCalledWith("fallback-session", "deepseek-v4-pro", "MEDIUM");
+    expect(requestedModels(upstream.requests)).toEqual([
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+      "deepseek-v4-pro",
+    ]);
+  });
+
+  it("escalates the proxy path after three identical auto requests and only does it once", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const headers = { "content-type": "application/json", "x-session-id": "three-strike-session" };
+    const body = JSON.stringify({
+      model: "auto",
+      messages: [{ role: "user", content: "Translate hello" }],
+    });
+
+    for (let i = 0; i < 4; i++) {
+      const res = await request(proxy.port, "/v1/chat/completions", {
+        method: "POST",
+        headers,
+        body,
+      });
+      expect(res.status).toBe(200);
+    }
+
+    expect(requestedModels(upstream.requests)).toEqual([
+      "deepseek-v4-flash",
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+      "deepseek-v4-pro",
+    ]);
+  });
+
+  it("does not let an auto session pin override an explicit flash request", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const headers = { "content-type": "application/json", "x-session-id": "explicit-wins" };
+
+    await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: "auto",
+        messages: [
+          { role: "system", content: "Return a strict JSON object matching the schema." },
+          { role: "user", content: "Translate hello" },
+        ],
+      }),
+    });
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: "deepseek-v4-flash",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(requestedModels(upstream.requests)).toEqual(["deepseek-v4-pro", "deepseek-v4-flash"]);
   });
 
   it("does not downgrade pro on retryable upstream failure", async () => {
