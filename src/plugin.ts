@@ -138,6 +138,22 @@ function readStringRecord(value: unknown): Record<string, string> {
   return headers;
 }
 
+function mergeHeaders(...records: Array<Record<string, string>>): Record<string, string> {
+  const headers: Record<string, string> = {};
+
+  for (const record of records) {
+    for (const [key, value] of Object.entries(record)) {
+      const existingKey = Object.keys(headers).find((candidate) => candidate.toLowerCase() === key.toLowerCase());
+      if (existingKey) {
+        delete headers[existingKey];
+      }
+      headers[key] = value;
+    }
+  }
+
+  return headers;
+}
+
 function resolveProviderRuntimeOverrides(api: OpenClawPluginApi): Pick<ProxyOptions, "apiKey" | "headers"> {
   const provider = readProviderConfig(api);
   const request = provider.request && typeof provider.request === "object" && !Array.isArray(provider.request)
@@ -148,10 +164,7 @@ function resolveProviderRuntimeOverrides(api: OpenClawPluginApi): Pick<ProxyOpti
     : typeof provider.api_key === "string"
       ? provider.api_key
       : undefined;
-  const headers = {
-    ...readStringRecord(provider.headers),
-    ...readStringRecord(request.headers),
-  };
+  const headers = mergeHeaders(readStringRecord(provider.headers), readStringRecord(request.headers));
 
   return {
     ...(apiKey ? { apiKey } : {}),

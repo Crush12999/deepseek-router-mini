@@ -150,6 +150,74 @@ describe("proxy", () => {
     expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
   });
 
+  it("does not send authorization when apiKey and authorization headers are absent", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "deepseek-v4-flash",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(upstream.requests[0]?.headers.authorization).toBeUndefined();
+  });
+
+  it("keeps request authorization instead of overriding it with apiKey", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0, apiKey: "secret" });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer request-token",
+      },
+      body: JSON.stringify({
+        model: "deepseek-v4-flash",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(upstream.requests[0]?.headers.authorization).toBe("Bearer request-token");
+  });
+
+  it("lets configured authorization override request authorization and apiKey", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxy({
+      baseUrl: upstream.baseUrl,
+      port: 0,
+      apiKey: "secret",
+      headers: { Authorization: "Bearer configured-token" },
+    });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer request-token",
+      },
+      body: JSON.stringify({
+        model: "deepseek-v4-flash",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(upstream.requests[0]?.headers.authorization).toBe("Bearer configured-token");
+  });
+
   it("forwards to an upstream v1 API base without changing the local route", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
@@ -318,13 +386,13 @@ describe("proxy", () => {
     expect(upstream.requests[0]?.headers["x-custom"]).toBe("yes");
   });
 
-  it("overrides request headers case-insensitively instead of duplicating values", async () => {
+  it("lets configured headers override request headers case-insensitively", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
     const proxy = await startProxy({
       baseUrl: upstream.baseUrl,
       port: 0,
-      headers: { "X-Custom": "config-value", "X-Override": "request-value" },
+      headers: { "X-Custom": "config-value", "X-Uid": "configured-user" },
     });
     handles.push(proxy);
 
@@ -333,14 +401,14 @@ describe("proxy", () => {
       headers: {
         "content-type": "application/json",
         "x-custom": "incoming-value",
-        "x-override": "incoming-value",
+        "x-uid": "incoming-user",
       },
       body: JSON.stringify({ model: "deepseek-v4-flash", messages: [] }),
     });
 
     expect(res.status).toBe(200);
     expect(upstream.requests[0]?.headers["x-custom"]).toBe("config-value");
-    expect(upstream.requests[0]?.headers["x-override"]).toBe("request-value");
+    expect(upstream.requests[0]?.headers["x-uid"]).toBe("configured-user");
   });
 
   it("does not add a duplicate content-type when custom headers use different casing", async () => {

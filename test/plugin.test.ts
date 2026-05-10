@@ -304,6 +304,83 @@ describe("OpenClaw plugin lifecycle", () => {
     });
   });
 
+  it("prefers provider apiKey over api_key for proxy runtime", async () => {
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {
+        models: {
+          providers: {
+            xiaoyiprovider: {
+              apiKey: "camel-key",
+              api_key: "snake-key",
+            },
+          },
+        },
+      },
+      registerProvider: vi.fn(),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPlugin(api, { startProxy });
+    await serviceCalls[0]!.start();
+
+    expect(startProxy).toHaveBeenCalledWith({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      apiKey: "camel-key",
+    });
+  });
+
+  it("passes provider request headers over provider headers for proxy runtime", async () => {
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {
+        models: {
+          providers: {
+            xiaoyiprovider: {
+              headers: {
+                Authorization: "Bearer provider-token",
+                "x-uid": "provider-user",
+                "x-provider-only": "yes",
+              },
+              request: {
+                headers: {
+                  authorization: "Bearer request-token",
+                  "x-uid": "request-user",
+                  "x-request-only": "yes",
+                },
+              },
+            },
+          },
+        },
+      },
+      registerProvider: vi.fn(),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPlugin(api, { startProxy });
+    await serviceCalls[0]!.start();
+
+    expect(startProxy).toHaveBeenCalledWith({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      headers: {
+        authorization: "Bearer request-token",
+        "x-uid": "request-user",
+        "x-provider-only": "yes",
+        "x-request-only": "yes",
+      },
+    });
+  });
+
   it("prefers pluginConfig over environment variables", async () => {
     vi.stubEnv("XIAOYI_ROUTER_PORT", "9011");
     vi.stubEnv("XIAOYI_BASE_URL", "https://env.example.com");
