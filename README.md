@@ -17,6 +17,11 @@ npm install
 npm run build
 ```
 
+## Documentation
+
+- [使用手册](./docs/usage.md)
+- [开发文档](./docs/development.md)
+
 ## Run
 
 ```bash
