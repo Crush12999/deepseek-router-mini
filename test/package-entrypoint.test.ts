@@ -34,6 +34,44 @@ if (typeof mod.startProxy !== "function") throw new Error("missing startProxy ex
 if (!Array.isArray(mod.XIAOYI_OPENCLAW_MODELS) || mod.XIAOYI_OPENCLAW_MODELS.length !== 3) {
   throw new Error("missing Xiaoyi OpenClaw model exports");
 }
+if (!Array.isArray(mod.XIAOYI_MODELS) || mod.XIAOYI_MODELS.length !== 3) {
+  throw new Error("missing Xiaoyi model exports");
+}
+if (mod.MODEL_ROLES.light !== "deepseek-v4-flash") throw new Error("missing MODEL_ROLES export");
+if (!mod.SUPPORTED_MODEL_IDS.includes("deepseek-v4-pro")) {
+  throw new Error("missing SUPPORTED_MODEL_IDS export");
+}
+if (mod.getDefaultModelForRole("agentic") !== "deepseek-v4-pro") {
+  throw new Error("missing getDefaultModelForRole export");
+}
+if (mod.getModel("deepseek-v4-flash")?.id !== "deepseek-v4-flash") {
+  throw new Error("missing getModel export");
+}
+if (mod.getModel("not-a-model") !== undefined) throw new Error("getModel should reject unknown models");
+if (!mod.isRealModel("deepseek-v4-pro")) throw new Error("missing isRealModel export");
+if (mod.isRealModel("auto")) throw new Error("auto must not be treated as a real model");
+if (!mod.supportsToolCalling("deepseek-v4-flash")) {
+  throw new Error("missing supportsToolCalling export");
+}
+if (mod.supportsVision("deepseek-v4-flash")) throw new Error("Xiaoyi models should not support vision");
+if (mod.getModelContextWindow("deepseek-v4-pro") !== 1000000) {
+  throw new Error("missing getModelContextWindow export");
+}
+const pricing = mod.getModelPricing("deepseek-v4-pro");
+if (pricing.inputPrice !== 0.56 || pricing.outputPrice !== 1.68) {
+  throw new Error("missing getModelPricing export");
+}
+if (mod.validateModelId("deepseek-v4-flash").ok !== true) {
+  throw new Error("missing validateModelId export");
+}
+for (const legacyKey of [
+  "DEEPSEEK_MODELS",
+  "DEEPSEEK_OPENCLAW_MODELS",
+  "DEEPSEEK_PROVIDER_ID",
+  "createDeepSeekProvider",
+]) {
+  if (legacyKey in mod) throw new Error("legacy export leaked from entrypoint: " + legacyKey);
+}
 for (const key of Object.keys(mod)) {
   if (key.includes("DEEPSEEK") || key.includes("DeepSeek")) {
     throw new Error(\`legacy export leaked from entrypoint: \${key}\`);
