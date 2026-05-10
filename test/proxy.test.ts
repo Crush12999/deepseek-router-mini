@@ -271,6 +271,7 @@ describe("proxy", () => {
   it("routes auto code requests with tools to pro", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
+    const observeSpy = vi.spyOn(SessionPinStore.prototype, "observe");
     const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
     handles.push(proxy);
 
@@ -289,6 +290,7 @@ describe("proxy", () => {
     expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-pro");
     expect(res.headers.get("x-xiaoyi-router-routed")).toBe("true");
     expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-pro" });
+    expect(observeSpy).toHaveBeenCalledWith(expect.any(String), "deepseek-v4-pro", "MEDIUM");
   });
 
   it("keeps simple auto agent-style requests with ambient tools on flash", async () => {
@@ -505,6 +507,47 @@ describe("proxy", () => {
       "deepseek-v4-flash",
       "deepseek-v4-pro",
     ]);
+  });
+
+  it("preserves selected tier when pinning auto fallback to pro", async () => {
+    let count = 0;
+    const upstream = await startUpstream((_req, res) => {
+      count += 1;
+      if (count === 1) {
+        res.writeHead(429, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "rate limited" }));
+        return;
+      }
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ choices: [{ message: { content: "pro ok" } }] }));
+    });
+    handles.push(upstream);
+    const observeSpy = vi.spyOn(SessionPinStore.prototype, "observe");
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-session-id": "fallback-session" },
+      body: JSON.stringify({
+        model: "auto",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(observeSpy).toHaveBeenLastCalledWith("fallback-session", "deepseek-v4-pro", "MEDIUM");
+
+    await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-session-id": "fallback-session" },
+      body: JSON.stringify({
+        model: "auto",
+        messages: [{ role: "user", content: "Translate hello" }],
+      }),
+    });
+
+    expect(observeSpy).toHaveBeenLastCalledWith("fallback-session", "deepseek-v4-pro", "MEDIUM");
   });
 
   it("does not downgrade pro on retryable upstream failure", async () => {

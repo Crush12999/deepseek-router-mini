@@ -19,6 +19,7 @@ export type SessionEntry = {
   inputTokens: number;
   outputTokens: number;
   costEstimate: number;
+  lastEscalationRequestHash?: string;
 };
 
 export type SessionConfig = {
@@ -93,6 +94,7 @@ export class SessionStore {
       inputTokens: existing?.inputTokens ?? 0,
       outputTokens: existing?.outputTokens ?? 0,
       costEstimate: existing?.costEstimate ?? 0,
+      lastEscalationRequestHash: existing?.lastEscalationRequestHash,
     };
 
     this.sessions.set(sessionId, entry);
@@ -149,6 +151,7 @@ export class SessionStore {
   recordRequestHash(sessionId: string | undefined, requestHash: string): boolean {
     const entry = this.getSession(sessionId);
     if (!entry || entry.escalated) return false;
+    if (entry.lastEscalationRequestHash === requestHash) return false;
 
     if (entry.lastRequestHash === requestHash) {
       entry.sameRequestStrikes += 1;
@@ -158,7 +161,11 @@ export class SessionStore {
     }
     entry.updatedAt = Date.now();
 
-    return entry.sameRequestStrikes >= this.config.maxSameRequestStrikes;
+    if (entry.sameRequestStrikes < this.config.maxSameRequestStrikes) return false;
+
+    entry.lastEscalationRequestHash = requestHash;
+    entry.sameRequestStrikes = 0;
+    return true;
   }
 
   escalateSession(
@@ -257,10 +264,14 @@ export class SessionPinStore {
     return this.store.getSession(sessionId)?.model;
   }
 
-  observe(sessionId: string | undefined, model: RealModelId): void {
+  getTier(sessionId: string | undefined): Tier | undefined {
+    return this.store.getSession(sessionId)?.tier;
+  }
+
+  observe(sessionId: string | undefined, model: RealModelId, tier?: Tier): void {
     if (!sessionId) return;
     if (model === "deepseek-v4-pro") {
-      this.store.setSession(sessionId, model, "COMPLEX");
+      this.store.setSession(sessionId, model, tier ?? "COMPLEX");
     }
   }
 

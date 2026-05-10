@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   DEFAULT_SESSION_CONFIG,
+  SessionPinStore,
   SessionStore,
   deriveSessionId,
   hashRequestContent,
@@ -173,6 +174,8 @@ describe("SessionStore", () => {
       expect(store.recordRequestHash("s1", "aaa")).toBe(false);
       expect(store.recordRequestHash("s1", "aaa")).toBe(false);
       expect(store.recordRequestHash("s1", "aaa")).toBe(true);
+      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
+      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
       expect(store.escalateSession("s1", tierConfigs)).toEqual({
         model: "deepseek-v4-pro",
         tier: "COMPLEX",
@@ -187,6 +190,22 @@ describe("SessionStore", () => {
       expect(store.recordRequestHash("s1", "aaa")).toBe(false);
     } finally {
       store.close();
+    }
+  });
+});
+
+describe("SessionPinStore", () => {
+  it("preserves explicit pro tier observations", () => {
+    const pins = new SessionPinStore();
+
+    try {
+      pins.observe("reasoning-session", "deepseek-v4-pro", "REASONING");
+      pins.observe("medium-session", "deepseek-v4-pro", "MEDIUM");
+
+      expect(pins.getTier("reasoning-session")).toBe("REASONING");
+      expect(pins.getTier("medium-session")).toBe("MEDIUM");
+    } finally {
+      pins.close();
     }
   });
 });

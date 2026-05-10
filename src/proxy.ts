@@ -5,7 +5,7 @@ import type { RouterConfig, RouterConfigInput } from "./config.js";
 import { resolveConfig } from "./config.js";
 import type { RealModelId, SupportedModelId } from "./models.js";
 import { validateModelId } from "./models.js";
-import type { RouteInput } from "./router/types.js";
+import type { RouteDecision, RouteInput, Tier } from "./router/types.js";
 import { selectModel } from "./router/selector.js";
 import { deriveSessionId, SessionPinStore } from "./session.js";
 
@@ -233,7 +233,7 @@ function chooseModel(
   headers: IncomingMessage["headers"],
   pins: SessionPinStore,
   cfg: RouterConfig,
-): { model: RealModelId; routed: boolean; sessionId?: string } {
+): { model: RealModelId; routed: boolean; sessionId?: string; tier?: Tier } {
   const prompt = extractPrompt(body.messages ?? []);
   const sessionId = deriveSessionId(headers, body.messages ?? []);
 
@@ -245,7 +245,7 @@ function chooseModel(
   if (cfg.sessionPinning) {
     const pinned = pins.get(sessionId);
     if (pinned) {
-      return { model: pinned, routed: true, sessionId };
+      return { model: pinned, routed: true, sessionId, tier: pins.getTier(sessionId) };
     }
   }
 
@@ -258,7 +258,12 @@ function chooseModel(
   };
 
   const decision = selectModel(input);
-  return { model: decision.model, routed: true, sessionId };
+  return { model: decision.model, routed: true, sessionId, tier: tierFromLegacyDecision(decision) };
+}
+
+function tierFromLegacyDecision(decision: RouteDecision): Tier {
+  if (decision.reason === "long-context" || decision.category === "complex") return "COMPLEX";
+  return "MEDIUM";
 }
 
 // ---------------------------------------------------------------------------
@@ -314,7 +319,7 @@ async function proxyChat(
 
   // Observe "auto" requests for session pinning (before fetch)
   if (validation.model === "auto" && selected.sessionId) {
-    pins.observe(selected.sessionId, selected.model);
+    pins.observe(selected.sessionId, selected.model, selected.tier);
   }
 
   // Fetch upstream with fallback from Flash to Pro
@@ -330,7 +335,7 @@ async function proxyChat(
     fallback = true;
     attempt = await fetchUpstream(cfg, req, bodyObj, actualModel);
     if (validation.model === "auto" && selected.sessionId) {
-      pins.observe(selected.sessionId, actualModel);
+      pins.observe(selected.sessionId, actualModel, selected.tier);
     }
   }
 
