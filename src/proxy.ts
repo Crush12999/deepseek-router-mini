@@ -253,6 +253,7 @@ type SelectedModel = {
   routed: boolean;
   userExplicit: boolean;
   explicit: boolean;
+  pendingEscalation: boolean;
   tierConfigs: Record<Tier, TierConfig>;
 };
 
@@ -334,6 +335,10 @@ function getExplicitFallbackChain(model: RealModelId): RealModelId[] {
   return model === MODEL_ROLES.light ? [MODEL_ROLES.light, MODEL_ROLES.strong] : [MODEL_ROLES.strong];
 }
 
+function isReusableSessionPinModel(model: RealModelId): boolean {
+  return model !== MODEL_ROLES.light;
+}
+
 function getActualTier(
   model: RealModelId,
   selected: Pick<SelectedModel, "model" | "tier" | "tierConfigs">,
@@ -371,7 +376,6 @@ function chooseModel(
   if (requestedModel !== "auto") {
     const model = requestedModel as RealModelId;
     const tier = getExplicitTier(model);
-    sessionStore.setSession(sessionId, model, tier, true);
     return {
       model,
       tier,
@@ -380,6 +384,7 @@ function chooseModel(
       routed: false,
       userExplicit: true,
       explicit: true,
+      pendingEscalation: false,
       tierConfigs: DEFAULT_ROUTING_CONFIG.tiers,
     };
   }
@@ -393,26 +398,34 @@ function chooseModel(
       ? sessionStore.escalateSession(sessionId, DEFAULT_ROUTING_CONFIG.tiers)
       : undefined;
     const entry = sessionStore.getSession(sessionId) ?? existing;
-    const model = escalated?.model ?? entry.model;
-    const tier = escalated?.tier ?? entry.tier;
-    const chain = model === MODEL_ROLES.light
-      ? toRealFallbackChain(getFallbackChain(tier, DEFAULT_ROUTING_CONFIG.tiers), model)
-      : [model];
 
-    if (!requestHash) {
-      sessionStore.touchSession(sessionId);
+    if (!escalated && !isReusableSessionPinModel(entry.model)) {
+      if (!requestHash) {
+        sessionStore.touchSession(sessionId);
+      }
+    } else {
+      const model = escalated?.model ?? entry.model;
+      const tier = escalated?.tier ?? entry.tier;
+      const chain = model === MODEL_ROLES.light
+        ? toRealFallbackChain(getFallbackChain(tier, DEFAULT_ROUTING_CONFIG.tiers), model)
+        : [model];
+
+      if (!requestHash) {
+        sessionStore.touchSession(sessionId);
+      }
+
+      return {
+        model,
+        tier,
+        fallbackChain: chain,
+        sessionId,
+        routed: true,
+        userExplicit: entry.userExplicit,
+        explicit: false,
+        pendingEscalation: Boolean(escalated),
+        tierConfigs: DEFAULT_ROUTING_CONFIG.tiers,
+      };
     }
-
-    return {
-      model,
-      tier,
-      fallbackChain: chain,
-      sessionId,
-      routed: true,
-      userExplicit: entry.userExplicit,
-      explicit: false,
-      tierConfigs: DEFAULT_ROUTING_CONFIG.tiers,
-    };
   }
 
   const decision = route(
@@ -425,8 +438,10 @@ function chooseModel(
   const tierConfigs = decision.tierConfigs ?? DEFAULT_ROUTING_CONFIG.tiers;
   const fallbackChain = toRealFallbackChain(getFallbackChain(decision.tier, tierConfigs), model);
 
-  sessionStore.setSession(sessionId, model, decision.tier, false);
-  if (requestHash) {
+  if (!isReusableSessionPinModel(model)) {
+    sessionStore.setSession(sessionId, model, decision.tier, false);
+  }
+  if (!existing && requestHash) {
     sessionStore.recordRequestHash(sessionId, requestHash);
   }
 
@@ -439,6 +454,7 @@ function chooseModel(
     routed: true,
     userExplicit: false,
     explicit: false,
+    pendingEscalation: false,
     tierConfigs,
   };
 }
@@ -536,6 +552,9 @@ async function proxyChat(
   };
 
   if (!attempt.ok && attempt.reason === "network_error") {
+    if (selected.pendingEscalation) {
+      sessionStore.clearSession(selected.sessionId);
+    }
     writeJsonWithHeaders(
       res,
       502,
@@ -547,7 +566,11 @@ async function proxyChat(
     return;
   }
 
-  if (attempt.ok && selected.sessionId && actualModel !== selected.model) {
+  if (!attempt.ok && selected.pendingEscalation) {
+    sessionStore.clearSession(selected.sessionId);
+  }
+
+  if (attempt.ok && selected.sessionId && !selected.explicit && isReusableSessionPinModel(actualModel)) {
     sessionStore.setSession(
       selected.sessionId,
       actualModel,

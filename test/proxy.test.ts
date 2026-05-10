@@ -501,6 +501,114 @@ describe("proxy", () => {
     expect(upstream.requests[1]?.body).toMatchObject({ model: "deepseek-v4-pro" });
   });
 
+  it("does not pin an explicit pro success over a later simple auto request", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const headers = { "content-type": "application/json", "x-session-id": "explicit-pro-success" };
+
+    const explicit = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: "deepseek-v4-pro",
+        messages: [{ role: "user", content: "debug this complex issue" }],
+      }),
+    });
+
+    expect(explicit.status).toBe(200);
+
+    const auto = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: "auto",
+        messages: [{ role: "user", content: "Translate hello" }],
+      }),
+    });
+
+    expect(auto.status).toBe(200);
+    expect(requestedModels(upstream.requests)).toEqual(["deepseek-v4-pro", "deepseek-v4-flash"]);
+  });
+
+  it("does not pin an explicit pro failure over a later simple auto request", async () => {
+    let count = 0;
+    const upstream = await startUpstream((_req, res) => {
+      count += 1;
+      if (count === 1) {
+        res.writeHead(503, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "unavailable" }));
+        return;
+      }
+
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ choices: [{ message: { content: "flash ok" } }] }));
+    });
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const headers = { "content-type": "application/json", "x-session-id": "explicit-pro-failure" };
+
+    const explicit = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: "deepseek-v4-pro",
+        messages: [{ role: "user", content: "debug this complex issue" }],
+      }),
+    });
+
+    expect(explicit.status).toBe(503);
+
+    const auto = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: "auto",
+        messages: [{ role: "user", content: "Translate hello" }],
+      }),
+    });
+
+    expect(auto.status).toBe(200);
+    expect(requestedModels(upstream.requests)).toEqual(["deepseek-v4-pro", "deepseek-v4-flash"]);
+  });
+
+  it("does not pin an auto flash route over a later complex auto request", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const headers = { "content-type": "application/json", "x-session-id": "flash-then-complex" };
+
+    const simple = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: "auto",
+        messages: [{ role: "user", content: "Translate hello" }],
+      }),
+    });
+
+    expect(simple.status).toBe(200);
+
+    const complex = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: "auto",
+        tools: [{ type: "function", function: { name: "search" } }],
+        messages: [{ role: "user", content: "Write a TypeScript function and use the tool" }],
+      }),
+    });
+
+    expect(complex.status).toBe(200);
+    expect(requestedModels(upstream.requests)).toEqual(["deepseek-v4-flash", "deepseek-v4-pro"]);
+  });
+
   it("falls back from flash to pro on retryable upstream failure", async () => {
     let count = 0;
     const upstream = await startUpstream((_req, res) => {
