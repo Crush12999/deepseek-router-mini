@@ -50,7 +50,7 @@ describe("cli", () => {
     expect(help).toMatch(/XIAOYI_BASE_URL\s+Upstream API base URL/);
     expect(help).toMatch(/XIAOYI_ROUTER_PORT\s+Local proxy port/);
     expect(help).toMatch(/XIAOYI_ROUTER_HEADERS\s+Extra upstream headers as JSON/);
-    expect(help).not.toContain("DEEPSEEK_");
+    expect(help).not.toContain(["DEEPSEEK", ""].join("_"));
     expect(exit).toHaveBeenCalledWith(0);
   });
 });

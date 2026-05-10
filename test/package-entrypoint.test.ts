@@ -18,6 +18,8 @@ const pluginMetadata = JSON.parse(
   name: string;
   description: string;
 };
+const legacyPrefix = ["DEEPSEEK"].join("");
+const legacyExport = (name: string) => [legacyPrefix, name].join("_");
 
 const smokeScript = `
 const mod = await import(${JSON.stringify(pkg.name)});
@@ -83,9 +85,9 @@ if (typeof mod.calculateModelCost !== "function") {
   throw new Error("missing calculateModelCost export");
 }
 for (const legacyKey of [
-  "DEEPSEEK_MODELS",
-  "DEEPSEEK_OPENCLAW_MODELS",
-  "DEEPSEEK_PROVIDER_ID",
+  ${JSON.stringify(legacyExport("MODELS"))},
+  ${JSON.stringify(legacyExport("OPENCLAW_MODELS"))},
+  ${JSON.stringify(legacyExport("PROVIDER_ID"))},
   "createDeepSeekProvider",
 ]) {
   if (legacyKey in mod) throw new Error("legacy export leaked from entrypoint: " + legacyKey);

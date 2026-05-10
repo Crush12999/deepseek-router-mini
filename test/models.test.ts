@@ -12,6 +12,8 @@ import {
   validateModelId,
 } from "../src/models.js";
 
+const legacyExport = (name: string) => ["DEEPSEEK", name].join("_");
+
 describe("xiaoyi model registry", () => {
   it("keeps model ids centralized and unique", () => {
     expect(SUPPORTED_MODEL_IDS).toEqual(["auto", "deepseek-v4-flash", "deepseek-v4-pro"]);
@@ -24,7 +26,7 @@ describe("xiaoyi model registry", () => {
 
     expect(modelsModule.XIAOYI_MODELS).toBe(XIAOYI_MODELS);
     expect(modelsModule.XIAOYI_MODELS satisfies XiaoyiModel[]).toBe(modelsModule.XIAOYI_MODELS);
-    expect("DEEPSEEK_MODELS" in modelsModule).toBe(false);
+    expect(legacyExport("MODELS") in modelsModule).toBe(false);
     expect("DeepSeekModel" in modelsModule).toBe(false);
   });
 

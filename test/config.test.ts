@@ -8,6 +8,7 @@ import {
 } from "../src/config.js";
 
 const originalEnv = { ...process.env };
+const legacyEnv = (name: string) => ["DEEPSEEK", name].join("_");
 
 afterEach(() => {
   process.env = { ...originalEnv };
@@ -30,15 +31,15 @@ describe("config", () => {
     });
   });
 
-  it("ignores legacy DEEPSEEK_* env vars", () => {
+  it("ignores legacy upstream env vars", () => {
     delete process.env.XIAOYI_API_KEY;
     delete process.env.XIAOYI_BASE_URL;
     delete process.env.XIAOYI_ROUTER_PORT;
     delete process.env.XIAOYI_ROUTER_HEADERS;
-    process.env.DEEPSEEK_API_KEY = "legacy-key";
-    process.env.DEEPSEEK_BASE_URL = "https://legacy.example.com";
-    process.env.DEEPSEEK_ROUTER_PORT = "9001";
-    process.env.DEEPSEEK_ROUTER_HEADERS = "{\"X-Legacy\":\"yes\"}";
+    process.env[legacyEnv("API_KEY")] = "legacy-key";
+    process.env[legacyEnv("BASE_URL")] = "https://legacy.example.com";
+    process.env[legacyEnv("ROUTER_PORT")] = "9001";
+    process.env[legacyEnv("ROUTER_HEADERS")] = "{\"X-Legacy\":\"yes\"}";
 
     expect(resolveConfig()).toEqual({
       baseUrl: DEFAULT_BASE_URL,

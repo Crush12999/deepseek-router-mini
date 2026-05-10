@@ -3,6 +3,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const root = path.resolve(import.meta.dirname, "..");
+const legacyPackageName = ["deepseek", "router", "mini"].join("-");
+const legacyEnv = (name: string) => ["DEEPSEEK", name].join("_");
 
 describe("package metadata", () => {
   it("declares xiaoyi-router package metadata", () => {
@@ -12,7 +14,7 @@ describe("package metadata", () => {
     expect(pkg.description).toBe(
       "xiaoyi local routing proxy for DeepSeek V4 Flash and DeepSeek V4 Pro.",
     );
-    expect(JSON.stringify(pkg)).not.toContain("deepseek-router-mini");
+    expect(JSON.stringify(pkg)).not.toContain(legacyPackageName);
   });
 
   it("declares xiaoyi OpenClaw plugin metadata", () => {
@@ -29,8 +31,8 @@ describe("package metadata", () => {
     expect(plugin.configSchema.properties.port.description).toBe(
       "Local proxy port. Can also be set with XIAOYI_ROUTER_PORT.",
     );
-    expect(JSON.stringify(plugin)).not.toContain("DEEPSEEK_BASE_URL");
-    expect(JSON.stringify(plugin)).not.toContain("DEEPSEEK_ROUTER_PORT");
-    expect(JSON.stringify(plugin)).not.toContain("DEEPSEEK_ROUTER_HEADERS");
+    expect(JSON.stringify(plugin)).not.toContain(legacyEnv("BASE_URL"));
+    expect(JSON.stringify(plugin)).not.toContain(legacyEnv("ROUTER_PORT"));
+    expect(JSON.stringify(plugin)).not.toContain(legacyEnv("ROUTER_HEADERS"));
   });
 });

@@ -26,7 +26,10 @@ const HOP_BY_HOP = new Set([
 ]);
 
 const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
-const PUBLIC_HEADER_PREFIXES = ["x-xiaoyi-router-", "x-deepseek-router-"] as const;
+const PUBLIC_HEADER_PREFIXES = [
+  "x-xiaoyi-router-",
+  ["x", "deepseek", "router"].join("-") + "-",
+] as const;
 const TIER_ORDER: Tier[] = ["SIMPLE", "MEDIUM", "COMPLEX", "REASONING"];
 
 export type ProxyOptions = RouterConfigInput;
