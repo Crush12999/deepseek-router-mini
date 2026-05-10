@@ -1,7 +1,7 @@
 import http from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { startProxy } from "../src/proxy.js";
 
@@ -79,13 +79,16 @@ async function startUpstream(handler?: (req: IncomingMessage, res: ServerRespons
   };
 }
 
+const realFetch = globalThis.fetch.bind(globalThis);
+
 async function request(port: number, path: string, init: RequestInit = {}) {
-  return fetch(`http://127.0.0.1:${port}${path}`, init);
+  return realFetch(`http://127.0.0.1:${port}${path}`, init);
 }
 
 const handles: Array<{ close: () => Promise<void> }> = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   while (handles.length) {
     await handles.pop()?.close();
   }
@@ -137,8 +140,11 @@ describe("proxy", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(res.headers.get("x-deepseek-router-model")).toBe("deepseek-v4-flash");
-    expect(res.headers.get("x-deepseek-router-routed")).toBe("false");
+    expect(res.headers.get("x-deepseek-router-model")).toBeNull();
+    expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-flash");
+    expect(res.headers.get("x-xiaoyi-router-routed")).toBe("false");
+    expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("false");
+    expect(res.headers.get("x-xiaoyi-router-upstream")).toBe(upstream.baseUrl);
     expect(upstream.requests[0]?.url).toBe("/chat/completions");
     expect(upstream.requests[0]?.headers.authorization).toBe("Bearer secret");
     expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
@@ -199,8 +205,9 @@ describe("proxy", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(res.headers.get("x-deepseek-router-model")).toBe("deepseek-v4-pro");
-    expect(res.headers.get("x-deepseek-router-routed")).toBe("true");
+    expect(res.headers.get("x-deepseek-router-model")).toBeNull();
+    expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-pro");
+    expect(res.headers.get("x-xiaoyi-router-routed")).toBe("true");
     expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-pro" });
   });
 
@@ -221,7 +228,8 @@ describe("proxy", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(res.headers.get("x-deepseek-router-model")).toBe("deepseek-v4-flash");
+    expect(res.headers.get("x-deepseek-router-model")).toBeNull();
+    expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-flash");
     expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
   });
 
@@ -248,7 +256,8 @@ describe("proxy", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(res.headers.get("x-deepseek-router-model")).toBe("deepseek-v4-flash");
+    expect(res.headers.get("x-deepseek-router-model")).toBeNull();
+    expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-flash");
     expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
   });
 
@@ -282,7 +291,8 @@ describe("proxy", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(res.headers.get("x-deepseek-router-model")).toBe("deepseek-v4-flash");
+    expect(res.headers.get("x-deepseek-router-model")).toBeNull();
+    expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-flash");
     expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
   });
 
@@ -408,8 +418,9 @@ describe("proxy", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(res.headers.get("x-deepseek-router-model")).toBe("deepseek-v4-pro");
-    expect(res.headers.get("x-deepseek-router-fallback")).toBe("true");
+    expect(res.headers.get("x-deepseek-router-model")).toBeNull();
+    expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-pro");
+    expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("true");
     expect(upstream.requests.map((entry) => (entry.body as { model: string }).model)).toEqual([
       "deepseek-v4-flash",
       "deepseek-v4-pro",
@@ -435,8 +446,9 @@ describe("proxy", () => {
     });
 
     expect(res.status).toBe(503);
-    expect(res.headers.get("x-deepseek-router-model")).toBe("deepseek-v4-pro");
-    expect(res.headers.get("x-deepseek-router-fallback")).toBe("false");
+    expect(res.headers.get("x-deepseek-router-model")).toBeNull();
+    expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-pro");
+    expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("false");
     expect(upstream.requests).toHaveLength(1);
   });
 
@@ -456,6 +468,24 @@ describe("proxy", () => {
 
     expect(res.status).toBe(502);
     expect(await res.json()).toMatchObject({ error: expect.any(String) });
+  });
+
+  it("uses a neutral fallback message for non-Error network failures", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue("socket closed");
+    const proxy = await startProxy({ baseUrl: "http://upstream.example.test", port: 0 });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "deepseek-v4-pro",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "Upstream request failed" });
   });
 
   it("returns 400 on invalid JSON body", async () => {
@@ -500,7 +530,47 @@ describe("proxy", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/event-stream");
-    expect(res.headers.get("x-deepseek-router-model")).toBe("deepseek-v4-flash");
+    expect(res.headers.get("x-deepseek-router-model")).toBeNull();
+    expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-flash");
     expect(await res.text()).toContain("data: [DONE]");
+  });
+
+  it("filters upstream router headers before injecting its own public headers", async () => {
+    const upstream = await startUpstream((_req, res) => {
+      res.writeHead(200, {
+        "content-type": "application/json",
+        "x-deepseek-router-model": "legacy-upstream-model",
+        "x-deepseek-router-routed": "legacy-upstream-routed",
+        "x-deepseek-router-fallback": "legacy-upstream-fallback",
+        "x-deepseek-router-upstream": "legacy-upstream-upstream",
+        "x-xiaoyi-router-model": "spoofed-model",
+        "x-xiaoyi-router-routed": "spoofed-routed",
+        "x-xiaoyi-router-fallback": "spoofed-fallback",
+        "x-xiaoyi-router-upstream": "spoofed-upstream",
+      });
+      res.end(JSON.stringify({ id: "cmpl_1", choices: [{ message: { content: "ok" } }] }));
+    });
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "deepseek-v4-flash",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-deepseek-router-model")).toBeNull();
+    expect(res.headers.get("x-deepseek-router-routed")).toBeNull();
+    expect(res.headers.get("x-deepseek-router-fallback")).toBeNull();
+    expect(res.headers.get("x-deepseek-router-upstream")).toBeNull();
+    expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-flash");
+    expect(res.headers.get("x-xiaoyi-router-routed")).toBe("false");
+    expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("false");
+    expect(res.headers.get("x-xiaoyi-router-upstream")).toBe(upstream.baseUrl);
   });
 });

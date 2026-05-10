@@ -1,12 +1,12 @@
 {
-  "name": "deepseek-router-mini",
+  "name": "xiaoyi-router",
   "version": "0.1.0",
-  "description": "DeepSeek-only local routing proxy for deepseek-v4-flash and deepseek-v4-pro.",
+  "description": "xiaoyi local routing proxy for DeepSeek V4 Flash and DeepSeek V4 Pro.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "deepseek-router-mini": "./dist/cli.js"
+    "xiaoyi-router": "./dist/cli.js"
   },
   "exports": {
     ".": {

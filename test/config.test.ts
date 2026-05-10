@@ -15,10 +15,10 @@ afterEach(() => {
 
 describe("config", () => {
   it("uses defaults", () => {
-    delete process.env.DEEPSEEK_API_KEY;
-    delete process.env.DEEPSEEK_BASE_URL;
-    delete process.env.DEEPSEEK_ROUTER_PORT;
-    delete process.env.DEEPSEEK_ROUTER_HEADERS;
+    delete process.env.XIAOYI_API_KEY;
+    delete process.env.XIAOYI_BASE_URL;
+    delete process.env.XIAOYI_ROUTER_PORT;
+    delete process.env.XIAOYI_ROUTER_HEADERS;
 
     expect(resolveConfig()).toEqual({
       baseUrl: DEFAULT_BASE_URL,
@@ -31,10 +31,10 @@ describe("config", () => {
   });
 
   it("uses env vars and normalizes baseUrl", () => {
-    process.env.DEEPSEEK_API_KEY = "env-key";
-    process.env.DEEPSEEK_BASE_URL = "https://gateway.example.com///";
-    process.env.DEEPSEEK_ROUTER_PORT = "9000";
-    process.env.DEEPSEEK_ROUTER_HEADERS = "{\"X-Test\":\"yes\"}";
+    process.env.XIAOYI_API_KEY = "env-key";
+    process.env.XIAOYI_BASE_URL = "https://gateway.example.com///";
+    process.env.XIAOYI_ROUTER_PORT = "9000";
+    process.env.XIAOYI_ROUTER_HEADERS = "{\"X-Test\":\"yes\"}";
 
     expect(resolveConfig()).toMatchObject({
       baseUrl: "https://gateway.example.com",
@@ -45,8 +45,8 @@ describe("config", () => {
   });
 
   it("lets overrides win over env vars", () => {
-    process.env.DEEPSEEK_BASE_URL = "https://env.example.com";
-    process.env.DEEPSEEK_ROUTER_HEADERS = "{\"X-Env\":\"yes\"}";
+    process.env.XIAOYI_BASE_URL = "https://env.example.com";
+    process.env.XIAOYI_ROUTER_HEADERS = "{\"X-Env\":\"yes\"}";
 
     expect(
       resolveConfig({
@@ -64,11 +64,11 @@ describe("config", () => {
   it("rejects invalid header JSON", () => {
     expect(() => parseHeaderJson("[1,2,3]")).toThrow("expected object");
     expect(() => parseHeaderJson("{\"X\":1}")).toThrow("must be a string");
-    expect(() => parseHeaderJson("{bad json")).toThrow("Invalid DEEPSEEK_ROUTER_HEADERS");
+    expect(() => parseHeaderJson("{bad json")).toThrow("Invalid XIAOYI_ROUTER_HEADERS");
   });
 
   it("ignores invalid port env var", () => {
-    process.env.DEEPSEEK_ROUTER_PORT = "99999";
+    process.env.XIAOYI_ROUTER_PORT = "99999";
     expect(resolveConfig().port).toBe(DEFAULT_PORT);
   });
 });

@@ -2,17 +2,18 @@ import { DEFAULT_BASE_URL, DEFAULT_PORT } from "./config.js";
 import { startProxy as startProxyImpl } from "./proxy.js";
 import type { ProxyHandle, ProxyOptions } from "./proxy.js";
 import {
-  DEEPSEEK_OPENCLAW_MODELS,
-  DEEPSEEK_PROVIDER_API,
-  DEEPSEEK_PROVIDER_ID,
-  createDeepSeekProvider,
+  XIAOYI_OPENCLAW_MODELS,
+  XIAOYI_PROVIDER_API,
+  XIAOYI_PROVIDER_NAME,
+  XIAOYI_PROVIDER_ID,
+  createXiaoyiProvider,
 } from "./provider.js";
-import type { DeepSeekProvider } from "./provider.js";
+import type { XiaoyiProvider } from "./provider.js";
 
 type JsonObject = Record<string, unknown>;
 
 export type OpenClawService = {
-  id: "deepseek-router-proxy";
+  id: "xiaoyi-router-proxy";
   start: (ctx?: unknown) => Promise<void>;
   stop: (ctx?: unknown) => Promise<void>;
 };
@@ -21,7 +22,7 @@ export type OpenClawPluginApi = {
   config: JsonObject;
   pluginConfig?: { port?: unknown; upstreamUrl?: unknown } | Record<string, unknown>;
   registrationMode?: string;
-  registerProvider: (provider: DeepSeekProvider) => void;
+  registerProvider: (provider: XiaoyiProvider) => void;
   registerService: (service: OpenClawService) => void;
   unregisterService?: (id: string) => void | Promise<void>;
   logger?: {
@@ -31,9 +32,9 @@ export type OpenClawPluginApi = {
 };
 
 export type OpenClawPlugin = {
-  id: "deepseek-router-mini";
-  name: "DeepSeek Router Mini";
-  description: "DeepSeek-only local routing proxy for OpenClaw";
+  id: "xiaoyi-router";
+  name: "Xiaoyi Router";
+  description: "Xiaoyi local routing proxy for OpenClaw";
   version: string;
   register: (api: OpenClawPluginApi) => void;
 };
@@ -65,19 +66,19 @@ export function localProviderBaseUrl(port: number): string {
   return `http://127.0.0.1:${port}/v1`;
 }
 
-export function injectDeepSeekModelsConfig(config: JsonObject, providerBaseUrl: string): void {
+export function injectXiaoyiModelsConfig(config: JsonObject, providerBaseUrl: string): void {
   const models = ensureObject(config, "models");
   const providers = ensureObject(models, "providers");
-  const current = providers[DEEPSEEK_PROVIDER_ID];
+  const current = providers[XIAOYI_PROVIDER_ID];
   const existing =
     current && typeof current === "object" && !Array.isArray(current) ? (current as JsonObject) : {};
 
-  providers[DEEPSEEK_PROVIDER_ID] = {
+  providers[XIAOYI_PROVIDER_ID] = {
     ...existing,
     baseUrl: providerBaseUrl,
-    api: DEEPSEEK_PROVIDER_API,
+    api: XIAOYI_PROVIDER_API,
     apiKey: existing.apiKey,
-    models: DEEPSEEK_OPENCLAW_MODELS,
+    models: XIAOYI_OPENCLAW_MODELS,
   };
 }
 
@@ -107,8 +108,8 @@ function parsePluginUpstreamUrl(pluginValue: unknown, envValue: string | undefin
 
 function resolvePluginRuntimeConfig(api: OpenClawPluginApi): { port: number; upstreamUrl: string } {
   return {
-    port: resolvePluginPort(api.pluginConfig?.port, process.env.DEEPSEEK_ROUTER_PORT),
-    upstreamUrl: parsePluginUpstreamUrl(api.pluginConfig?.upstreamUrl, process.env.DEEPSEEK_BASE_URL),
+    port: resolvePluginPort(api.pluginConfig?.port, process.env.XIAOYI_ROUTER_PORT),
+    upstreamUrl: parsePluginUpstreamUrl(api.pluginConfig?.upstreamUrl, process.env.XIAOYI_BASE_URL),
   };
 }
 
@@ -119,7 +120,7 @@ function readProviderConfig(api: OpenClawPluginApi): JsonObject {
   const providers = (models as JsonObject).providers;
   if (!providers || typeof providers !== "object" || Array.isArray(providers)) return {};
 
-  const provider = (providers as JsonObject)[DEEPSEEK_PROVIDER_ID];
+  const provider = (providers as JsonObject)[XIAOYI_PROVIDER_ID];
   if (!provider || typeof provider !== "object" || Array.isArray(provider)) return {};
 
   return provider as JsonObject;
@@ -158,8 +159,43 @@ function resolveProviderRuntimeOverrides(api: OpenClawPluginApi): Pick<ProxyOpti
   };
 }
 
+const DUPLICATE_PROVIDER_ERROR_PATTERN = /\bprovider\b[^\n]*\balready registered\b/i;
+
+function normalizeProviderIdentity(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+const XIAOYI_DUPLICATE_PROVIDER_IDENTITIES = new Set([
+  XIAOYI_PROVIDER_ID,
+  XIAOYI_PROVIDER_NAME,
+].map(normalizeProviderIdentity));
+
+function extractDuplicateProviderCandidates(message: string): string[] {
+  const [, detail = ""] = message.split(/already registered\s*:/i, 2);
+  const label = detail.trim();
+  if (!label) return [];
+
+  const candidates = [normalizeProviderIdentity(label)].filter(Boolean);
+  const parentheticalLabel = label.match(/^(.+?)\s*\(([^()]*)\)\s*$/);
+  if (parentheticalLabel) {
+    const providerLabel = normalizeProviderIdentity(parentheticalLabel[1] ?? "");
+    const parentheticalIdentity = normalizeProviderIdentity(parentheticalLabel[2] ?? "");
+    if (providerLabel && providerLabel === parentheticalIdentity) {
+      candidates.push(providerLabel);
+    }
+  }
+
+  return [...new Set(candidates)];
+}
+
 function isDuplicateProviderRegistrationError(error: unknown): boolean {
-  return error instanceof Error && /provider already registered:\s*deepseek\b/i.test(error.message);
+  if (!(error instanceof Error) || !DUPLICATE_PROVIDER_ERROR_PATTERN.test(error.message)) {
+    return false;
+  }
+
+  return extractDuplicateProviderCandidates(error.message).some((candidate) =>
+    XIAOYI_DUPLICATE_PROVIDER_IDENTITIES.has(candidate)
+  );
 }
 
 function shouldStartRuntimeProxy(registrationMode: string | undefined): boolean {
@@ -223,7 +259,7 @@ function createProxyService(
   let serviceProxy: ProxyHandle | undefined;
 
   return {
-    id: "deepseek-router-proxy",
+    id: "xiaoyi-router-proxy",
     async start() {
       try {
         if (serviceProxy && activeProxy === serviceProxy) {
@@ -243,10 +279,10 @@ function createProxyService(
         });
         serviceProxy = proxy;
         await replaceActiveProxy(proxy);
-        api.logger?.info?.(`DeepSeek Router Mini listening on ${providerBaseUrl}`);
+        api.logger?.info?.(`Xiaoyi Router listening on ${providerBaseUrl}`);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        api.logger?.error?.(`DeepSeek Router Mini failed to start on port ${port}: ${message}`);
+        api.logger?.error?.(`Xiaoyi Router failed to start on port ${port}: ${message}`);
         throw error;
       }
     },
@@ -267,18 +303,18 @@ export function registerOpenClawPlugin(api: OpenClawPluginApi, runtime: PluginRu
   const { port, upstreamUrl } = resolvePluginRuntimeConfig(api);
   const providerBaseUrl = localProviderBaseUrl(port);
   const shouldRegisterRuntimeService = shouldStartRuntimeProxy(api.registrationMode);
-  const serviceId: OpenClawService["id"] = "deepseek-router-proxy";
+  const serviceId: OpenClawService["id"] = "xiaoyi-router-proxy";
 
   if (shouldRegisterRuntimeService) {
     api.registerService(createProxyService(api, runtime, port, upstreamUrl, providerBaseUrl));
   }
 
   try {
-    api.registerProvider(createDeepSeekProvider(providerBaseUrl));
+    api.registerProvider(createXiaoyiProvider(providerBaseUrl));
   } catch (error) {
     if (isDuplicateProviderRegistrationError(error)) {
-      api.logger?.info?.("DeepSeek provider already registered; keeping router service active");
-      injectDeepSeekModelsConfig(api.config, providerBaseUrl);
+      api.logger?.info?.("Xiaoyi provider already registered; keeping router service active");
+      injectXiaoyiModelsConfig(api.config, providerBaseUrl);
       return;
     }
 
@@ -288,5 +324,5 @@ export function registerOpenClawPlugin(api: OpenClawPluginApi, runtime: PluginRu
     throw error;
   }
 
-  injectDeepSeekModelsConfig(api.config, providerBaseUrl);
+  injectXiaoyiModelsConfig(api.config, providerBaseUrl);
 }

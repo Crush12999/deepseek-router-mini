@@ -1,24 +1,43 @@
 import { execFile } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
 const execFileAsync = promisify(execFile);
+const root = path.resolve(import.meta.dirname, "..");
+const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")) as {
+  name: string;
+  description: string;
+};
+const pluginMetadata = JSON.parse(
+  fs.readFileSync(path.join(root, "openclaw.plugin.json"), "utf8"),
+) as {
+  id: string;
+  name: string;
+  description: string;
+};
 
 const smokeScript = `
-const mod = await import("deepseek-router-mini");
+const mod = await import(${JSON.stringify(pkg.name)});
 
 if (!mod.default) throw new Error("missing default export");
-if (mod.default.id !== "deepseek-router-mini") throw new Error("unexpected plugin id");
-if (mod.default.name !== "DeepSeek Router Mini") throw new Error("unexpected plugin name");
-if (mod.default.description !== "DeepSeek-only local routing proxy for OpenClaw") {
+if (mod.default.id !== ${JSON.stringify(pluginMetadata.id)}) throw new Error("unexpected plugin id");
+if (mod.default.name !== ${JSON.stringify(pluginMetadata.name)}) throw new Error("unexpected plugin name");
+if (mod.default.description !== ${JSON.stringify(pluginMetadata.description)}) {
   throw new Error("unexpected plugin description");
 }
 if (mod.default.version !== mod.VERSION) throw new Error("plugin version does not match VERSION");
 if (typeof mod.default.register !== "function") throw new Error("missing plugin register function");
 if (typeof mod.startProxy !== "function") throw new Error("missing startProxy export");
-if (!Array.isArray(mod.DEEPSEEK_OPENCLAW_MODELS) || mod.DEEPSEEK_OPENCLAW_MODELS.length !== 3) {
-  throw new Error("missing DeepSeek OpenClaw model exports");
+if (!Array.isArray(mod.XIAOYI_OPENCLAW_MODELS) || mod.XIAOYI_OPENCLAW_MODELS.length !== 3) {
+  throw new Error("missing Xiaoyi OpenClaw model exports");
+}
+for (const key of Object.keys(mod)) {
+  if (key.includes("DEEPSEEK") || key.includes("DeepSeek")) {
+    throw new Error(\`legacy export leaked from entrypoint: \${key}\`);
+  }
 }
 
 const services = [];
@@ -41,7 +60,7 @@ if (services.length !== 0) throw new Error("discovery register should not regist
 console.log(JSON.stringify({
   id: mod.default.id,
   version: mod.default.version,
-  modelCount: mod.DEEPSEEK_OPENCLAW_MODELS.length
+  modelCount: mod.XIAOYI_OPENCLAW_MODELS.length
 }));
 `;
 
@@ -55,7 +74,7 @@ describe("built package entrypoint", () => {
       const result = JSON.parse(stdout) as { id: string; version: string; modelCount: number };
 
       expect(result).toMatchObject({
-        id: "deepseek-router-mini",
+        id: pluginMetadata.id,
         version: expect.any(String),
         modelCount: 3,
       });

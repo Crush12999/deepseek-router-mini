@@ -25,6 +25,7 @@ const HOP_BY_HOP = new Set([
 ]);
 
 const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+const PUBLIC_HEADER_PREFIXES = ["x-xiaoyi-router-", "x-deepseek-router-"] as const;
 
 export type ProxyOptions = RouterConfigInput;
 
@@ -166,7 +167,7 @@ function copyResponseHeaders(response: Response, extraHeaders: Record<string, st
   for (const [key, value] of response.headers.entries()) {
     const lower = key.toLowerCase();
     if (HOP_BY_HOP.has(lower)) continue;
-    if (lower.startsWith("x-deepseek-router-")) continue;
+    if (PUBLIC_HEADER_PREFIXES.some((prefix) => lower.startsWith(prefix))) continue;
     headers[key] = value;
   }
   Object.assign(headers, extraHeaders);
@@ -334,14 +335,15 @@ async function proxyChat(
   }
 
   const headers: Record<string, string> = {
-    "x-deepseek-router-model": actualModel,
-    "x-deepseek-router-routed": String(selected.routed),
-    "x-deepseek-router-fallback": String(fallback),
+    "x-xiaoyi-router-model": actualModel,
+    "x-xiaoyi-router-routed": String(selected.routed),
+    "x-xiaoyi-router-fallback": String(fallback),
+    "x-xiaoyi-router-upstream": cfg.baseUrl,
   };
 
   if (!attempt.ok && attempt.reason === "network_error") {
     writeJson(res, 502, {
-      error: attempt.error instanceof Error ? attempt.error.message : "DeepSeek upstream failed",
+      error: attempt.error instanceof Error ? attempt.error.message : "Upstream request failed",
     });
     return;
   }

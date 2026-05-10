@@ -1,6 +1,6 @@
-# DeepSeek Router Mini
+# Xiaoyi Router
 
-DeepSeek Router Mini is a small local routing proxy for DeepSeek-compatible Chat Completions APIs.
+Xiaoyi Router is a small local routing proxy for OpenAI-compatible Chat Completions APIs.
 
 It supports only three public model IDs:
 
@@ -25,7 +25,7 @@ npm run build
 ## Run
 
 ```bash
-export DEEPSEEK_API_KEY="your-api-key"
+export XIAOYI_API_KEY="your-api-key"
 npm run build
 node dist/cli.js
 ```
@@ -33,13 +33,13 @@ node dist/cli.js
 Custom upstream:
 
 ```bash
-DEEPSEEK_BASE_URL="https://api.deepseek.com" node dist/cli.js --port 8402
+XIAOYI_BASE_URL="https://api.deepseek.com" node dist/cli.js --port 8402
 ```
 
 Extra upstream headers:
 
 ```bash
-export DEEPSEEK_ROUTER_HEADERS='{"X-Request-Source":"deepseek-router-mini"}'
+export XIAOYI_ROUTER_HEADERS='{"X-Request-Source":"xiaoyi-router"}'
 ```
 
 ## API
@@ -63,9 +63,10 @@ Unsupported model IDs return HTTP 400.
 
 The proxy adds routing headers:
 
-- `x-deepseek-router-model`
-- `x-deepseek-router-routed`
-- `x-deepseek-router-fallback`
+- `x-xiaoyi-router-model`
+- `x-xiaoyi-router-routed`
+- `x-xiaoyi-router-fallback`
+- `x-xiaoyi-router-upstream`
 
 ## Phase 2 Candidate: Response Cache
 
