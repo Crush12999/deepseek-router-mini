@@ -139,7 +139,7 @@ OpenClaw Gateway
 
 ### 4.3 `auto` 到 Flash / Pro 的选择
 
-`selectModel()` 的决策规则如下：
+`selectModel()` 的决策规则如下。面向用户的语义是：简单摘要、短文本和常规轻量任务默认 Flash；复杂推理、长上下文、工具密集、代码 / agentic 和结构化高风险任务默认 Pro。
 
 | 条件                                | 目标模型            | 原因                           |
 | ----------------------------------- | ------------------- | ------------------------------ |
@@ -178,7 +178,7 @@ Follow the BOOTSTRAP.md instructions above now.
 
 ### 4.5 会话钉住
 
-`SessionPinStore` 只钉住 Pro，不钉住 Flash：
+会话钉住逻辑只钉住 Pro，不钉住 Flash：
 
 - 如果某个 `auto` 会话被路由到 Pro，后续同一会话的 `auto` 请求继续走 Pro。
 - 如果某个 `auto` 会话只走 Flash，不会写入 pin。
@@ -460,8 +460,9 @@ trimTrailingSlash(upstreamBaseUrl) + /chat/completions
 - 跳过 hop-by-hop Header，例如 `connection`、`host`、`content-length`、`transfer-encoding` 等。
 - Header 名按大小写不敏感方式去重。
 - 配置 Header 覆盖客户端请求 Header。
-- 如果最终没有 `Authorization`，并且配置里有 `apiKey`，代理会补充 `Authorization: Bearer <apiKey>`。
-- 如果已经有 `Authorization`，不会再用 `apiKey` 覆盖。
+- `apiKey` 可选：如果最终没有 `Authorization`，并且配置里有 `apiKey`，代理会补充 `Authorization: Bearer <apiKey>`；如果没有配置 `apiKey`，代理不会发送 `Authorization`。
+- 如果请求或配置里已经有 `Authorization`，遵循当前实现的 Header 合并语义，不会再用 `apiKey` 覆盖。
+- `x-uid` 可通过 provider `headers` 或 `request.headers` 透传。
 - 如果最终没有 `Content-Type`，代理会补充 `content-type: application/json`。
 
 OpenClaw 场景下，常见情况是 Gateway 已经根据 Provider 配置注入了 `Authorization`。如果 OpenClaw 没有注入，代理仍可使用 `XIAOYI_API_KEY` 或插件启动时透传的 `apiKey` 兜底。
@@ -472,7 +473,6 @@ OpenClaw 场景下，常见情况是 Gateway 已经根据 Provider 配置注入�
 
 - hop-by-hop Header
 - 上游响应中已有的 `x-xiaoyi-router-*` Header
-- 上游响应中已有的旧品牌路由 Header
 
 然后追加下列路由 Header：
 
@@ -495,7 +495,8 @@ fallback 规则：
 
 - 如果首次目标模型是 `deepseek-v4-flash`，且上游返回可重试状态，代理会丢弃响应体，再用 `deepseek-v4-pro` 重试。
 - 如果首次目标模型是 `deepseek-v4-flash`，且发生网络错误，也会用 Pro 重试。
-- 如果首次目标模型已经是 `deepseek-v4-pro`，不会降级，也不会再试 Flash。
+- 显式 `deepseek-v4-flash` 请求同样允许在可重试失败时 fallback 到 `deepseek-v4-pro`。
+- 显式 `deepseek-v4-pro` 请求不会降级，也不会再试 Flash。
 - 对 `auto` 请求，如果 fallback 后实际走 Pro，会把该会话钉住到 Pro。
 
 ### 7.7 流式响应

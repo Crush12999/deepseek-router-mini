@@ -331,7 +331,9 @@ openclaw agents add xiaoyi-router \
 
 ## 自动路由说明
 
-只有请求模型为 `auto` 时才会执行自动路由。显式请求 `deepseek-v4-flash` 或 `deepseek-v4-pro` 时，代理会直接使用对应上游模型，并把 `x-xiaoyi-router-routed` 设为 `false`。
+只有请求模型为 `auto` 时才会执行自动路由。简单摘要、短文本和常规轻量任务默认使用 `deepseek-v4-flash`；复杂推理、长上下文、工具密集、代码 / agentic 和结构化高风险任务默认使用 `deepseek-v4-pro`。
+
+显式模型优先于自动路由。显式请求 `deepseek-v4-flash` 时，代理会先使用 Flash，并在可重试失败时 fallback 到 `deepseek-v4-pro`；显式请求 `deepseek-v4-pro` 时不会降级到 Flash。显式请求会把 `x-xiaoyi-router-routed` 设为 `false`。
 
 ### 简单任务
 
@@ -430,7 +432,7 @@ curl -iS http://127.0.0.1:8402/v1/chat/completions \
 
 | 环境变量                  | 作用                                                                                    | 默认值                     |
 | ------------------------- | --------------------------------------------------------------------------------------- | -------------------------- |
-| `XIAOYI_API_KEY`        | 上游 API Key。请求未自带 `Authorization` 时，代理会补充 `Authorization: Bearer <key>`。 | 无                         |
+| `XIAOYI_API_KEY`        | 可选上游 API Key。合并后没有 `Authorization` 时，代理会补充 `Authorization: Bearer <apiKey>`；未配置时不发送 `Authorization`。 | 无                         |
 | `XIAOYI_BASE_URL`       | 上游 API base。代理会去掉末尾多余 `/`，再追加 `/chat/completions`。                     | `https://api.deepseek.com` |
 | `XIAOYI_ROUTER_PORT`    | 本地监听端口。必须是 `1` 到 `65535` 之间的整数。                                        | `8402`                     |
 | `XIAOYI_ROUTER_HEADERS` | 额外上游请求头，JSON 对象，值必须是字符串。                                             | `{}`                       |
@@ -599,11 +601,12 @@ CLI 参数优先于环境变量中的同类配置。
 
 header 合并规则：
 
-- `models.providers.xiaoyiprovider.headers` 会传给代理。
-- `models.providers.xiaoyiprovider.request.headers` 会传给代理，并覆盖同名 provider header。
+- `models.providers.xiaoyiprovider.headers` 会传给代理，可用于透传 `x-uid`。
+- `models.providers.xiaoyiprovider.request.headers` 会传给代理，可用于透传 `x-uid`，并覆盖同名 provider header。
 - 非字符串 header 值会被忽略。
 - 这些 header 会覆盖调用请求中的同名 header。
-- 如果最终 header 中没有 `Authorization`，且存在 API Key，代理会添加 `Authorization: Bearer <key>`。
+- `apiKey` 可选：提供时，如果最终 header 中没有 `Authorization`，代理会添加 `Authorization: Bearer <apiKey>`；不提供时不发送 `Authorization`。
+- 如果请求或配置中已经有 `Authorization`，遵循当前实现的 header 合并语义，不再用 `apiKey` 覆盖。
 
 ## HTTP API 使用
 
@@ -1191,7 +1194,8 @@ curl -NS http://127.0.0.1:8402/v1/chat/completions \
 需要注意：
 
 - 自定义 header 会覆盖调用请求中的同名 header。
-- 自定义 `Authorization` 会覆盖 `XIAOYI_API_KEY` 自动生成的 Bearer Token。
+- 自定义 `Authorization` 会覆盖 `XIAOYI_API_KEY` 自动生成的 Bearer Token；未提供 `apiKey` 时，代理不会主动发送 `Authorization`。
+- `x-uid` 可通过 provider `headers` 或 `request.headers` 透传。
 - `XIAOYI_ROUTER_HEADERS` 中所有值必须是字符串。
 - OpenClaw provider 的 `request.headers` 会覆盖 provider 顶层 `headers` 中的同名字段。
 

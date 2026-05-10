@@ -8,7 +8,9 @@ It supports only three public model IDs:
 - `deepseek-v4-flash`
 - `deepseek-v4-pro`
 
-`auto` is routed locally. Simple and ordinary code requests use `deepseek-v4-flash`; debugging, complex reasoning, long-context work, multi-file tasks, and code requests that actually need tool use route to `deepseek-v4-pro`.
+`auto` is routed locally. Simple summaries, short text, and ordinary lightweight tasks default to `deepseek-v4-flash`. Complex reasoning, long-context requests, tool-intensive work, code or agentic tasks, and high-risk structured output default to `deepseek-v4-pro`.
+
+Explicit model requests take priority. Explicit `deepseek-v4-flash` requests may fall back to `deepseek-v4-pro` on retryable failures; explicit `deepseek-v4-pro` requests are never downgraded.
 
 ## Install
 
@@ -36,11 +38,15 @@ Custom upstream:
 XIAOYI_BASE_URL="https://api.deepseek.com" node dist/cli.js --port 8402
 ```
 
+The default upstream is `https://api.deepseek.com`. Set `XIAOYI_BASE_URL` to use another OpenAI-compatible upstream API base.
+
 Extra upstream headers:
 
 ```bash
 export XIAOYI_ROUTER_HEADERS='{"X-Request-Source":"xiaoyi-router"}'
 ```
+
+`XIAOYI_API_KEY` is optional. When provided, the proxy sends `Authorization: Bearer <apiKey>` if the merged request headers do not already contain `Authorization`. When omitted, the proxy does not add `Authorization`. If request headers or configured headers already include `Authorization`, the current header merge semantics apply. `x-uid` can be passed through provider `headers` or `request.headers`.
 
 ## API
 
