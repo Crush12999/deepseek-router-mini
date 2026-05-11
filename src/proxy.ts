@@ -5,8 +5,21 @@ import type { RouterConfig, RouterConfigInput } from "./config.js";
 import { resolveConfig } from "./config.js";
 import type { RealModelId, SupportedModelId } from "./models.js";
 import { MODEL_ROLES, getModelPricing, validateModelId } from "./models.js";
-import { DEFAULT_ROUTING_CONFIG, getFallbackChain, route } from "./router/index.js";
-import type { ModelPricing } from "./router/index.js";
+import {
+  DEFAULT_ROUTING_CONFIG,
+  buildTraceSummary,
+  emitRouteTrace,
+  getFallbackChain,
+  getPromptPreview,
+  route,
+} from "./router/index.js";
+import type {
+  ModelPricing,
+  RouteTraceLog,
+  TraceAttempt,
+  TraceReason,
+  TraceSessionAction,
+} from "./router/index.js";
 import type { RouterOptions, RoutingDecision, Tier, TierConfig } from "./router/types.js";
 import { deriveSessionId, hashRequestContent, SessionStore } from "./session.js";
 
@@ -249,11 +262,14 @@ type SelectedModel = {
   tier: Tier;
   decision?: RoutingDecision;
   fallbackChain: RealModelId[];
+  routeText: string;
+  requestedModel: SupportedModelId;
   sessionId?: string;
   routed: boolean;
   userExplicit: boolean;
   explicit: boolean;
   pendingEscalation: boolean;
+  sessionAction: TraceSessionAction;
   tierConfigs: Record<Tier, TierConfig>;
 };
 
@@ -361,6 +377,75 @@ function getActualTier(
   return selected.tier;
 }
 
+function getTraceReason(selected: SelectedModel, fallback: boolean, failed: boolean): TraceReason {
+  if (selected.explicit) return "user";
+  if (fallback) return "fallback";
+  if (selected.pendingEscalation) return "escalated";
+  if (selected.decision?.tier === "REASONING") return "reasoning";
+  if (failed) return "error";
+  return "first-pass";
+}
+
+function buildPublicHeaders(
+  cfg: RouterConfig,
+  selected: SelectedModel,
+  actualModel: RealModelId,
+  finalTier: Tier,
+  fallback: boolean,
+  trace: string,
+): Record<string, string> {
+  return {
+    "x-xiaoyi-router-model": actualModel,
+    "x-xiaoyi-router-tier": finalTier,
+    "x-xiaoyi-router-trace": trace,
+    "x-xiaoyi-router-routed": String(selected.routed),
+    "x-xiaoyi-router-fallback": String(fallback),
+    "x-xiaoyi-router-upstream": cfg.baseUrl,
+  };
+}
+
+function emitProxyTrace(
+  cfg: RouterConfig,
+  selected: SelectedModel,
+  actualModel: RealModelId,
+  finalTier: Tier,
+  fallback: boolean,
+  attempts: TraceAttempt[],
+  sessionAction: TraceSessionAction,
+  failed: boolean,
+): string {
+  const reason = getTraceReason(selected, fallback, failed);
+  const trace = buildTraceSummary({
+    requestedModel: selected.requestedModel,
+    actualModel,
+    tier: finalTier,
+    profile: selected.decision?.profile,
+    reason,
+    routed: selected.routed,
+    explicit: selected.explicit,
+    fallback,
+  });
+  const detail: RouteTraceLog = {
+    trace,
+    requestedModel: selected.requestedModel,
+    actualModel,
+    tier: finalTier,
+    profile: selected.decision?.profile,
+    method: selected.decision?.method,
+    confidence: selected.decision?.confidence,
+    score: selected.decision?.score,
+    agenticScore: selected.decision?.agenticScore,
+    routed: selected.routed,
+    fallback,
+    attempts,
+    sessionAction,
+    ...(cfg.traceMode === "debug" && { promptPreview: getPromptPreview(selected.routeText) }),
+  };
+
+  emitRouteTrace(cfg.traceMode, detail);
+  return trace;
+}
+
 function chooseModel(
   requestedModel: SupportedModelId,
   body: { messages?: unknown[]; tools?: unknown[] },
@@ -380,11 +465,14 @@ function chooseModel(
       model,
       tier,
       fallbackChain: getExplicitFallbackChain(model),
+      routeText: prompt.routeText,
+      requestedModel,
       sessionId,
       routed: false,
       userExplicit: true,
       explicit: true,
       pendingEscalation: false,
+      sessionAction: "none",
       tierConfigs: DEFAULT_ROUTING_CONFIG.tiers,
     };
   }
@@ -418,11 +506,14 @@ function chooseModel(
         model,
         tier,
         fallbackChain: chain,
+        routeText: prompt.routeText,
+        requestedModel,
         sessionId,
         routed: true,
         userExplicit: entry.userExplicit,
         explicit: false,
         pendingEscalation: Boolean(escalated),
+        sessionAction: escalated ? "escalate" : "reuse",
         tierConfigs: DEFAULT_ROUTING_CONFIG.tiers,
       };
     }
@@ -450,11 +541,14 @@ function chooseModel(
     tier: decision.tier,
     decision,
     fallbackChain,
+    routeText: prompt.routeText,
+    requestedModel,
     sessionId,
     routed: true,
     userExplicit: false,
     explicit: false,
     pendingEscalation: false,
+    sessionAction: !isReusableSessionPinModel(model) ? "set" : "none",
     tierConfigs,
   };
 }
@@ -513,11 +607,19 @@ async function proxyChat(
   let actualModel = selected.model;
   let fallback = false;
   let attempt: AttemptResult | undefined;
+  const attempts: TraceAttempt[] = [];
 
   for (const [index, model] of selected.fallbackChain.entries()) {
     actualModel = model;
     fallback = index > 0;
     attempt = await fetchUpstream(cfg, req, bodyObj, model);
+    attempts.push(
+      attempt.ok
+        ? { model, result: "ok", status: attempt.response.status }
+        : attempt.reason === "retryable"
+          ? { model, result: "retryable", status: attempt.response.status }
+          : { model, result: "network_error" },
+    );
 
     if (attempt.ok) {
       break;
@@ -534,27 +636,41 @@ async function proxyChat(
   }
 
   if (!attempt) {
-    const headers: Record<string, string> = {
-      "x-xiaoyi-router-model": actualModel,
-      "x-xiaoyi-router-routed": String(selected.routed),
-      "x-xiaoyi-router-fallback": String(fallback),
-      "x-xiaoyi-router-upstream": cfg.baseUrl,
-    };
+    const finalTier = getActualTier(actualModel, selected);
+    const trace = emitProxyTrace(
+      cfg,
+      selected,
+      actualModel,
+      finalTier,
+      fallback,
+      attempts,
+      selected.sessionAction,
+      true,
+    );
+    const headers = buildPublicHeaders(cfg, selected, actualModel, finalTier, fallback, trace);
     writeJsonWithHeaders(res, 502, { error: "Upstream request failed" }, headers);
     return;
   }
 
-  const headers: Record<string, string> = {
-    "x-xiaoyi-router-model": actualModel,
-    "x-xiaoyi-router-routed": String(selected.routed),
-    "x-xiaoyi-router-fallback": String(fallback),
-    "x-xiaoyi-router-upstream": cfg.baseUrl,
-  };
+  const finalTier = getActualTier(actualModel, selected);
+  let sessionAction = selected.sessionAction;
 
   if (!attempt.ok && attempt.reason === "network_error") {
     if (selected.pendingEscalation) {
       sessionStore.clearSession(selected.sessionId);
+      sessionAction = "clear";
     }
+    const trace = emitProxyTrace(
+      cfg,
+      selected,
+      actualModel,
+      finalTier,
+      fallback,
+      attempts,
+      sessionAction,
+      true,
+    );
+    const headers = buildPublicHeaders(cfg, selected, actualModel, finalTier, fallback, trace);
     writeJsonWithHeaders(
       res,
       502,
@@ -568,17 +684,32 @@ async function proxyChat(
 
   if (!attempt.ok && selected.pendingEscalation) {
     sessionStore.clearSession(selected.sessionId);
+    sessionAction = "clear";
   }
 
   if (attempt.ok && selected.sessionId && !selected.explicit && isReusableSessionPinModel(actualModel)) {
     sessionStore.setSession(
       selected.sessionId,
       actualModel,
-      getActualTier(actualModel, selected),
+      finalTier,
       selected.userExplicit,
     );
+    if (sessionAction === "none") {
+      sessionAction = "set";
+    }
   }
 
+  const trace = emitProxyTrace(
+    cfg,
+    selected,
+    actualModel,
+    finalTier,
+    fallback,
+    attempts,
+    sessionAction,
+    !attempt.ok,
+  );
+  const headers = buildPublicHeaders(cfg, selected, actualModel, finalTier, fallback, trace);
   const responseHeaders = copyResponseHeaders(attempt.response, headers);
   res.statusCode = attempt.response.status;
   for (const [k, v] of Object.entries(responseHeaders)) {

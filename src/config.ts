@@ -1,4 +1,6 @@
 import type { SupportedModelId } from "./models.js";
+import { normalizeTraceMode } from "./router/index.js";
+import type { TraceMode } from "./router/index.js";
 
 export const DEFAULT_BASE_URL = "https://api.deepseek.com";
 export const DEFAULT_PORT = 8402;
@@ -10,6 +12,7 @@ export type RouterConfig = {
   port: number;
   defaultModel: SupportedModelId;
   sessionPinning: boolean;
+  traceMode: TraceMode;
 };
 
 export type RouterConfigInput = Partial<RouterConfig>;
@@ -63,5 +66,6 @@ export function resolveConfig(input: RouterConfigInput = {}): RouterConfig {
     port: input.port ?? parsePort(process.env.XIAOYI_ROUTER_PORT) ?? DEFAULT_PORT,
     defaultModel: input.defaultModel ?? "auto",
     sessionPinning: input.sessionPinning ?? true,
+    traceMode: normalizeTraceMode(input.traceMode ?? process.env.XIAOYI_ROUTER_TRACE),
   };
 }

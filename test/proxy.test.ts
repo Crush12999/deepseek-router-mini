@@ -293,7 +293,7 @@ describe("proxy", () => {
     expect(upstream.requests[0]?.url).toBe("/v4/chat/completions");
   });
 
-  it("routes auto code requests with lightweight tools to flash", async () => {
+  it("routes default auto requests to flash with tier and trace headers", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
     const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
@@ -304,16 +304,138 @@ describe("proxy", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         model: "auto",
-        tools: [{ type: "function", function: { name: "search" } }],
-        messages: [{ role: "user", content: "Read the file and summarize the config." }],
+        messages: [{ role: "user", content: "Summarize briefly: OpenClaw routes simple tasks." }],
       }),
     });
 
     expect(res.status).toBe(200);
     expect(res.headers.get(legacyRouterHeader("model"))).toBeNull();
     expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-flash");
+    expect(res.headers.get("x-xiaoyi-router-tier")).toBe("MEDIUM");
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("auto:medium:flash:first-pass");
     expect(res.headers.get("x-xiaoyi-router-routed")).toBe("true");
     expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
+  });
+
+  it("does not write trace logs by default", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "auto",
+        messages: [{ role: "user", content: "Summarize briefly: OpenClaw routes simple tasks." }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  it("writes one summary trace log when trace mode is summary", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0, traceMode: "summary" });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "auto",
+        messages: [{ role: "user", content: "Summarize briefly: OpenClaw routes simple tasks." }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(logSpy).toHaveBeenCalledWith(
+      "[xiaoyi-router] auto:medium:flash:first-pass model=deepseek-v4-flash fallback=false",
+    );
+  });
+
+  it("writes debug trace JSON with a prompt preview but without full prompt data", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0, traceMode: "debug" });
+    handles.push(proxy);
+    const routePrompt = "一二三四五六七八九十abcdefghijklmnop中文测试尾巴";
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer should-not-be-logged",
+      },
+      body: JSON.stringify({
+        model: "auto",
+        messages: [
+          { role: "system", content: "Never leak this complete system prompt." },
+          { role: "user", content: routePrompt },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const rawLog = String(logSpy.mock.calls[0]?.[0]);
+    const logged = JSON.parse(rawLog) as Record<string, unknown>;
+    expect(logged).toMatchObject({
+      trace: "auto:medium:flash:first-pass",
+      requestedModel: "auto",
+      actualModel: "deepseek-v4-flash",
+      tier: "MEDIUM",
+      profile: "auto",
+      method: "rules",
+      routed: true,
+      fallback: false,
+      sessionAction: "set",
+      promptPreview: "一二三四五六七八九十...mnop中文测试尾巴",
+    });
+    expect(logged).toHaveProperty("confidence");
+    expect(logged).toHaveProperty("score");
+    expect(logged).toHaveProperty("agenticScore");
+    expect(logged).toHaveProperty("attempts");
+    expect(rawLog).not.toContain(routePrompt);
+    expect(rawLog).not.toContain("Never leak this complete system prompt.");
+    expect(rawLog).not.toContain("should-not-be-logged");
+    expect(rawLog).not.toContain("messages");
+    expect(rawLog).not.toContain("authorization");
+  });
+
+  it("records set session action when a first auto route succeeds on pro", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0, traceMode: "debug" });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-session-id": "first-auto-pro-set" },
+      body: JSON.stringify({
+        model: "auto",
+        messages: [
+          { role: "user", content: "Prove this theorem step by step and derive the result formally." },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-pro");
+    const logged = JSON.parse(String(logSpy.mock.calls[0]?.[0])) as Record<string, unknown>;
+    expect(logged).toMatchObject({
+      trace: "auto:reasoning:pro:reasoning",
+      actualModel: "deepseek-v4-pro",
+      sessionAction: "set",
+    });
   });
 
   it("routes structured output system prompts to flash when the task is ordinary", async () => {
@@ -653,7 +775,7 @@ describe("proxy", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        model: "deepseek-v4-flash",
+        model: "auto",
         messages: [{ role: "user", content: "hello" }],
       }),
     });
@@ -661,6 +783,8 @@ describe("proxy", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get(legacyRouterHeader("model"))).toBeNull();
     expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-pro");
+    expect(res.headers.get("x-xiaoyi-router-tier")).toBe("COMPLEX");
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("auto:complex:pro:fallback");
     expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("true");
     expect(requestedModels(upstream.requests)).toEqual(["deepseek-v4-flash", "deepseek-v4-pro"]);
   });
@@ -742,6 +866,7 @@ describe("proxy", () => {
     });
 
     expect(failed.status).toBe(503);
+    expect(failed.headers.get("x-xiaoyi-router-trace")).toBe("auto:complex:pro:fallback");
 
     const next = await request(proxy.port, "/v1/chat/completions", {
       method: "POST",
@@ -758,6 +883,77 @@ describe("proxy", () => {
       "deepseek-v4-pro",
       "deepseek-v4-flash",
     ]);
+  });
+
+  it("keeps fallback trace reason and retryable attempts when all fallback attempts fail", async () => {
+    const upstream = await startUpstream((_req, res) => {
+      res.writeHead(503, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "unavailable" }));
+    });
+    handles.push(upstream);
+    const logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0, traceMode: "debug" });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "auto",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(res.status).toBe(503);
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("auto:complex:pro:fallback");
+    const logged = JSON.parse(String(logSpy.mock.calls[0]?.[0])) as Record<string, unknown>;
+    expect(logged).toMatchObject({
+      trace: "auto:complex:pro:fallback",
+      fallback: true,
+      attempts: [
+        { model: "deepseek-v4-flash", result: "retryable", status: 503 },
+        { model: "deepseek-v4-pro", result: "retryable", status: 503 },
+      ],
+    });
+  });
+
+  it("clears pending escalation sessions without losing escalated trace reason", async () => {
+    let count = 0;
+    const upstream = await startUpstream((_req, res) => {
+      count += 1;
+      if (count >= 3) {
+        res.writeHead(503, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "unavailable" }));
+        return;
+      }
+
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ choices: [{ message: { content: "flash ok" } }] }));
+    });
+    handles.push(upstream);
+    const logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0, traceMode: "debug" });
+    handles.push(proxy);
+
+    const headers = { "content-type": "application/json", "x-session-id": "clear-escalated-session" };
+    const body = JSON.stringify({
+      model: "auto",
+      messages: [{ role: "user", content: "Translate hello" }],
+    });
+
+    await request(proxy.port, "/v1/chat/completions", { method: "POST", headers, body });
+    await request(proxy.port, "/v1/chat/completions", { method: "POST", headers, body });
+    const failed = await request(proxy.port, "/v1/chat/completions", { method: "POST", headers, body });
+
+    expect(failed.status).toBe(503);
+    expect(failed.headers.get("x-xiaoyi-router-trace")).toBe("auto:complex:pro:escalated");
+    const logged = JSON.parse(String(logSpy.mock.calls[2]?.[0])) as Record<string, unknown>;
+    expect(logged).toMatchObject({
+      trace: "auto:complex:pro:escalated",
+      actualModel: "deepseek-v4-pro",
+      sessionAction: "clear",
+      attempts: [{ model: "deepseek-v4-pro", result: "retryable", status: 503 }],
+    });
   });
 
   it("escalates the proxy path after three identical auto requests and only does it once", async () => {
@@ -840,6 +1036,8 @@ describe("proxy", () => {
     expect(res.status).toBe(503);
     expect(res.headers.get(legacyRouterHeader("model"))).toBeNull();
     expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-pro");
+    expect(res.headers.get("x-xiaoyi-router-tier")).toBe("COMPLEX");
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("explicit:complex:pro:user");
     expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("false");
     expect(upstream.requests).toHaveLength(1);
   });
@@ -859,6 +1057,10 @@ describe("proxy", () => {
     });
 
     expect(res.status).toBe(502);
+    expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-pro");
+    expect(res.headers.get("x-xiaoyi-router-tier")).toBe("COMPLEX");
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("explicit:complex:pro:user");
+    expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("false");
     expect(await res.json()).toMatchObject({ error: expect.any(String) });
   });
 
@@ -939,6 +1141,8 @@ describe("proxy", () => {
         "x-xiaoyi-router-routed": "spoofed-routed",
         "x-xiaoyi-router-fallback": "spoofed-fallback",
         "x-xiaoyi-router-upstream": "spoofed-upstream",
+        "x-xiaoyi-router-tier": "spoofed-tier",
+        "x-xiaoyi-router-trace": "spoofed-trace",
       });
       res.end(JSON.stringify({ id: "cmpl_1", choices: [{ message: { content: "ok" } }] }));
     });
@@ -964,5 +1168,7 @@ describe("proxy", () => {
     expect(res.headers.get("x-xiaoyi-router-routed")).toBe("false");
     expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("false");
     expect(res.headers.get("x-xiaoyi-router-upstream")).toBe(upstream.baseUrl);
+    expect(res.headers.get("x-xiaoyi-router-tier")).toBe("MEDIUM");
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("explicit:medium:flash:user");
   });
 });
