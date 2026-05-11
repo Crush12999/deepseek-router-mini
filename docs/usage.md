@@ -234,6 +234,8 @@ curl -iS http://127.0.0.1:8402/v1/chat/completions \
 
 ```text
 x-xiaoyi-router-model: deepseek-v4-flash
+x-xiaoyi-router-tier: MEDIUM
+x-xiaoyi-router-trace: auto:medium:flash:first-pass
 x-xiaoyi-router-routed: true
 x-xiaoyi-router-fallback: false
 ```
@@ -339,7 +341,7 @@ rm -rf "$tmpbase" "./${PACKAGE_TGZ}"
 
 ## 自动路由说明
 
-只有请求模型为 `auto` 时才会执行自动路由。简单摘要、短文本和常规轻量任务默认使用 `deepseek-v4-flash`；复杂推理、长上下文、工具密集、代码 / agentic 和结构化高风险任务默认使用 `deepseek-v4-pro`。
+只有请求模型为 `auto` 时才会执行自动路由。当前默认策略是 Flash 优先：简单摘要、短文本、常规问答、普通代码改动、轻量 agentic 任务和常规结构化输出默认使用 `deepseek-v4-flash`；复杂推理、达到长上下文阈值、自然多文件调试或修复流程默认使用 `deepseek-v4-pro`。路由审计样本会把 Flash 占比钉在 80% 到 90% 之间，后续调整比例时优先改规则配置和审计样本。
 
 显式模型优先于自动路由。显式请求 `deepseek-v4-flash` 时，代理会先使用 Flash，并在可重试失败时 fallback 到 `deepseek-v4-pro`；显式请求 `deepseek-v4-pro` 时不会降级到 Flash。显式请求会把 `x-xiaoyi-router-routed` 设为 `false`。
 
@@ -368,7 +370,13 @@ How are you doing today?
 Write a TypeScript function that sums numbers.
 ```
 
-如果请求包含代码意图并且请求体带有非空 `tools` 数组，则路由到 Pro。典型场景：
+简单 agentic 或轻量文件操作默认仍路由到 Flash。例如：
+
+```text
+Open the README, update the typo, and verify the sentence reads naturally.
+```
+
+如果请求同时具有代码库范围、失败诊断和明确执行意图，例如跨多个文件排查测试失败、定位回归并修复验证，则路由到 Pro。典型场景：
 
 ```json
 {
@@ -384,7 +392,7 @@ Write a TypeScript function that sums numbers.
   "messages": [
     {
       "role": "user",
-      "content": "Use apply_patch to rename a symbol in src/plugin.ts"
+      "content": "Inspect the auth and session files, explain why the integration suite started failing, patch it, and verify the fix."
     }
   ]
 }
@@ -392,17 +400,17 @@ Write a TypeScript function that sums numbers.
 
 ### 复杂任务
 
-包含调试、失败测试、架构、重构、多文件、根因分析等特征时，路由到 Pro。复杂规则优先级高于简单规则和代码规则。例如：
+包含复杂推理、架构分析、跨文件调试、测试失败回归、根因定位、修复并验证等特征时，路由到 Pro。复杂规则优先级高于简单规则和代码规则。例如：
 
 ```text
-Debug and explain briefly this failing test.
+Inspect the auth and session files, trace the regression, and tell me why the integration suite is failing.
 ```
 
-虽然包含 `explain briefly`，但由于同时包含 `Debug` 和 `failing test`，最终按复杂任务处理。
+如果只是解释、改写、总结或列出一句包含调试词的文本，不会因为这些词面内容被误判为复杂调试。
 
 ### 长上下文
 
-当估算输入长度达到 `120000` 字符及以上时，路由到 Pro。估算长度由消息文本加系统提示词长度构成。
+当估算输入长度达到 `128000` tokens 及以上时，路由到 Pro。估算方式为系统提示词与路由文本拼接后的字符数除以 4 并向上取整，即 `Math.ceil(fullText.length / 4)`。这个阈值含边界：恰好 `128000` estimated tokens 也会升级到 Pro。
 
 ### 工具与 OpenClaw bootstrap 场景
 
@@ -444,6 +452,7 @@ curl -iS http://127.0.0.1:8402/v1/chat/completions \
 | `XIAOYI_BASE_URL`       | 上游 API base。代理会去掉末尾多余 `/`，再追加 `/chat/completions`。                     | `https://api.deepseek.com` |
 | `XIAOYI_ROUTER_PORT`    | 本地监听端口。必须是 `1` 到 `65535` 之间的整数。                                        | `8402`                     |
 | `XIAOYI_ROUTER_HEADERS` | 额外上游请求头，JSON 对象，值必须是字符串。                                             | `{}`                       |
+| `XIAOYI_ROUTER_TRACE`   | 路由诊断日志模式。可选 `summary` 或 `debug`；其他值按关闭处理。                         | 关闭                       |
 
 示例：
 
@@ -452,6 +461,7 @@ export XIAOYI_API_KEY="sk-your-upstream-api-key"
 export XIAOYI_BASE_URL="https://api.deepseek.com"
 export XIAOYI_ROUTER_PORT="8402"
 export XIAOYI_ROUTER_HEADERS='{"X-Request-Source":"xiaoyi-router"}'
+export XIAOYI_ROUTER_TRACE="summary"
 node dist/cli.js
 ```
 
@@ -469,6 +479,20 @@ node dist/cli.js
 export XIAOYI_ROUTER_HEADERS='["not", "object"]'
 export XIAOYI_ROUTER_HEADERS='{"X-Test":123}'
 ```
+
+`XIAOYI_ROUTER_TRACE` 默认关闭，不会增加 OpenClaw Gateway 日志量。需要排查路由时可以临时打开：
+
+```bash
+XIAOYI_ROUTER_TRACE=summary node dist/cli.js
+```
+
+`summary` 每次请求只输出一行紧凑摘要，例如：
+
+```text
+[xiaoyi-router] auto:agentic:pro:first-pass model=deepseek-v4-pro fallback=false
+```
+
+`debug` 输出结构化 JSON，包含最终模型、tier、profile、session 动作、fallback 尝试和 prompt preview。prompt preview 只保留路由文本的前 10 个字符和后 10 个字符，中间用 `...` 省略；不会记录完整 prompt、system prompt、messages、Authorization、Cookie 或上游自定义 headers。
 
 ### CLI 参数
 
@@ -721,6 +745,8 @@ curl -NS http://127.0.0.1:8402/v1/chat/completions \
 | 响应头                       | 含义                                                                              |
 | ---------------------------- | --------------------------------------------------------------------------------- |
 | `x-xiaoyi-router-model`    | 最终发送给上游的真实模型，值为 `deepseek-v4-flash` 或 `deepseek-v4-pro`。         |
+| `x-xiaoyi-router-tier`     | 本次路由判定的复杂度层级，值为 `SIMPLE`、`MEDIUM`、`COMPLEX` 或 `REASONING`。     |
+| `x-xiaoyi-router-trace`    | 紧凑路由摘要，格式类似 `auto:medium:flash:first-pass`。                           |
 | `x-xiaoyi-router-routed`   | 是否经过 `auto` 路由。请求模型为 `auto` 时通常为 `true`，显式模型请求为 `false`。 |
 | `x-xiaoyi-router-fallback` | 是否发生 Flash 到 Pro 的回退。                                                    |
 | `x-xiaoyi-router-upstream` | 当前代理配置的真实上游 API base。                                                  |
@@ -916,6 +942,8 @@ curl -iS http://127.0.0.1:8402/v1/chat/completions \
 
 ```text
 x-xiaoyi-router-model: deepseek-v4-flash
+x-xiaoyi-router-tier: MEDIUM
+x-xiaoyi-router-trace: explicit:medium:flash:user
 x-xiaoyi-router-routed: false
 x-xiaoyi-router-fallback: false
 x-xiaoyi-router-upstream: https://api.deepseek.com
@@ -947,7 +975,7 @@ openclaw agent \
 
 预期 JSON 中 `status` 为 `ok`，响应文本包含 `XIAOYI_E2E_OK`，并且 agent 元数据里使用 `xiaoyiprovider/auto`。
 
-OpenClaw agent CLI 通常只展示 OpenClaw 侧 provider 和模型，不一定暴露代理响应头。当前插件只向 Gateway 日志写入配置修复、代理启动和端口占用等生命周期日志，不会逐次记录路由后的实际模型。如果要确认最终走 Flash 还是 Pro，请使用下一节的 HTTP 响应头验证；如果上游或外层网关会记录请求体，也可以在上游侧查看实际转发的 `model` 字段。
+OpenClaw agent CLI 通常只展示 OpenClaw 侧 provider 和模型，不一定暴露代理响应头。确认最终走 Flash 还是 Pro 的首选方式仍是下一节的 HTTP 响应头验证；如果需要从 Gateway 日志侧排查，可以临时设置 `XIAOYI_ROUTER_TRACE=summary` 或 `XIAOYI_ROUTER_TRACE=debug`。默认不记录逐次路由日志，避免增加 OpenClaw logs 负担。
 
 验证结束后清理临时 agent 和目录：
 
@@ -979,6 +1007,8 @@ curl -iS http://127.0.0.1:8402/v1/chat/completions \
 
 ```text
 x-xiaoyi-router-model: deepseek-v4-flash
+x-xiaoyi-router-tier: MEDIUM
+x-xiaoyi-router-trace: auto:medium:flash:first-pass
 x-xiaoyi-router-routed: true
 x-xiaoyi-router-fallback: false
 x-xiaoyi-router-upstream: https://api.deepseek.com
@@ -1005,6 +1035,8 @@ curl -iS http://127.0.0.1:8402/v1/chat/completions \
 
 ```text
 x-xiaoyi-router-model: deepseek-v4-pro
+x-xiaoyi-router-tier: COMPLEX
+x-xiaoyi-router-trace: auto:agentic:pro:first-pass
 x-xiaoyi-router-routed: true
 x-xiaoyi-router-upstream: https://api.deepseek.com
 ```
@@ -1047,6 +1079,8 @@ curl -iS http://127.0.0.1:8402/v1/chat/completions \
 
 ```text
 x-xiaoyi-router-model: deepseek-v4-flash
+x-xiaoyi-router-tier: MEDIUM
+x-xiaoyi-router-trace: auto:medium:flash:first-pass
 x-xiaoyi-router-routed: true
 x-xiaoyi-router-fallback: false
 x-xiaoyi-router-upstream: https://api.deepseek.com
@@ -1073,6 +1107,8 @@ curl -iS http://127.0.0.1:8402/v1/chat/completions \
 
 ```text
 x-xiaoyi-router-model: deepseek-v4-pro
+x-xiaoyi-router-tier: COMPLEX
+x-xiaoyi-router-trace: auto:agentic:pro:first-pass
 x-xiaoyi-router-routed: true
 x-xiaoyi-router-upstream: https://api.deepseek.com
 ```
@@ -1306,7 +1342,7 @@ OpenClaw agent CLI 的 JSON 或文本输出通常来自模型响应体，不一�
 - 如果上游或外层网关会记录请求体，在上游侧观察实际转发请求里的 `model`。
 - 为验证请求设置独立 `x-session-id`，避免会话钉住影响判断。
 
-当前 Gateway 日志只能稳定看到插件生命周期信息，例如配置修复、代理监听地址、端口启动失败等；每次请求的 `x-xiaoyi-router-model`、`x-xiaoyi-router-routed`、`x-xiaoyi-router-fallback` 仍以 HTTP 响应头为准。
+默认情况下，Gateway 日志只能稳定看到插件生命周期信息，例如配置修复、代理监听地址、端口启动失败等。每次请求的 `x-xiaoyi-router-model`、`x-xiaoyi-router-tier`、`x-xiaoyi-router-trace`、`x-xiaoyi-router-routed` 和 `x-xiaoyi-router-fallback` 仍以 HTTP 响应头为准。需要日志侧诊断时再打开 `XIAOYI_ROUTER_TRACE`。
 
 示例：
 

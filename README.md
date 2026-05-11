@@ -8,7 +8,7 @@ It supports only three public model IDs:
 - `deepseek-v4-flash`
 - `deepseek-v4-pro`
 
-`auto` is routed locally. Simple summaries, short text, and ordinary lightweight tasks default to `deepseek-v4-flash`. Complex reasoning, long-context requests, tool-intensive work, code or agentic tasks, and high-risk structured output default to `deepseek-v4-pro`.
+`auto` is routed locally with a Flash-first policy. Simple summaries, short text, ordinary Q&A, lightweight code edits, simple agentic work, and routine structured output default to `deepseek-v4-flash`. Complex reasoning, estimated input at or above 128,000 tokens, and natural multi-file debugging or repair workflows default to `deepseek-v4-pro`.
 
 Explicit model requests take priority. Explicit `deepseek-v4-flash` requests may fall back to `deepseek-v4-pro` on retryable failures; explicit `deepseek-v4-pro` requests are never downgraded.
 
@@ -70,6 +70,14 @@ export XIAOYI_ROUTER_HEADERS='{"X-Request-Source":"xiaoyi-router"}'
 
 `XIAOYI_API_KEY` is optional. When provided, the proxy sends `Authorization: Bearer <apiKey>` if the merged request headers do not already contain `Authorization`. When omitted, the proxy does not add `Authorization`. If request headers or configured headers already include `Authorization`, the current header merge semantics apply. `x-uid` can be passed through provider `headers` or `request.headers`.
 
+Optional route tracing:
+
+```bash
+export XIAOYI_ROUTER_TRACE=summary
+```
+
+Tracing is off by default. `summary` writes one compact routing line per request. `debug` writes structured diagnostic JSON and includes only a prompt preview, not the full prompt.
+
 ## API
 
 Implemented:
@@ -92,6 +100,8 @@ Unsupported model IDs return HTTP 400.
 The proxy adds routing headers:
 
 - `x-xiaoyi-router-model`
+- `x-xiaoyi-router-tier`
+- `x-xiaoyi-router-trace`
 - `x-xiaoyi-router-routed`
 - `x-xiaoyi-router-fallback`
 - `x-xiaoyi-router-upstream`
