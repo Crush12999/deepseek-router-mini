@@ -84,6 +84,9 @@ if (typeof mod.filterByExcludeList !== "function") {
 if (typeof mod.calculateModelCost !== "function") {
   throw new Error("missing calculateModelCost export");
 }
+if (typeof mod.createXiaoyiProvider !== "function") {
+  throw new Error("missing createXiaoyiProvider export");
+}
 for (const legacyKey of [
   ${JSON.stringify(legacyExport("MODELS"))},
   ${JSON.stringify(legacyExport("OPENCLAW_MODELS"))},
@@ -118,6 +121,7 @@ if (services.length !== 0) throw new Error("discovery register should not regist
 const config = {};
 if (mod.default.register({
   config,
+  registrationMode: "discovery",
   registerProvider(provider) {
     throw new Error("registerProvider should not be called");
   },
