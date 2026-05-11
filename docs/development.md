@@ -16,7 +16,7 @@
 
 - 为 OpenAI 兼容 Chat Completions 客户端提供一个很小的本地代理，只实现项目需要的接口。
 - 让用户使用 `auto` 时，由本地规则把普通请求发给 Flash，把复杂请求发给 Pro。
-- 在 OpenClaw 中以插件形式注册 Xiaoyi Provider，并把 OpenClaw 的 Xiaoyi Provider 配置指向本地代理。
+- 在 OpenClaw 中以插件形式写入或修复 `models.providers.xiaoyiprovider`，把标准 OpenAI 兼容 provider 配置指向本地代理。
 - 保留用户已有上游密钥和自定义 Header，不在插件中写入真实密钥。
 - 对显式 Flash 请求提供有限 fallback：当 Flash 上游返回可重试状态或网络错误时，改用 Pro 再试一次。
 - 避免引入钱包、x402、USDC、BlockRun、Solana、缓存等非目标能力。
@@ -30,7 +30,7 @@
 - CLI：通过 `xiaoyi-router` 或 `node dist/cli.js` 启动本地代理。
 - 本地代理：监听 `127.0.0.1:<port>`，处理健康检查和 Chat Completions 请求。
 - OpenClaw 插件：默认导出插件对象，OpenClaw 启动时调用 `register(api)`。
-- Provider 注入：注册 `xiaoyiprovider` Provider，并修复 `api.config.models.providers.xiaoyiprovider`。
+- Provider 配置注入：写入或修复 `api.config.models.providers.xiaoyiprovider`，但不注册 provider。
 - 路由器：根据 `auto` 请求的文本、工具、长度等因素选择 Flash 或 Pro。
 - 会话钉住：同一会话一旦升级到 Pro，后续 `auto` 请求继续走 Pro。
 - 上游转发：把请求发往 OpenAI 兼容上游，默认是 `https://api.deepseek.com`。
@@ -102,8 +102,8 @@ OpenClaw Gateway
 | -------------------------- | -------------------------------------------------------------------------------- |
 | `src/config.ts`            | 解析代理配置，包含默认端口、默认上游、环境变量、额外 Header JSON。               |
 | `src/models.ts`            | 定义唯一支持的 3 个模型 ID、模型元数据和模型 ID 校验。                           |
-| `src/provider.ts`          | 定义 OpenClaw Xiaoyi Provider、模型价格、能力、上下文窗口等元数据。            |
-| `src/plugin.ts`            | 实现 OpenClaw 插件注册、Provider 注册、配置注入、服务生命周期和代理句柄管理。    |
+| `src/provider.ts`          | 定义 Xiaoyi provider 配置使用的模型价格、能力、上下文窗口等元数据。             |
+| `src/plugin.ts`            | 实现 OpenClaw 插件注册、配置注入、服务生命周期和代理句柄管理。                  |
 | `src/proxy.ts`             | 实现 HTTP 服务、请求解析、模型选择、Header 合并、上游转发、fallback 和响应透传。 |
 | `src/router/classifier.ts` | 用正则规则把文本分为 `simple`、`standard`、`code`、`complex`。                   |
 | `src/router/rules.ts`      | 维护简单、代码、复杂、长上下文规则常量。                                         |
@@ -261,11 +261,13 @@ api.registerService({
 - `setup-only`
 - `tool-discovery`
 
-这些模式仍会注册 Provider 并注入配置，但不会启动代理服务。
+这些模式仍会注入配置，但不会启动代理服务。
 
-### 5.4 `registerProvider`
+### 5.4 provider 兼容策略
 
-插件会注册一个 Xiaoyi Provider：
+为兼容 OpenClaw v2026.4.11 和 v2026.3.24，插件不会调用 `api.registerProvider()` 注册 `xiaoyiprovider` provider，也不会在 `openclaw.plugin.json` 中声明 providers。`xy_channel` 是可选组件：安装时可以由 `xy_channel` 负责 provider 实现和注册；未安装时，router 仍可作为标准 OpenAI 兼容 provider 配置下的本地路由服务使用。
+
+插件会写入或修复 `models.providers.xiaoyiprovider`，让 OpenClaw 或 provider 实现把请求转到本地代理。配置等价于：
 
 ```ts
 createXiaoyiProvider("http://127.0.0.1:8402/v1");
@@ -303,24 +305,7 @@ export const XIAOYI_OPENCLAW_MODELS: OpenClawModelDefinition[] = XIAOYI_MODELS
 
 不要为此修改 `src/models.ts` 中的 `SUPPORTED_MODEL_IDS` 或 `MODEL_ROLES`。代理内部仍需要知道 Flash / Pro，才能完成 `auto` 路由、fallback、显式模型校验和 session pin。
 
-### 5.5 重复 Xiaoyi Provider 处理
-
-OpenClaw 或其它插件可能已经注册了 `xiaoyiprovider` Provider。当前实现只特殊处理错误信息匹配：
-
-```text
-provider already registered: xiaoyiprovider
-```
-
-当捕获到这类错误时，插件会：
-
-- 保留已经注册的运行时服务。
-- 继续注入或修复 `api.config.models.providers.xiaoyiprovider`。
-- 记录日志：`Xiaoyi provider already registered; keeping router service active`。
-- 不再抛出异常。
-
-如果 `registerProvider()` 抛出其它错误，插件会尝试 `unregisterService("xiaoyi-router-proxy")`，然后重新抛出错误，避免留下半注册状态。
-
-### 5.6 Config 透传
+### 5.5 Config 透传
 
 插件不会把真实密钥写入 manifest 或 auth profile。它只读取 OpenClaw 运行时配置，并在服务启动时把可用配置传给代理：
 
@@ -401,8 +386,8 @@ export XIAOYI_ROUTER_HEADERS='{"X-Debug":true}'
 注入规则：
 
 - 如果 `models` 或 `providers` 不存在，会创建对象。
-- 如果 `xiaoyiprovider` Provider 不存在，会创建配置，但不会伪造真实 `apiKey`。
-- 如果 `xiaoyiprovider` Provider 已存在，会保留已有 `apiKey`、`headers`、未知字段等；不存在 `apiKey` 时不会新增该字段。
+- 如果 `xiaoyiprovider` 配置不存在，会创建配置，但不会伪造真实 `apiKey`。
+- 如果 `xiaoyiprovider` 配置已存在，会保留已有 `apiKey`、`api_key`、`headers`、`request` 和未知字段；不存在 `apiKey` 时不会新增该字段。
 - 始终修复插件管理的字段：`baseUrl`、`api`、`models`。
 - 可重复执行，不会追加重复 Provider，也不会把模型列表变成重复列表。
 - 这里的 `baseUrl` 始终指向本地代理的 `/v1`。OpenClaw 的 `openai-completions` 适配器会补上 `/chat/completions`，所以本地 HTTP 服务必须暴露 `POST /v1/chat/completions`。
@@ -643,8 +628,8 @@ npm run format
 - `test/session.test.ts`：验证 Pro-only pinning、禁用 pinning、Header 和内容派生会话 ID。
 - `test/config.test.ts`：验证默认值、环境变量、Header JSON、入参覆盖优先级。
 - `test/cli.test.ts`：验证参数解析、帮助输出、未知命令处理。
-- `test/provider.test.ts`：验证 OpenClaw Provider 和模型定义完整性。
-- `test/plugin.test.ts`：验证配置注入、生命周期、服务关闭、重复 Provider、注册失败回滚、启动失败日志。
+- `test/provider.test.ts`：验证 provider 配置使用的模型定义完整性。
+- `test/plugin.test.ts`：验证配置注入、生命周期、服务关闭、注册失败回滚、启动失败日志。
 
 ### 9.2 集成测试
 
@@ -894,7 +879,7 @@ GET  /health
 POST /v1/chat/completions
 ```
 
-OpenClaw 的模型列表应来自 Provider 注册和配置注入，而不是本地代理的 `/v1/models`。
+OpenClaw 的模型列表应来自 provider 实现和 `models.providers.xiaoyiprovider` 配置，而不是本地代理的 `/v1/models`。
 
 ### 11.2 请求返回 `Unsupported model`
 

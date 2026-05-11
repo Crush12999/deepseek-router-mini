@@ -19,7 +19,7 @@ Xiaoyi Router 是一个轻量本地路由代理。它对本地 HTTP 客户端和
 - 希望在本地暴露一个稳定的 OpenAI 兼容 Chat Completions 入口。
 - 希望只向使用者暴露 `auto`、`deepseek-v4-flash`、`deepseek-v4-pro` 这 3 个模型 ID。
 - 希望普通任务优先使用 Flash，复杂任务、调试任务、长上下文任务和真正需要工具的代码任务自动升级到 Pro。
-- 希望把本地代理作为 OpenClaw 插件安装，让 OpenClaw 的 `xiaoyiprovider` provider 指向本地代理。
+- 希望把本地代理作为 OpenClaw 插件安装，写入或修复 `models.providers.xiaoyiprovider`，让标准 OpenAI 兼容 provider 配置指向本地代理。
 - 希望用响应头观察一次请求最终路由到了 Flash 还是 Pro。
 
 当前能力边界：
@@ -31,6 +31,7 @@ Xiaoyi Router 是一个轻量本地路由代理。它对本地 HTTP 客户端和
 - 不管理真实上游 API Key。API Key 通过环境变量、OpenClaw provider 配置或请求头传入。
 - 不自动切换监听端口。端口被占用时需要显式改端口并重启。
 - 不改写 OpenClaw auth profile，也不创建 OpenClaw 专属鉴权向导。
+- 不注册 `xiaoyiprovider` provider，也不在 `openclaw.plugin.json` 中声明 providers。
 
 ## 环境要求
 
@@ -70,7 +71,7 @@ openclaw agents add <name> --workspace <dir> --agent-dir <dir> --model <model-id
 export XIAOYI_API_KEY="sk-your-upstream-api-key"
 ```
 
-OpenClaw 插件模式推荐把真实 Key 写入 OpenClaw provider 配置：`models.providers.xiaoyiprovider.apiKey` 或 `models.providers.xiaoyiprovider.api_key`。默认 Gateway 通常不会读取当前源码目录下的 `.env`，因此不要把仓库 `.env` 当成 OpenClaw 运行时配置。环境变量只适合独立代理或明确配置过的 OpenClaw service env。不要在示例、日志或 issue 中粘贴真实 Key。
+OpenClaw 插件模式推荐把真实 Key 写入 OpenClaw provider 配置：`models.providers.xiaoyiprovider.apiKey` 或 `models.providers.xiaoyiprovider.api_key`。这些字段会在 Gateway 重启和 router 修复配置时保留。默认 Gateway 通常不会读取当前源码目录下的 `.env`，因此不要把仓库 `.env` 当成 OpenClaw 运行时配置。环境变量只适合独立代理或明确配置过的 OpenClaw service env。不要在示例、日志或 issue 中粘贴真实 Key。
 
 ## 安装方式
 
@@ -239,7 +240,9 @@ x-xiaoyi-router-fallback: false
 
 ### OpenClaw 插件模式
 
-OpenClaw 插件模式会在插件注册时注入 `xiaoyiprovider` provider，并把 OpenClaw 对 `xiaoyiprovider/auto`、`xiaoyiprovider/deepseek-v4-flash`、`xiaoyiprovider/deepseek-v4-pro` 的请求指向本地代理。
+OpenClaw 插件模式不会注册 `xiaoyiprovider` provider，也不会在 manifest 中声明 providers。它会写入或修复 `models.providers.xiaoyiprovider`，把 `baseUrl` 指向本地 Router API，把 `api` 设置为 `openai-completions`，并同步 `auto`、`deepseek-v4-flash`、`deepseek-v4-pro` 这 3 个模型定义。
+
+`xy_channel` 是可选组件。安装 `xy_channel` 时，可以由它负责 provider 实现和注册；未安装时，Xiaoyi Router 仍可作为标准 OpenAI 兼容 provider 配置下的本地路由服务使用。
 
 1. 从源码打包并安装到默认 OpenClaw Gateway：
 
@@ -526,7 +529,7 @@ CLI 参数优先于环境变量中的同类配置。
 
 ### OpenClaw provider 配置
 
-插件注册时会注入或修复：
+插件加载时会写入或修复：
 
 ```jsonc
 {
@@ -565,8 +568,9 @@ CLI 参数优先于环境变量中的同类配置。
 - OpenClaw 的 `openai-completions` 适配器会在该 `baseUrl` 后追加 `/chat/completions`，最终落到本插件的 `POST /v1/chat/completions`。
 - `upstreamUrl` 或 `XIAOYI_BASE_URL` 是真实 OpenAI 兼容上游 API base，不带 `/chat/completions`。
 - 实际转发到上游时，绝不能使用 OpenClaw Provider 的 `baseUrl`；只能使用插件运行时上游 API base。
-- 插件会保留已有的 `apiKey`、`headers` 和未知字段，只修复 `baseUrl`、`api` 和 `models` 等托管字段。
+- 插件会保留已有的 `apiKey`、`api_key`、`headers`、`request` 和未知字段，只修复 `baseUrl`、`api` 和 `models` 等托管字段。
 - 如果 `apiKey` 不存在，插件不会凭空创建真实 Key；新建 provider 配置时该字段保持缺省语义。
+- 该配置可以配合 `xy_channel` 提供的 provider 实现使用；未安装 `xy_channel` 时，也可以作为标准 OpenAI 兼容 provider 配置指向本地 router。
 
 插件启动代理时会读取下列 provider 字段作为运行时覆盖：
 
@@ -819,7 +823,7 @@ registry 刷新只影响 OpenClaw 的插件发现视图，不等于热替换正�
 
 ### 3. 配置 provider
 
-插件会注入 `models.providers.xiaoyiprovider`。先确认配置存在：
+插件会写入或修复 `models.providers.xiaoyiprovider`，但不会注册 provider。先确认配置存在：
 
 ```bash
 openclaw plugins inspect xiaoyi-router --json
@@ -1245,11 +1249,11 @@ curl -iS http://127.0.0.1:9011/v1/chat/completions \
   }'
 ```
 
-### provider already registered
+### provider 不可用
 
-OpenClaw 可能已经有内置或其他插件注册了 `xiaoyiprovider` provider。插件遇到错误信息匹配 `provider already registered: xiaoyiprovider` 时，会保留运行时代理 service，并注入或修复 `models.providers.xiaoyiprovider` 配置。
+如果 OpenClaw 提示 `xiaoyiprovider` 不可用，先确认当前环境由谁提供 provider 实现。安装了 `xy_channel` 时，可以由 `xy_channel` 负责 provider 实现和注册；未安装时，请确认 OpenClaw 支持从 `models.providers.xiaoyiprovider` 这类标准 OpenAI 兼容 provider 配置发起请求。
 
-这通常不是致命问题。你需要确认：
+排查时先确认 router 配置和本地服务：
 
 ```bash
 openclaw plugins inspect xiaoyi-router --json
@@ -1257,7 +1261,7 @@ openclaw config get models.providers.xiaoyiprovider
 curl -sS http://127.0.0.1:8402/health
 ```
 
-如果 provider 配置没有修复，刷新 registry 并重启：
+如果 provider 配置没有修复，刷新 registry 并重启 Gateway：
 
 ```bash
 openclaw plugins registry --refresh
@@ -1403,9 +1407,9 @@ openclaw plugins registry --refresh
 openclaw gateway restart
 ```
 
-### 恢复 OpenClaw provider 配置
+### 恢复 OpenClaw 配置
 
-卸载插件后，检查 OpenClaw 配置中的 `models.providers.xiaoyiprovider`。如果该 provider 原本由其他 OpenClaw 机制管理，请恢复它的原始 `baseUrl`、`api`、`models` 和鉴权字段。
+卸载插件后，检查 OpenClaw 配置中的 `models.providers.xiaoyiprovider`。如果这段配置原本由其他 OpenClaw 机制管理，请恢复它的原始 `baseUrl`、`api`、`models` 和鉴权字段。
 
 常见恢复方式：
 

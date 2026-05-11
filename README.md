@@ -24,6 +24,28 @@ npm run build
 - [使用手册](./docs/usage.md)
 - [开发文档](./docs/development.md)
 
+## OpenClaw Compatibility
+
+For OpenClaw v2026.4.11 and v2026.3.24, Xiaoyi Router does not register a
+`xiaoyiprovider` provider and does not declare providers in
+`openclaw.plugin.json`.
+
+When loaded by OpenClaw, the router still writes or repairs
+`models.providers.xiaoyiprovider` so that:
+
+- `baseUrl` points to the local router API, for example `http://127.0.0.1:8402/v1`.
+- `api` is `openai-completions`.
+- `models` matches the router registry: `auto`, `deepseek-v4-flash`, and `deepseek-v4-pro`.
+
+Existing `apiKey`, `api_key`, `headers`, `request`, and unknown provider fields
+are preserved across Gateway restarts. The router only repairs its managed
+fields.
+
+`xy_channel` is optional. If installed, it can provide and register the provider
+implementation. Without `xy_channel`, Xiaoyi Router can still be used as a local
+OpenAI-compatible routing service through the standard provider configuration
+above.
+
 ## Run
 
 ```bash
