@@ -4,7 +4,6 @@
   "description": "Xiaoyi local routing proxy for OpenClaw",
   "version": "0.1.0",
   "main": "./dist/index.js",
-  "providers": ["xiaoyiprovider"],
   "activation": {
     "onStartup": true
   },

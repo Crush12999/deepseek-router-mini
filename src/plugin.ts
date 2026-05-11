@@ -4,11 +4,8 @@ import type { ProxyHandle, ProxyOptions } from "./proxy.js";
 import {
   XIAOYI_OPENCLAW_MODELS,
   XIAOYI_PROVIDER_API,
-  XIAOYI_PROVIDER_NAME,
   XIAOYI_PROVIDER_ID,
-  createXiaoyiProvider,
 } from "./provider.js";
-import type { XiaoyiProvider } from "./provider.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -22,9 +19,8 @@ export type OpenClawPluginApi = {
   config: JsonObject;
   pluginConfig?: { port?: unknown; upstreamUrl?: unknown } | Record<string, unknown>;
   registrationMode?: string;
-  registerProvider: (provider: XiaoyiProvider) => void;
+  registerProvider?: (provider: unknown) => void;
   registerService: (service: OpenClawService) => void;
-  unregisterService?: (id: string) => void | Promise<void>;
   logger?: {
     info?: (message: string) => void;
     error?: (message: string) => void;
@@ -172,45 +168,6 @@ function resolveProviderRuntimeOverrides(api: OpenClawPluginApi): Pick<ProxyOpti
   };
 }
 
-const DUPLICATE_PROVIDER_ERROR_PATTERN = /\bprovider\b[^\n]*\balready registered\b/i;
-
-function normalizeProviderIdentity(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
-
-const XIAOYI_DUPLICATE_PROVIDER_IDENTITIES = new Set([
-  XIAOYI_PROVIDER_ID,
-  XIAOYI_PROVIDER_NAME,
-].map(normalizeProviderIdentity));
-
-function extractDuplicateProviderCandidates(message: string): string[] {
-  const [, detail = ""] = message.split(/already registered\s*:/i, 2);
-  const label = detail.trim();
-  if (!label) return [];
-
-  const candidates = [normalizeProviderIdentity(label)].filter(Boolean);
-  const parentheticalLabel = label.match(/^(.+?)\s*\(([^()]*)\)\s*$/);
-  if (parentheticalLabel) {
-    const providerLabel = normalizeProviderIdentity(parentheticalLabel[1] ?? "");
-    const parentheticalIdentity = normalizeProviderIdentity(parentheticalLabel[2] ?? "");
-    if (providerLabel && providerLabel === parentheticalIdentity) {
-      candidates.push(providerLabel);
-    }
-  }
-
-  return [...new Set(candidates)];
-}
-
-function isDuplicateProviderRegistrationError(error: unknown): boolean {
-  if (!(error instanceof Error) || !DUPLICATE_PROVIDER_ERROR_PATTERN.test(error.message)) {
-    return false;
-  }
-
-  return extractDuplicateProviderCandidates(error.message).some((candidate) =>
-    XIAOYI_DUPLICATE_PROVIDER_IDENTITIES.has(candidate)
-  );
-}
-
 function shouldStartRuntimeProxy(registrationMode: string | undefined): boolean {
   if (registrationMode === undefined) return true;
   return RUNTIME_REGISTRATION_MODES.has(registrationMode);
@@ -316,26 +273,21 @@ export function registerOpenClawPlugin(api: OpenClawPluginApi, runtime: PluginRu
   const { port, upstreamUrl } = resolvePluginRuntimeConfig(api);
   const providerBaseUrl = localProviderBaseUrl(port);
   const shouldRegisterRuntimeService = shouldStartRuntimeProxy(api.registrationMode);
-  const serviceId: OpenClawService["id"] = "xiaoyi-router-proxy";
 
-  if (shouldRegisterRuntimeService) {
-    api.registerService(createProxyService(api, runtime, port, upstreamUrl, providerBaseUrl));
+  if (!shouldRegisterRuntimeService) {
+    injectXiaoyiModelsConfig(api.config, providerBaseUrl);
+    return;
   }
 
+  const previousConfig = structuredClone(api.config);
+  injectXiaoyiModelsConfig(api.config, providerBaseUrl);
   try {
-    api.registerProvider(createXiaoyiProvider(providerBaseUrl));
+    api.registerService(createProxyService(api, runtime, port, upstreamUrl, providerBaseUrl));
   } catch (error) {
-    if (isDuplicateProviderRegistrationError(error)) {
-      api.logger?.info?.("Xiaoyi provider already registered; keeping router service active");
-      injectXiaoyiModelsConfig(api.config, providerBaseUrl);
-      return;
+    for (const key of Object.keys(api.config)) {
+      delete api.config[key];
     }
-
-    if (shouldRegisterRuntimeService) {
-      api.unregisterService?.(serviceId);
-    }
+    Object.assign(api.config, previousConfig);
     throw error;
   }
-
-  injectXiaoyiModelsConfig(api.config, providerBaseUrl);
 }
