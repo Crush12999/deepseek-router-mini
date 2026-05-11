@@ -20,6 +20,7 @@ describe("config", () => {
     delete process.env.XIAOYI_BASE_URL;
     delete process.env.XIAOYI_ROUTER_PORT;
     delete process.env.XIAOYI_ROUTER_HEADERS;
+    delete process.env.XIAOYI_ROUTER_TRACE;
 
     expect(resolveConfig()).toEqual({
       baseUrl: DEFAULT_BASE_URL,
@@ -28,6 +29,7 @@ describe("config", () => {
       port: DEFAULT_PORT,
       defaultModel: "auto",
       sessionPinning: true,
+      traceMode: "off",
     });
   });
 
@@ -36,6 +38,7 @@ describe("config", () => {
     delete process.env.XIAOYI_BASE_URL;
     delete process.env.XIAOYI_ROUTER_PORT;
     delete process.env.XIAOYI_ROUTER_HEADERS;
+    delete process.env.XIAOYI_ROUTER_TRACE;
     process.env[legacyEnv("API_KEY")] = "legacy-key";
     process.env[legacyEnv("BASE_URL")] = "https://legacy.example.com";
     process.env[legacyEnv("ROUTER_PORT")] = "9001";
@@ -48,6 +51,7 @@ describe("config", () => {
       port: DEFAULT_PORT,
       defaultModel: "auto",
       sessionPinning: true,
+      traceMode: "off",
     });
   });
 
