@@ -94,6 +94,23 @@ function requestedModels(requests: CapturedRequest[]): string[] {
   return requests.map((entry) => (entry.body as { model: string }).model);
 }
 
+async function withCleanAuthEnv<T>(callback: () => Promise<T>): Promise<T> {
+  const originalApiKey = process.env.XIAOYI_API_KEY;
+  const originalHeaders = process.env.XIAOYI_ROUTER_HEADERS;
+  delete process.env.XIAOYI_API_KEY;
+  delete process.env.XIAOYI_ROUTER_HEADERS;
+
+  try {
+    return await callback();
+  } finally {
+    if (originalApiKey === undefined) delete process.env.XIAOYI_API_KEY;
+    else process.env.XIAOYI_API_KEY = originalApiKey;
+
+    if (originalHeaders === undefined) delete process.env.XIAOYI_ROUTER_HEADERS;
+    else process.env.XIAOYI_ROUTER_HEADERS = originalHeaders;
+  }
+}
+
 afterEach(async () => {
   vi.restoreAllMocks();
   while (handles.length) {
@@ -169,22 +186,24 @@ describe("proxy", () => {
   });
 
   it("does not send authorization when apiKey and authorization headers are absent", async () => {
-    const upstream = await startUpstream();
-    handles.push(upstream);
-    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
-    handles.push(proxy);
+    await withCleanAuthEnv(async () => {
+      const upstream = await startUpstream();
+      handles.push(upstream);
+      const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+      handles.push(proxy);
 
-    const res = await request(proxy.port, "/v1/chat/completions", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        model: "deepseek-v4-flash",
-        messages: [{ role: "user", content: "hello" }],
-      }),
+      const res = await request(proxy.port, "/v1/chat/completions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "deepseek-v4-flash",
+          messages: [{ role: "user", content: "hello" }],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(upstream.requests[0]?.headers.authorization).toBeUndefined();
     });
-
-    expect(res.status).toBe(200);
-    expect(upstream.requests[0]?.headers.authorization).toBeUndefined();
   });
 
   it("keeps request authorization instead of overriding it with apiKey", async () => {
