@@ -14,16 +14,18 @@ export class RulesStrategy implements RouterStrategy {
     const { config, modelPricing } = options;
     const fullText = `${systemPrompt ?? ""} ${prompt}`;
     const estimatedTokens = Math.ceil(fullText.length / 4);
-    const ruleResult = classifyByRules(prompt, systemPrompt, estimatedTokens, config.scoring);
+    const ruleResult = classifyByRules(prompt, systemPrompt, estimatedTokens, config.scoring, {
+      hasTools: options.hasTools ?? false,
+    });
 
     const { tierConfigs, profile, profileSuffix } = chooseTierConfigs(ruleResult.agenticScore ?? 0, options);
 
-    if (estimatedTokens > config.overrides.maxTokensForceComplex) {
+    if (estimatedTokens >= config.overrides.maxTokensForceComplex) {
       const decision = selectModel(
         "COMPLEX",
         0.95,
         "rules",
-        `Input exceeds ${config.overrides.maxTokensForceComplex} tokens${profileSuffix}`,
+        `Input reaches ${config.overrides.maxTokensForceComplex} tokens${profileSuffix}`,
         tierConfigs,
         modelPricing,
         estimatedTokens,
