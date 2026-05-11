@@ -112,11 +112,7 @@ describe("OpenClaw plugin lifecycle", () => {
 
     expect(result).toBeUndefined();
     expect(startProxy).not.toHaveBeenCalled();
-    expect(providerCalls).toHaveLength(1);
-    expect(providerCalls[0]).toMatchObject({
-      id: "xiaoyiprovider",
-      models: { baseUrl: "http://127.0.0.1:8402/v1" },
-    });
+    expect(providerCalls).toHaveLength(0);
     expect(api.config).toMatchObject({
       models: {
         providers: {
@@ -161,13 +157,7 @@ describe("OpenClaw plugin lifecycle", () => {
 
     registerOpenClawPlugin(api, { startProxy });
 
-    expect(api.registerProvider).toHaveBeenCalledWith(
-      expect.objectContaining({
-        models: expect.objectContaining({
-          baseUrl: "http://127.0.0.1:9011/v1",
-        }),
-      }),
-    );
+    expect(api.registerProvider).not.toHaveBeenCalled();
     expect(startProxy).not.toHaveBeenCalled();
 
     await serviceCalls[0]!.start();
@@ -195,13 +185,7 @@ describe("OpenClaw plugin lifecycle", () => {
 
     registerOpenClawPlugin(api, { startProxy });
 
-    expect(api.registerProvider).toHaveBeenCalledWith(
-      expect.objectContaining({
-        models: expect.objectContaining({
-          baseUrl: "http://127.0.0.1:9999/v1",
-        }),
-      }),
-    );
+    expect(api.registerProvider).not.toHaveBeenCalled();
     expect(api.config).toMatchObject({
       models: {
         providers: {
@@ -234,13 +218,7 @@ describe("OpenClaw plugin lifecycle", () => {
 
     registerOpenClawPlugin(api, { startProxy });
 
-    expect(api.registerProvider).toHaveBeenCalledWith(
-      expect.objectContaining({
-        models: expect.objectContaining({
-          baseUrl: "http://127.0.0.1:8402/v1",
-        }),
-      }),
-    );
+    expect(api.registerProvider).not.toHaveBeenCalled();
     expect(api.config).toMatchObject({
       models: {
         providers: {
@@ -451,7 +429,7 @@ describe("OpenClaw plugin lifecycle", () => {
   });
 
   it.each(["discovery", "cli-metadata", "setup-only", "tool-discovery"])(
-    "only registers provider and injects config in %s mode",
+    "only injects config in %s mode",
     (registrationMode) => {
       const startProxy = vi.fn();
       const api = {
@@ -469,13 +447,7 @@ describe("OpenClaw plugin lifecycle", () => {
 
       expect(startProxy).not.toHaveBeenCalled();
       expect(api.registerService).not.toHaveBeenCalled();
-      expect(api.registerProvider).toHaveBeenCalledWith(
-        expect.objectContaining({
-          models: expect.objectContaining({
-            baseUrl: "http://127.0.0.1:9999/v1",
-          }),
-        }),
-      );
+      expect(api.registerProvider).not.toHaveBeenCalled();
       expect(api.config).toMatchObject({
         models: {
           providers: {

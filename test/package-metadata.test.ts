@@ -22,8 +22,8 @@ describe("package metadata", () => {
     expect(plugin).toMatchObject({
       id: "xiaoyi-router",
       name: "Xiaoyi Router",
-      providers: ["xiaoyiprovider"],
     });
+    expect(plugin).not.toHaveProperty("providers");
     expect(plugin.description).toBe("Xiaoyi local routing proxy for OpenClaw");
     expect(plugin.configSchema.properties.upstreamUrl.description).toBe(
       "DeepSeek-compatible upstream API base URL. Can also be set with XIAOYI_BASE_URL.",

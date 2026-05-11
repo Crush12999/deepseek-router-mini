@@ -113,9 +113,26 @@ const result = mod.default.register({
   }
 });
 if (result && typeof result.then === "function") throw new Error("plugin register returned a thenable");
-if (result !== undefined) throw new Error("plugin register must return undefined");
-if (providers.length !== 1) throw new Error("plugin register did not register provider");
+if (providers.length !== 0) throw new Error("plugin register must not register provider");
 if (services.length !== 0) throw new Error("discovery register should not register runtime service");
+const config = {};
+if (mod.default.register({
+  config,
+  registerProvider(provider) {
+    throw new Error("registerProvider should not be called");
+  },
+  registerService(service) {
+    throw new Error("registerService should not be called in discovery mode");
+  }
+}) !== undefined) {
+  throw new Error("plugin register must return undefined");
+}
+if (config?.models?.providers?.xiaoyiprovider?.baseUrl !== "http://127.0.0.1:8402/v1") {
+  throw new Error("plugin register did not inject xiaoyiprovider baseUrl");
+}
+if (config?.models?.providers?.xiaoyiprovider?.api !== "openai-completions") {
+  throw new Error("plugin register did not inject xiaoyiprovider api");
+}
 
 console.log(JSON.stringify({
   id: mod.default.id,
