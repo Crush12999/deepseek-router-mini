@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { XIAOYI_OPENCLAW_MODELS, XIAOYI_PROVIDER_ID, XIAOYI_PROVIDER_NAME } from "../src/provider.js";
+import { XIAOYI_OPENCLAW_MODELS } from "../src/provider.js";
 import type { OpenClawService } from "../src/plugin.js";
 import {
   injectXiaoyiModelsConfig,
@@ -552,161 +552,6 @@ describe("OpenClaw plugin lifecycle", () => {
     });
   });
 
-  it("unregisters the runtime service when provider registration fails", () => {
-    const providerError = new Error("provider registry unavailable");
-    const startProxy = vi.fn();
-    const services = new Map<string, OpenClawService>();
-    const unregisterService = vi.fn((id: string) => {
-      services.delete(id);
-    });
-    const api = {
-      config: {},
-      registerProvider: vi.fn(() => {
-        throw providerError;
-      }),
-      registerService: (service: OpenClawService) => {
-        services.set(service.id, service);
-      },
-      unregisterService,
-    };
-
-    expect(() => registerOpenClawPlugin(api, { startProxy })).toThrow(providerError);
-    expect(unregisterService).toHaveBeenCalledWith("xiaoyi-router-proxy");
-    expect(services.has("xiaoyi-router-proxy")).toBe(false);
-    expect(startProxy).not.toHaveBeenCalled();
-    expect(api.config).toEqual({});
-  });
-
-  it.each([
-    "provider already registered: xiaoyiprovider",
-    "provider already registered: xiaoyiprovider (xiaoyiprovider)",
-  ])("recovers when OpenClaw reports duplicate xiaoyi provider id: %s", (message) => {
-    const api = {
-      config: {},
-      registerProvider: vi.fn(() => {
-        throw new Error(message);
-      }),
-      registerService: (service: OpenClawService) => serviceCalls.push(service),
-      unregisterService: vi.fn(),
-      logger: {
-        info: vi.fn(),
-      },
-    };
-
-    expect(() => registerOpenClawPlugin(api, { startProxy: vi.fn() })).not.toThrow();
-
-    expect(serviceCalls).toHaveLength(1);
-    expect(api.unregisterService).not.toHaveBeenCalled();
-    expect(api.config).toMatchObject({
-      models: {
-        providers: {
-          xiaoyiprovider: {
-            baseUrl: "http://127.0.0.1:8402/v1",
-            api: "openai-completions",
-          },
-        },
-      },
-    });
-    expect(api.logger.info).toHaveBeenCalledWith(
-      "Xiaoyi provider already registered; keeping router service active",
-    );
-  });
-
-  it.each([
-    'provider already registered: "xiaoyiprovider"',
-    "Provider already registered: 'XIAOYIPROVIDER'",
-    "provider already registered: [xiaoyiprovider]",
-    "provider already registered: xiaoyi-provider",
-  ])("recovers from duplicate xiaoyi provider id variants: %s", (message) => {
-    const api = {
-      config: {},
-      registerProvider: vi.fn(() => {
-        throw new Error(message);
-      }),
-      registerService: (service: OpenClawService) => serviceCalls.push(service),
-      unregisterService: vi.fn(),
-      logger: {
-        info: vi.fn(),
-      },
-    };
-
-    expect(() => registerOpenClawPlugin(api, { startProxy: vi.fn() })).not.toThrow();
-
-    expect(serviceCalls).toHaveLength(1);
-    expect(api.unregisterService).not.toHaveBeenCalled();
-    expect(api.config).toMatchObject({
-      models: {
-        providers: {
-          [XIAOYI_PROVIDER_ID]: {
-            baseUrl: "http://127.0.0.1:8402/v1",
-            api: "openai-completions",
-          },
-        },
-      },
-    });
-  });
-
-  it.each([
-    `provider already registered: ${XIAOYI_PROVIDER_NAME}`,
-    `Provider already registered: "${XIAOYI_PROVIDER_NAME.toUpperCase()}"`,
-  ])("recovers from duplicate xiaoyi provider display-name variants: %s", (message) => {
-    const api = {
-      config: {},
-      registerProvider: vi.fn(() => {
-        throw new Error(message);
-      }),
-      registerService: (service: OpenClawService) => serviceCalls.push(service),
-      unregisterService: vi.fn(),
-      logger: {
-        info: vi.fn(),
-      },
-    };
-
-    expect(() => registerOpenClawPlugin(api, { startProxy: vi.fn() })).not.toThrow();
-
-    expect(serviceCalls).toHaveLength(1);
-    expect(api.unregisterService).not.toHaveBeenCalled();
-    expect(api.config).toMatchObject({
-      models: {
-        providers: {
-          [XIAOYI_PROVIDER_ID]: {
-            baseUrl: "http://127.0.0.1:8402/v1",
-            api: "openai-completions",
-          },
-        },
-      },
-    });
-  });
-
-  it.each([
-    "provider already registered: openai",
-    "provider already registered: xiaoyi",
-    "provider already registered: openai, xiaoyi",
-    "provider already registered: openai (xiaoyi)",
-    'provider already registered: "other-provider"',
-  ])("rethrows duplicate messages for unrelated providers: %s", (message) => {
-    const duplicateProviderError = new Error(message);
-    const services = new Map<string, OpenClawService>();
-    const unregisterService = vi.fn((id: string) => {
-      services.delete(id);
-    });
-    const api = {
-      config: {},
-      registerProvider: vi.fn(() => {
-        throw duplicateProviderError;
-      }),
-      registerService: (service: OpenClawService) => {
-        services.set(service.id, service);
-      },
-      unregisterService,
-    };
-
-    expect(() => registerOpenClawPlugin(api, { startProxy: vi.fn() })).toThrow(duplicateProviderError);
-    expect(unregisterService).toHaveBeenCalledWith("xiaoyi-router-proxy");
-    expect(services.has("xiaoyi-router-proxy")).toBe(false);
-    expect(api.config).toEqual({});
-  });
-
   it("runs the underlying proxy close once for concurrent stop calls", async () => {
     const closeResolvers: Array<() => void> = [];
     const closeStarted = vi.fn();
@@ -836,7 +681,7 @@ describe("OpenClaw plugin lifecycle", () => {
     });
 
     await expect(serviceCalls[0]!.start()).rejects.toThrow("EADDRINUSE");
-    expect(api.registerProvider).toHaveBeenCalledTimes(1);
+    expect(api.registerProvider).not.toHaveBeenCalled();
     expect(api.config).toMatchObject({
       models: {
         providers: {
@@ -879,7 +724,16 @@ describe("OpenClaw plugin default export", () => {
     const result = mod.default.register(api);
 
     expect(result).toBeUndefined();
-    expect(api.registerProvider).toHaveBeenCalledTimes(1);
+    expect(api.registerProvider).not.toHaveBeenCalled();
+    expect(api.config).toMatchObject({
+      models: {
+        providers: {
+          xiaoyiprovider: {
+            baseUrl: "http://127.0.0.1:8402/v1",
+          },
+        },
+      },
+    });
     expect(services).toHaveLength(1);
     expect(services[0]).toMatchObject({
       id: "xiaoyi-router-proxy",
