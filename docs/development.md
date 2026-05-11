@@ -768,7 +768,7 @@ openclaw agent \
 
 预期 `status` 为 `ok`，响应文本包含 `XIAOYI_E2E_OK`，agent 元数据使用 `xiaoyiprovider/auto`。
 
-`openclaw agent` 的文本或 JSON 输出通常只显示 OpenClaw 侧配置的 provider 和模型，不一定暴露本代理添加的响应头。当前插件的 Gateway 日志只覆盖启动、端口占用和重复 provider 等生命周期事件，不会逐次记录路由后的实际模型。要证明最终分别路由到 Flash 和 Pro，应同时用 `curl -i http://127.0.0.1:8402/v1/chat/completions` 检查 `x-xiaoyi-router-model`；如果上游或外层网关会记录请求体，也可以在上游侧确认实际转发的 `model` 字段。
+`openclaw agent` 的文本或 JSON 输出通常只显示 OpenClaw 侧配置的 provider 和模型，不一定暴露本代理添加的响应头。当前插件的 Gateway 日志只覆盖配置修复、代理启动和端口占用等生命周期事件，不会逐次记录路由后的实际模型。要证明最终分别路由到 Flash 和 Pro，应同时用 `curl -i http://127.0.0.1:8402/v1/chat/completions` 检查 `x-xiaoyi-router-model`；如果上游或外层网关会记录请求体，也可以在上游侧确认实际转发的 `model` 字段。
 
 如果要验证模型 ID 改名是否足够集中，可以启动 [scripts/deepseek_openai_proxy.py](/Users/ming/Documents/Code/2026/ai_repos/deepseek-router-mini/scripts/deepseek_openai_proxy.py) 作为临时上游。脚本接受 `LLM_DeepSeekV4_Think0` 和 `LLM_DeepSeekV4_Pro_Think0`，并分别转发到 `deepseek-v4-flash` 和 `deepseek-v4-pro`，每个请求都会打印别名模型和实际上游模型：
 

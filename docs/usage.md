@@ -947,7 +947,7 @@ openclaw agent \
 
 预期 JSON 中 `status` 为 `ok`，响应文本包含 `XIAOYI_E2E_OK`，并且 agent 元数据里使用 `xiaoyiprovider/auto`。
 
-OpenClaw agent CLI 通常只展示 OpenClaw 侧 provider 和模型，不一定暴露代理响应头。当前插件只向 Gateway 日志写入启动、端口占用和重复 provider 等生命周期日志，不会逐次记录路由后的实际模型。如果要确认最终走 Flash 还是 Pro，请使用下一节的 HTTP 响应头验证；如果上游或外层网关会记录请求体，也可以在上游侧查看实际转发的 `model` 字段。
+OpenClaw agent CLI 通常只展示 OpenClaw 侧 provider 和模型，不一定暴露代理响应头。当前插件只向 Gateway 日志写入配置修复、代理启动和端口占用等生命周期日志，不会逐次记录路由后的实际模型。如果要确认最终走 Flash 还是 Pro，请使用下一节的 HTTP 响应头验证；如果上游或外层网关会记录请求体，也可以在上游侧查看实际转发的 `model` 字段。
 
 验证结束后清理临时 agent 和目录：
 
@@ -1306,7 +1306,7 @@ OpenClaw agent CLI 的 JSON 或文本输出通常来自模型响应体，不一�
 - 如果上游或外层网关会记录请求体，在上游侧观察实际转发请求里的 `model`。
 - 为验证请求设置独立 `x-session-id`，避免会话钉住影响判断。
 
-当前 Gateway 日志只能稳定看到插件生命周期信息，例如代理监听地址、端口启动失败、重复 provider 处理等；每次请求的 `x-xiaoyi-router-model`、`x-xiaoyi-router-routed`、`x-xiaoyi-router-fallback` 仍以 HTTP 响应头为准。
+当前 Gateway 日志只能稳定看到插件生命周期信息，例如配置修复、代理监听地址、端口启动失败等；每次请求的 `x-xiaoyi-router-model`、`x-xiaoyi-router-routed`、`x-xiaoyi-router-fallback` 仍以 HTTP 响应头为准。
 
 示例：
 
