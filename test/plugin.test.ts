@@ -33,7 +33,7 @@ describe("OpenClaw plugin config injection", () => {
     expect(provider).not.toHaveProperty("apiKey");
   });
 
-  it("preserves apiKey, headers, and unknown provider fields while repairing managed fields", () => {
+  it("preserves user provider fields while repairing managed fields", () => {
     const config = {
       models: {
         providers: {
@@ -41,8 +41,14 @@ describe("OpenClaw plugin config injection", () => {
             baseUrl: "https://api.deepseek.com/v1",
             api: "wrong-api",
             apiKey: "sk-user",
+            api_key: "sk-user-snake",
             headers: { "X-User": "yes" },
-            customField: { keep: true },
+            request: {
+              headers: { "X-Request": "yes" },
+              timeout: 30_000,
+            },
+            metadata: { owner: "user" },
+            extra: ["keep", "me"],
             models: ["old"],
           },
         },
@@ -55,8 +61,36 @@ describe("OpenClaw plugin config injection", () => {
       baseUrl: "http://127.0.0.1:9000/v1",
       api: "openai-completions",
       apiKey: "sk-user",
+      api_key: "sk-user-snake",
       headers: { "X-User": "yes" },
-      customField: { keep: true },
+      request: {
+        headers: { "X-Request": "yes" },
+        timeout: 30_000,
+      },
+      metadata: { owner: "user" },
+      extra: ["keep", "me"],
+      models: XIAOYI_OPENCLAW_MODELS,
+    });
+  });
+
+  it.each([
+    ["string", "broken"],
+    ["null", null],
+    ["array", ["broken"]],
+  ])("replaces non-object xiaoyiprovider config (%s) with managed provider config", (_caseName, value) => {
+    const config = {
+      models: {
+        providers: {
+          xiaoyiprovider: value,
+        },
+      },
+    };
+
+    injectXiaoyiModelsConfig(config, "http://127.0.0.1:8402/v1");
+
+    expect(config.models.providers.xiaoyiprovider).toEqual({
+      baseUrl: "http://127.0.0.1:8402/v1",
+      api: "openai-completions",
       models: XIAOYI_OPENCLAW_MODELS,
     });
   });
@@ -200,6 +234,40 @@ describe("OpenClaw plugin lifecycle", () => {
     await serviceCalls[0]!.start();
     expect(startProxy).toHaveBeenCalledWith({ port: 9999, baseUrl: "https://plugin.example.com" });
   });
+
+  it.each(["runtime", "full"])(
+    "does not require registerProvider on the OpenClaw API in %s mode",
+    (registrationMode) => {
+      const startProxy = vi.fn();
+      const api = {
+        config: {},
+        registrationMode,
+        registerService: (service: OpenClawService) => serviceCalls.push(service),
+      };
+
+      const result = registerOpenClawPlugin(api, { startProxy });
+
+      expect(result).toBeUndefined();
+      expect(startProxy).not.toHaveBeenCalled();
+      expect(api.config).toMatchObject({
+        models: {
+          providers: {
+            xiaoyiprovider: {
+              baseUrl: "http://127.0.0.1:8402/v1",
+              api: "openai-completions",
+              models: XIAOYI_OPENCLAW_MODELS,
+            },
+          },
+        },
+      });
+      expect(serviceCalls).toHaveLength(1);
+      expect(serviceCalls[0]).toMatchObject({
+        id: "xiaoyi-router-proxy",
+        start: expect.any(Function),
+        stop: expect.any(Function),
+      });
+    },
+  );
 
   it("keeps local provider baseUrl separate from versioned pluginConfig upstreamUrl", async () => {
     const startProxy = vi.fn().mockResolvedValue({
