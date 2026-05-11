@@ -30,6 +30,7 @@ export class RulesStrategy implements RouterStrategy {
         maxOutputTokens,
         options.routingProfile,
         ruleResult.agenticScore,
+        ruleResult.score,
       );
       return { ...decision, tierConfigs, profile };
     }
@@ -54,6 +55,8 @@ export class RulesStrategy implements RouterStrategy {
       if (tierRank[tier] < tierRank[minTier]) {
         reasoning += ` | upgraded to ${minTier} (structured output)`;
         tier = minTier;
+      } else {
+        reasoning += " | structured output";
       }
     }
 
@@ -70,6 +73,7 @@ export class RulesStrategy implements RouterStrategy {
       maxOutputTokens,
       options.routingProfile,
       ruleResult.agenticScore,
+      ruleResult.score,
     );
     return { ...decision, tierConfigs, profile };
   }

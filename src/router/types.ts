@@ -33,6 +33,7 @@ export type RoutingDecision = {
   confidence: number;
   method: "rules" | "llm";
   reasoning: string;
+  score?: number;
   costEstimate: number;
   baselineCost: number;
   savings: number;

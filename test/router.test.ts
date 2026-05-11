@@ -51,17 +51,41 @@ describe("smart router", () => {
     expect(decision.reasoning).toContain("reasoning");
   });
 
-  it("routes tool and agentic requests through agentic tiers", () => {
+  it("routes tool and lightweight agentic requests through agentic tiers without forcing pro", () => {
     const decision = route(
-      "Edit src/router/index.ts, run npm test, and verify the fix.",
+      "Read the file and summarize the config.",
       undefined,
       2048,
       options({ hasTools: true }),
     );
 
-    expect(decision.model).toBe(MODEL_ROLES.agentic);
+    expect(decision.model).toBe(MODEL_ROLES.light);
     expect(decision.profile).toBe("agentic");
     expect(decision.tierConfigs).toBe(DEFAULT_ROUTING_CONFIG.agenticTiers);
+    expect(decision.agenticScore).toBeGreaterThan(0);
+    expect(decision.score).toEqual(expect.any(Number));
+  });
+
+  it("does not force ordinary structured output requests to pro", () => {
+    const decision = route(
+      "Summarize Redis briefly.",
+      "Return a strict JSON object matching the schema.",
+      512,
+      options(),
+    );
+
+    expect(decision.model).toBe(MODEL_ROLES.light);
+    expect(decision.tier).toBe("MEDIUM");
+    expect(decision.reasoning).toContain("structured output");
+  });
+
+  it("forces pro only after the configured long-context threshold", () => {
+    const longPrompt = "a".repeat(128_001 * 4);
+    const decision = route(longPrompt, undefined, 512, options());
+
+    expect(decision.model).toBe(MODEL_ROLES.strong);
+    expect(decision.tier).toBe("COMPLEX");
+    expect(decision.reasoning).toContain("128000 tokens");
   });
 
   it("scores the fifteenth agenticTask dimension", () => {

@@ -24,6 +24,7 @@ export function selectModel(
   maxOutputTokens: number,
   routingProfile?: "eco" | "auto" | "premium",
   agenticScore?: number,
+  score?: number,
 ): RoutingDecision;
 export function selectModel(
   inputOrTier: RouteInput | Tier,
@@ -36,6 +37,7 @@ export function selectModel(
   maxOutputTokens?: number,
   routingProfile?: "eco" | "auto" | "premium",
   agenticScore?: number,
+  score?: number,
 ): RouteDecision | RoutingDecision {
   if (typeof inputOrTier !== "string") {
     return selectLegacyModel(inputOrTier);
@@ -64,6 +66,7 @@ export function selectModel(
     reasoning: reasoning ?? "",
     ...costs,
     ...(agenticScore !== undefined && { agenticScore }),
+    ...(score !== undefined && { score }),
   };
 }
 

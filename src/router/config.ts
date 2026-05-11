@@ -395,8 +395,8 @@ export const DEFAULT_ROUTING_CONFIG: RoutingConfig = {
   },
 
   agenticTiers: {
-    SIMPLE: { primary: STRONG, fallback: [] },
-    MEDIUM: { primary: STRONG, fallback: [] },
+    SIMPLE: { primary: LIGHT, fallback: [] },
+    MEDIUM: { primary: LIGHT, fallback: [STRONG] },
     COMPLEX: { primary: STRONG, fallback: [] },
     REASONING: { primary: STRONG, fallback: [] },
   },
@@ -416,8 +416,8 @@ export const DEFAULT_ROUTING_CONFIG: RoutingConfig = {
   },
 
   overrides: {
-    maxTokensForceComplex: 100_000,
-    structuredOutputMinTier: "COMPLEX",
+    maxTokensForceComplex: 128_000,
+    structuredOutputMinTier: "MEDIUM",
     ambiguousDefaultTier: "MEDIUM",
   },
 };

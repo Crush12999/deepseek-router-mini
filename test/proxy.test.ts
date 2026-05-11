@@ -293,7 +293,7 @@ describe("proxy", () => {
     expect(upstream.requests[0]?.url).toBe("/v4/chat/completions");
   });
 
-  it("routes auto code requests with tools to pro", async () => {
+  it("routes auto code requests with lightweight tools to flash", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
     const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
@@ -305,18 +305,18 @@ describe("proxy", () => {
       body: JSON.stringify({
         model: "auto",
         tools: [{ type: "function", function: { name: "search" } }],
-        messages: [{ role: "user", content: "Write a TypeScript function and use the tool" }],
+        messages: [{ role: "user", content: "Read the file and summarize the config." }],
       }),
     });
 
     expect(res.status).toBe(200);
     expect(res.headers.get(legacyRouterHeader("model"))).toBeNull();
-    expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-pro");
+    expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-flash");
     expect(res.headers.get("x-xiaoyi-router-routed")).toBe("true");
-    expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-pro" });
+    expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
   });
 
-  it("routes structured output system prompts to pro", async () => {
+  it("routes structured output system prompts to flash when the task is ordinary", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
     const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
@@ -335,8 +335,8 @@ describe("proxy", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-pro");
-    expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-pro" });
+    expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-flash");
+    expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
   });
 
   it("keeps simple auto requests without tools on flash", async () => {
@@ -502,8 +502,7 @@ describe("proxy", () => {
       body: JSON.stringify({
         model: "auto",
         messages: [
-          { role: "system", content: "Return a strict JSON object matching the schema." },
-          { role: "user", content: "Translate hello" },
+          { role: "user", content: "Prove this theorem step by step and derive the result formally." },
         ],
       }),
     });
@@ -620,7 +619,13 @@ describe("proxy", () => {
       body: JSON.stringify({
         model: "auto",
         tools: [{ type: "function", function: { name: "search" } }],
-        messages: [{ role: "user", content: "Write a TypeScript function and use the tool" }],
+        messages: [
+          {
+            role: "user",
+            content:
+              "Debug failing tests across multiple files, find the root cause, refactor the architecture, and prove step by step why the fix works.",
+          },
+        ],
       }),
     });
 
@@ -797,10 +802,7 @@ describe("proxy", () => {
       headers,
       body: JSON.stringify({
         model: "auto",
-        messages: [
-          { role: "system", content: "Return a strict JSON object matching the schema." },
-          { role: "user", content: "Translate hello" },
-        ],
+        messages: [{ role: "user", content: "Prove this theorem step by step and derive the result formally." }],
       }),
     });
 
