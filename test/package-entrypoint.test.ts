@@ -87,6 +87,15 @@ if (typeof mod.calculateModelCost !== "function") {
 if (typeof mod.createXiaoyiProvider !== "function") {
   throw new Error("missing createXiaoyiProvider export");
 }
+if (mod.XIAOYI_PROVIDER_ID !== "xiaoyiprovider") {
+  throw new Error("missing XIAOYI_PROVIDER_ID export");
+}
+if (mod.XIAOYI_PROVIDER_NAME !== "Xiaoyi Provider") {
+  throw new Error("missing XIAOYI_PROVIDER_NAME export");
+}
+if (mod.XIAOYI_PROVIDER_API !== "openai-completions") {
+  throw new Error("missing XIAOYI_PROVIDER_API export");
+}
 for (const legacyKey of [
   ${JSON.stringify(legacyExport("MODELS"))},
   ${JSON.stringify(legacyExport("OPENCLAW_MODELS"))},
@@ -125,6 +134,26 @@ if (config?.models?.providers?.xiaoyiprovider?.baseUrl !== "http://127.0.0.1:840
 }
 if (config?.models?.providers?.xiaoyiprovider?.api !== "openai-completions") {
   throw new Error("plugin register did not inject xiaoyiprovider api");
+}
+
+const secondConfig = {};
+const secondResult = mod.default.register({
+  config: secondConfig,
+  registrationMode: "discovery",
+  registerProvider(provider) {
+    throw new Error("registerProvider should not be called in discovery mode");
+  },
+  registerService(service) {
+    throw new Error("registerService should not be called in discovery mode");
+  }
+});
+if (secondResult && typeof secondResult.then === "function") throw new Error("second plugin register returned a thenable");
+if (secondResult !== undefined) throw new Error("second plugin register must return undefined");
+if (secondConfig?.models?.providers?.xiaoyiprovider?.baseUrl !== "http://127.0.0.1:8402/v1") {
+  throw new Error("second plugin register did not inject xiaoyiprovider baseUrl");
+}
+if (secondConfig?.models?.providers?.xiaoyiprovider?.api !== "openai-completions") {
+  throw new Error("second plugin register did not inject xiaoyiprovider api");
 }
 
 console.log(JSON.stringify({
