@@ -19,7 +19,12 @@ export {
   supportsVision,
   validateModelId,
 } from "./models.js";
-export type { ModelRole, RealModelId, SupportedModelId, XiaoyiModel } from "./models.js";
+export type {
+  ModelRole,
+  RealModelId,
+  SupportedModelId,
+  XiaoyiModel,
+} from "./models.js";
 export {
   DEFAULT_ROUTING_CONFIG,
   RulesStrategy,
@@ -30,6 +35,10 @@ export {
   getFallbackChain,
   getFallbackChainFiltered,
   getStrategy,
+  buildTraceSummary,
+  emitRouteTrace,
+  getPromptPreview,
+  normalizeTraceMode,
   registerStrategy,
   route,
   selectModel,
@@ -47,6 +56,12 @@ export type {
   TaskCategory,
   Tier,
   TierConfig,
+  RouteTraceLog,
+  TraceAttempt,
+  TraceMode,
+  TraceReason,
+  TraceSessionAction,
+  TraceSummaryInput,
 } from "./router/index.js";
 export {
   DEFAULT_SESSION_CONFIG,
@@ -71,7 +86,12 @@ export {
   localProviderBaseUrl,
   registerOpenClawPlugin,
 } from "./plugin.js";
-export type { OpenClawPlugin, OpenClawPluginApi, OpenClawService, PluginRuntime } from "./plugin.js";
+export type {
+  OpenClawPlugin,
+  OpenClawPluginApi,
+  OpenClawService,
+  PluginRuntime,
+} from "./plugin.js";
 
 const plugin: OpenClawPlugin = {
   id: "xiaoyi-router",

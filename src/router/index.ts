@@ -7,7 +7,12 @@ export function route(
   maxOutputTokens: number,
   options: RouterOptions,
 ): RoutingDecision {
-  return getStrategy("rules").route(prompt, systemPrompt, maxOutputTokens, options);
+  return getStrategy("rules").route(
+    prompt,
+    systemPrompt,
+    maxOutputTokens,
+    options,
+  );
 }
 
 export { DEFAULT_ROUTING_CONFIG } from "./config.js";
@@ -21,6 +26,12 @@ export {
   getFallbackChainFiltered,
   selectModel,
 } from "./selector.js";
+export {
+  buildTraceSummary,
+  emitRouteTrace,
+  getPromptPreview,
+  normalizeTraceMode,
+} from "./trace.js";
 export type {
   ClassifierConfig,
   OverridesConfig,
@@ -37,3 +48,11 @@ export type {
   TierConfig,
 } from "./types.js";
 export type { ModelPricing } from "./selector.js";
+export type {
+  RouteTraceLog,
+  TraceAttempt,
+  TraceMode,
+  TraceReason,
+  TraceSessionAction,
+  TraceSummaryInput,
+} from "./trace.js";
