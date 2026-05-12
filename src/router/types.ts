@@ -1,4 +1,3 @@
-import type { RealModelId } from "../models.js";
 import type { ModelPricing } from "./selector.js";
 
 export type Tier = "SIMPLE" | "MEDIUM" | "COMPLEX" | "REASONING";

@@ -25,18 +25,18 @@ export function selectModel(
 ): RoutingDecision;
 export function selectModel(
   tier: Tier,
-  confidence = 0,
-  method: "rules" | "llm" = "rules",
-  reasoning = "",
+  confidence: number,
+  method: "rules" | "llm",
+  reasoning: string,
   tierConfigs: Record<Tier, TierConfig>,
   modelPricing: Map<string, ModelPricing>,
-  estimatedInputTokens = 0,
-  maxOutputTokens = 0,
+  estimatedInputTokens: number,
+  maxOutputTokens: number,
   routingProfile?: "eco" | "auto" | "premium",
   agenticScore?: number,
   score?: number,
 ): RoutingDecision {
-  const config = tierConfigs?.[tier];
+  const config = tierConfigs[tier];
   if (!config) {
     throw new Error(`Missing tier config for ${tier}`);
   }
@@ -44,9 +44,9 @@ export function selectModel(
   const model = config.primary;
   const costs = calculateModelCost(
     model,
-    modelPricing ?? new Map(),
-    estimatedInputTokens ?? 0,
-    maxOutputTokens ?? 0,
+    modelPricing,
+    estimatedInputTokens,
+    maxOutputTokens,
     routingProfile,
   );
 

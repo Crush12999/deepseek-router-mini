@@ -11,7 +11,6 @@ import {
   getFallbackChainFiltered,
   route,
 } from "../src/router/index.js";
-import { selectModel } from "../src/router/selector.js";
 import type { ModelPricing, RouterOptions } from "../src/router/index.js";
 
 const pricing: Map<string, ModelPricing> = new Map([

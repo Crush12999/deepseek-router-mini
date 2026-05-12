@@ -489,7 +489,7 @@ async function proxyChat(
     cfg,
   );
 
-  let actualModel = selected.model;
+  const actualModel = selected.model;
   const attempt = await fetchUpstream(cfg, req, bodyObj, actualModel);
   const attempts: TraceAttempt[] = [
     attempt.ok
