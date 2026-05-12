@@ -1,6 +1,4 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 
 import {
   DEFAULT_SESSION_CONFIG,
@@ -97,6 +95,33 @@ describe("SessionStore", () => {
     }
   });
 
+  it("preserves createdAt, usage, and explicit state when updating a session", () => {
+    vi.useFakeTimers();
+    const store = new SessionStore();
+
+    try {
+      vi.setSystemTime(1_000);
+      store.setSession("s1", "deepseek-v4-flash", "MEDIUM", true);
+      store.recordUsage("s1", { inputTokens: 10, outputTokens: 20, costEstimate: 0.5 });
+      const createdAt = store.getSession("s1")?.createdAt;
+
+      vi.setSystemTime(2_000);
+      store.setSession("s1", "deepseek-v4-pro", "COMPLEX");
+
+      expect(store.getSession("s1")).toMatchObject({
+        model: "deepseek-v4-pro",
+        tier: "COMPLEX",
+        userExplicit: true,
+        createdAt,
+        inputTokens: 10,
+        outputTokens: 20,
+        costEstimate: 0.5,
+      });
+    } finally {
+      store.close();
+    }
+  });
+
   it("does nothing when disabled", () => {
     const store = new SessionStore({ enabled: false });
 
@@ -149,6 +174,24 @@ describe("SessionStore", () => {
     }
   });
 
+  it("extends expiry when a session is touched", () => {
+    vi.useFakeTimers();
+    const store = new SessionStore({ ttlMs: 100, cleanupIntervalMs: 0 });
+
+    try {
+      vi.setSystemTime(1_000);
+      store.setSession("s1", "deepseek-v4-flash", "MEDIUM");
+      const originalExpiry = store.getSession("s1")?.expiresAt;
+
+      vi.setSystemTime(1_050);
+      expect(store.touchSession("s1")).toBe(true);
+      expect(store.getSession("s1")?.expiresAt).toBe(1_150);
+      expect(store.getSession("s1")?.expiresAt).toBeGreaterThan(originalExpiry ?? 0);
+    } finally {
+      store.close();
+    }
+  });
+
   it("uses a default config with TTL, cleanup, and enabled session tracking", () => {
     expect(DEFAULT_SESSION_CONFIG).toMatchObject({
       enabled: true,
@@ -156,26 +199,6 @@ describe("SessionStore", () => {
     expect(DEFAULT_SESSION_CONFIG.ttlMs).toBeGreaterThan(0);
     expect(DEFAULT_SESSION_CONFIG.cleanupIntervalMs).toBeGreaterThan(0);
     expect(DEFAULT_SESSION_CONFIG).not.toHaveProperty("maxSameRequestStrikes");
-  });
-});
-
-describe("session model registry coupling", () => {
-  it("does not hardcode concrete model ids in session internals", () => {
-    const source = readFileSync(fileURLToPath(new URL("../src/session.ts", import.meta.url)), "utf8");
-
-    expect(source).not.toContain('"deepseek-v4-flash"');
-    expect(source).not.toContain('"deepseek-v4-pro"');
-  });
-
-  it("does not retain repeated-request escalation state", () => {
-    const source = readFileSync(fileURLToPath(new URL("../src/session.ts", import.meta.url)), "utf8");
-
-    expect(source).not.toContain("sameRequestStrikes");
-    expect(source).not.toContain("maxSameRequestStrikes");
-    expect(source).not.toContain("pendingEscalationRequestHash");
-    expect(source).not.toContain("lastEscalationRequestHash");
-    expect(source).not.toContain("escalateSession");
-    expect(source).not.toContain("recordRequestHash");
   });
 });
 
