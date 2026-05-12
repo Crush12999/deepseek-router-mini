@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import { MODEL_ROLES } from "../src/models.js";
-import { classifyPrompt } from "../src/router/classifier.js";
 import {
   DEFAULT_ROUTING_CONFIG,
   calculateModelCost,
@@ -79,13 +78,13 @@ describe("smart router", () => {
     expect(decision.reasoning).toContain("structured output");
   });
 
-  it("forces pro only after the configured long-context threshold", () => {
-    const longPrompt = "a".repeat(128_001 * 4);
+  it("does not force pro only because the prompt is long", () => {
+    const longPrompt = "Summarize this long transcript.\n" + "a".repeat(128_001 * 4);
     const decision = route(longPrompt, undefined, 512, options());
 
-    expect(decision.model).toBe(MODEL_ROLES.strong);
-    expect(decision.tier).toBe("COMPLEX");
-    expect(decision.reasoning).toContain("128000 tokens");
+    expect(decision.model).toBe(MODEL_ROLES.light);
+    expect(decision.tier).toBe("MEDIUM");
+    expect(decision.reasoning).not.toContain("128000 tokens");
   });
 
   it("scores the fifteenth agenticTask dimension", () => {
@@ -134,24 +133,5 @@ describe("smart router", () => {
     expect(cost.costEstimate).toBeCloseTo(0.7);
     expect(cost.baselineCost).toBeCloseTo(2.24);
     expect(cost.savings).toBeGreaterThan(0);
-  });
-});
-
-describe("legacy router compatibility", () => {
-  it("keeps legacy selectModel(input) for proxy auto routing", () => {
-    expect(selectModel({ prompt: "Write a TypeScript function and use the tool", hasTools: true })).toMatchObject({
-      model: MODEL_ROLES.strong,
-      category: "code",
-      reason: "tools",
-    });
-  });
-
-  it("does not let ambient tools override simple legacy routing", () => {
-    expect(classifyPrompt("Summarize briefly: OpenClaw routes simple tasks.")).toBe("simple");
-    expect(selectModel({ prompt: "Summarize briefly: OpenClaw routes simple tasks.", hasTools: true })).toMatchObject({
-      model: MODEL_ROLES.light,
-      category: "simple",
-      reason: "simple",
-    });
   });
 });

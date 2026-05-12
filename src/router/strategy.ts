@@ -20,23 +20,6 @@ export class RulesStrategy implements RouterStrategy {
 
     const { tierConfigs, profile, profileSuffix } = chooseTierConfigs(ruleResult.agenticScore ?? 0, options);
 
-    if (estimatedTokens >= config.overrides.maxTokensForceComplex) {
-      const decision = selectModel(
-        "COMPLEX",
-        0.95,
-        "rules",
-        `Input reaches ${config.overrides.maxTokensForceComplex} tokens${profileSuffix}`,
-        tierConfigs,
-        modelPricing,
-        estimatedTokens,
-        maxOutputTokens,
-        options.routingProfile,
-        ruleResult.agenticScore,
-        ruleResult.score,
-      );
-      return { ...decision, tierConfigs, profile };
-    }
-
     const hasStructuredOutput = systemPrompt ? /json|structured|schema/i.test(systemPrompt) : false;
     let tier: Tier;
     let confidence: number;

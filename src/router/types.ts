@@ -1,21 +1,6 @@
 import type { RealModelId } from "../models.js";
 import type { ModelPricing } from "./selector.js";
 
-export type TaskCategory = "simple" | "standard" | "code" | "complex";
-
-export type RouteInput = {
-  prompt: string;
-  systemPrompt?: string;
-  hasTools?: boolean;
-  estimatedInputChars?: number;
-};
-
-export type RouteDecision = {
-  model: RealModelId;
-  category: TaskCategory;
-  reason: TaskCategory | "tools" | "long-context";
-};
-
 export type Tier = "SIMPLE" | "MEDIUM" | "COMPLEX" | "REASONING";
 
 export type ScoringResult = {
@@ -97,7 +82,6 @@ export type ClassifierConfig = {
 };
 
 export type OverridesConfig = {
-  maxTokensForceComplex: number;
   structuredOutputMinTier: Tier;
   ambiguousDefaultTier: Tier;
   agenticMode?: boolean;

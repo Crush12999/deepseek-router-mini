@@ -1,7 +1,5 @@
 import { MODEL_ROLES } from "../models.js";
-import { classifyPrompt } from "./classifier.js";
-import { LONG_CONTEXT_CHARS } from "./rules.js";
-import type { RouteDecision, RouteInput, RoutingDecision, Tier, TierConfig } from "./types.js";
+import type { RoutingDecision, Tier, TierConfig } from "./types.js";
 
 export type ModelPricing = {
   inputPrice: number;
@@ -12,7 +10,6 @@ const BASELINE_MODEL_ID = MODEL_ROLES.strong;
 const BASELINE_INPUT_PRICE = 0.56;
 const BASELINE_OUTPUT_PRICE = 1.68;
 
-export function selectModel(input: RouteInput): RouteDecision;
 export function selectModel(
   tier: Tier,
   confidence: number,
@@ -27,23 +24,18 @@ export function selectModel(
   score?: number,
 ): RoutingDecision;
 export function selectModel(
-  inputOrTier: RouteInput | Tier,
-  confidence?: number,
-  method?: "rules" | "llm",
-  reasoning?: string,
-  tierConfigs?: Record<Tier, TierConfig>,
-  modelPricing?: Map<string, ModelPricing>,
-  estimatedInputTokens?: number,
-  maxOutputTokens?: number,
+  tier: Tier,
+  confidence = 0,
+  method: "rules" | "llm" = "rules",
+  reasoning = "",
+  tierConfigs: Record<Tier, TierConfig>,
+  modelPricing: Map<string, ModelPricing>,
+  estimatedInputTokens = 0,
+  maxOutputTokens = 0,
   routingProfile?: "eco" | "auto" | "premium",
   agenticScore?: number,
   score?: number,
-): RouteDecision | RoutingDecision {
-  if (typeof inputOrTier !== "string") {
-    return selectLegacyModel(inputOrTier);
-  }
-
-  const tier = inputOrTier;
+): RoutingDecision {
   const config = tierConfigs?.[tier];
   if (!config) {
     throw new Error(`Missing tier config for ${tier}`);
@@ -61,33 +53,13 @@ export function selectModel(
   return {
     model,
     tier,
-    confidence: confidence ?? 0,
-    method: method ?? "rules",
-    reasoning: reasoning ?? "",
+    confidence,
+    method,
+    reasoning,
     ...costs,
     ...(agenticScore !== undefined && { agenticScore }),
     ...(score !== undefined && { score }),
   };
-}
-
-function selectLegacyModel(input: RouteInput): RouteDecision {
-  const estimatedChars =
-    input.estimatedInputChars ?? input.prompt.length + (input.systemPrompt?.length ?? 0);
-  const category = classifyPrompt(input.prompt);
-
-  if (estimatedChars >= LONG_CONTEXT_CHARS) {
-    return { model: MODEL_ROLES.strong, category, reason: "long-context" };
-  }
-
-  if (category === "complex") {
-    return { model: MODEL_ROLES.strong, category, reason: "complex" };
-  }
-
-  if (input.hasTools && category === "code") {
-    return { model: MODEL_ROLES.strong, category, reason: "tools" };
-  }
-
-  return { model: MODEL_ROLES.light, category, reason: category };
 }
 
 export function getFallbackChain(tier: Tier, tierConfigs: Record<Tier, TierConfig>): string[] {

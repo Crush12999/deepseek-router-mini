@@ -35,15 +35,12 @@ export {
 export type {
   ClassifierConfig,
   OverridesConfig,
-  RouteDecision,
-  RouteInput,
   RouterOptions,
   RouterStrategy,
   RoutingConfig,
   RoutingDecision,
   ScoringConfig,
   ScoringResult,
-  TaskCategory,
   Tier,
   TierConfig,
 } from "./types.js";

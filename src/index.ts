@@ -45,15 +45,12 @@ export {
 } from "./router/index.js";
 export type {
   ModelPricing,
-  RouteDecision,
-  RouteInput,
   RouterOptions,
   RouterStrategy,
   RoutingConfig,
   RoutingDecision,
   ScoringConfig,
   ScoringResult,
-  TaskCategory,
   Tier,
   TierConfig,
   RouteTraceLog,

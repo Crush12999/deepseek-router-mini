@@ -1,7 +1,5 @@
 import type { ScoringConfig, ScoringResult } from "./types.js";
 
-export const LONG_CONTEXT_CHARS = 120_000;
-
 export const SIMPLE_PATTERNS = [
   /\btranslate\b/i,
   /\bsummarize\b/i,
