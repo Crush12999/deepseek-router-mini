@@ -1,48 +1,37 @@
 import { createHash } from "node:crypto";
 
-import { isValidModel } from "./models.js";
 import type { RealModelId } from "./models.js";
-import type { Tier, TierConfig } from "./router/types.js";
-
-const TIER_ORDER: Tier[] = ["SIMPLE", "MEDIUM", "COMPLEX", "REASONING"];
+import type { Tier } from "./router/types.js";
 
 export type SessionEntry = {
   sessionId: string;
   model: RealModelId;
   tier: Tier;
   userExplicit: boolean;
-  escalated: boolean;
   createdAt: number;
   updatedAt: number;
   expiresAt: number;
-  lastRequestHash?: string;
-  sameRequestStrikes: number;
   inputTokens: number;
   outputTokens: number;
   costEstimate: number;
-  lastEscalationRequestHash?: string;
-  pendingEscalationRequestHash?: string;
 };
 
 export type SessionConfig = {
   enabled: boolean;
   ttlMs: number;
   cleanupIntervalMs: number;
-  maxSameRequestStrikes: number;
 };
 
 export const DEFAULT_SESSION_CONFIG: SessionConfig = {
   enabled: true,
   ttlMs: 30 * 60 * 1000,
   cleanupIntervalMs: 5 * 60 * 1000,
-  maxSameRequestStrikes: 3,
 };
 
 export type SessionStats = {
   enabled: boolean;
   size: number;
   explicit: number;
-  escalated: number;
   totalInputTokens: number;
   totalOutputTokens: number;
   totalCostEstimate: number;
@@ -87,17 +76,12 @@ export class SessionStore {
       model,
       tier,
       userExplicit: existing?.userExplicit === true || userExplicit,
-      escalated: existing?.escalated ?? false,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       expiresAt: now + this.config.ttlMs,
-      lastRequestHash: existing?.lastRequestHash,
-      sameRequestStrikes: existing?.sameRequestStrikes ?? 0,
       inputTokens: existing?.inputTokens ?? 0,
       outputTokens: existing?.outputTokens ?? 0,
       costEstimate: existing?.costEstimate ?? 0,
-      lastEscalationRequestHash: existing?.lastEscalationRequestHash,
-      pendingEscalationRequestHash: existing?.pendingEscalationRequestHash,
     };
 
     this.sessions.set(sessionId, entry);
@@ -127,14 +111,12 @@ export class SessionStore {
     this.cleanupExpired();
 
     let explicit = 0;
-    let escalated = 0;
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
     let totalCostEstimate = 0;
 
     for (const entry of this.sessions.values()) {
       if (entry.userExplicit) explicit += 1;
-      if (entry.escalated) escalated += 1;
       totalInputTokens += entry.inputTokens;
       totalOutputTokens += entry.outputTokens;
       totalCostEstimate += entry.costEstimate;
@@ -144,68 +126,10 @@ export class SessionStore {
       enabled: this.config.enabled,
       size: this.sessions.size,
       explicit,
-      escalated,
       totalInputTokens,
       totalOutputTokens,
       totalCostEstimate,
     };
-  }
-
-  recordRequestHash(sessionId: string | undefined, requestHash: string): boolean {
-    const entry = this.getSession(sessionId);
-    if (!entry || entry.escalated) return false;
-    if (entry.lastEscalationRequestHash === requestHash) return false;
-    if (entry.pendingEscalationRequestHash === requestHash) return false;
-    if (entry.pendingEscalationRequestHash && entry.pendingEscalationRequestHash !== requestHash) {
-      entry.pendingEscalationRequestHash = undefined;
-    }
-
-    if (entry.lastRequestHash === requestHash) {
-      entry.sameRequestStrikes += 1;
-    } else {
-      entry.lastRequestHash = requestHash;
-      entry.sameRequestStrikes = 1;
-    }
-    entry.updatedAt = Date.now();
-
-    if (entry.sameRequestStrikes < this.config.maxSameRequestStrikes) return false;
-
-    entry.pendingEscalationRequestHash = requestHash;
-    entry.sameRequestStrikes = 0;
-    return true;
-  }
-
-  escalateSession(
-    sessionId: string | undefined,
-    tierConfigs: Record<Tier, TierConfig>,
-  ): { model: RealModelId; tier: Tier } | undefined {
-    const entry = this.getSession(sessionId);
-    if (!entry || entry.escalated) return undefined;
-
-    const currentIndex = TIER_ORDER.indexOf(entry.tier);
-    if (currentIndex === -1 || currentIndex >= TIER_ORDER.length - 1) {
-      entry.pendingEscalationRequestHash = undefined;
-      return undefined;
-    }
-
-    for (const nextTier of TIER_ORDER.slice(currentIndex + 1)) {
-      const model = tierConfigs[nextTier]?.primary;
-      if (isRealModelId(model)) {
-        entry.model = model;
-        entry.tier = nextTier;
-        entry.escalated = true;
-        entry.sameRequestStrikes = 0;
-        entry.lastRequestHash = undefined;
-        entry.lastEscalationRequestHash = entry.pendingEscalationRequestHash;
-        entry.pendingEscalationRequestHash = undefined;
-        entry.updatedAt = Date.now();
-        entry.expiresAt = entry.updatedAt + this.config.ttlMs;
-        return { model, tier: nextTier };
-      }
-    }
-
-    entry.pendingEscalationRequestHash = undefined;
-    return undefined;
   }
 
   recordUsage(
@@ -311,8 +235,4 @@ function contentToText(content: unknown): string {
 
 function hashHex(value: string, length: number): string {
   return createHash("sha256").update(value).digest("hex").slice(0, length);
-}
-
-function isRealModelId(model: string | undefined): model is RealModelId {
-  return model !== undefined && model !== "auto" && isValidModel(model);
 }

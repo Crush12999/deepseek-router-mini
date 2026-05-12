@@ -8,7 +8,6 @@ import {
   deriveSessionId,
   hashRequestContent,
 } from "../src/session.js";
-import type { Tier, TierConfig } from "../src/router/types.js";
 
 describe("deriveSessionId", () => {
   it("prefers a trimmed x-session-id header over message content", () => {
@@ -105,7 +104,6 @@ describe("SessionStore", () => {
       store.setSession("s1", "deepseek-v4-pro", "COMPLEX", true);
 
       expect(store.getSession("s1")).toBeUndefined();
-      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
       expect(store.getStats()).toMatchObject({ size: 0, enabled: false });
     } finally {
       store.close();
@@ -121,7 +119,7 @@ describe("SessionStore", () => {
 
       expect(store.touchSession("s1")).toBe(true);
       expect(store.touchSession("missing")).toBe(false);
-      expect(store.getStats()).toMatchObject({ size: 2, explicit: 1, escalated: 0, enabled: true });
+      expect(store.getStats()).toMatchObject({ size: 2, explicit: 1, enabled: true });
 
       expect(store.clearSession("s1")).toBe(true);
       expect(store.clearSession("s1")).toBe(false);
@@ -154,97 +152,10 @@ describe("SessionStore", () => {
   it("uses a default config with TTL, cleanup, and enabled session tracking", () => {
     expect(DEFAULT_SESSION_CONFIG).toMatchObject({
       enabled: true,
-      maxSameRequestStrikes: 3,
     });
     expect(DEFAULT_SESSION_CONFIG.ttlMs).toBeGreaterThan(0);
     expect(DEFAULT_SESSION_CONFIG.cleanupIntervalMs).toBeGreaterThan(0);
-  });
-
-  it("triggers three-strike escalation once and suppresses pending retry spam", () => {
-    const store = new SessionStore();
-    const tierConfigs: Record<Tier, TierConfig> = {
-      SIMPLE: { primary: "deepseek-v4-flash", fallback: [] },
-      MEDIUM: { primary: "deepseek-v4-flash", fallback: ["deepseek-v4-pro"] },
-      COMPLEX: { primary: "deepseek-v4-pro", fallback: [] },
-      REASONING: { primary: "deepseek-v4-pro", fallback: [] },
-    };
-
-    try {
-      store.setSession("s1", "deepseek-v4-flash", "MEDIUM");
-
-      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
-      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
-      expect(store.recordRequestHash("s1", "aaa")).toBe(true);
-      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
-      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
-      expect(store.escalateSession("s1", tierConfigs)).toEqual({
-        model: "deepseek-v4-pro",
-        tier: "COMPLEX",
-      });
-      expect(store.getSession("s1")).toMatchObject({
-        model: "deepseek-v4-pro",
-        tier: "COMPLEX",
-        escalated: true,
-      });
-      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
-      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
-      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
-    } finally {
-      store.close();
-    }
-  });
-
-  it("allows a failed three-strike escalation to be retried after the threshold is reached again", () => {
-    const store = new SessionStore();
-    const missingNextTier: Partial<Record<Tier, TierConfig>> = {
-      SIMPLE: { primary: "deepseek-v4-flash", fallback: [] },
-      MEDIUM: { primary: "deepseek-v4-flash", fallback: [] },
-    };
-
-    try {
-      store.setSession("s1", "deepseek-v4-flash", "MEDIUM");
-
-      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
-      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
-      expect(store.recordRequestHash("s1", "aaa")).toBe(true);
-      expect(store.escalateSession("s1", missingNextTier as unknown as Record<Tier, TierConfig>)).toBeUndefined();
-      expect(store.getSession("s1")).toMatchObject({
-        model: "deepseek-v4-flash",
-        tier: "MEDIUM",
-        escalated: false,
-      });
-
-      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
-      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
-      expect(store.recordRequestHash("s1", "aaa")).toBe(true);
-    } finally {
-      store.close();
-    }
-  });
-
-  it("allows an already-reasoning three-strike escalation to be retried after the threshold is reached again", () => {
-    const store = new SessionStore();
-    const tierConfigs: Record<Tier, TierConfig> = {
-      SIMPLE: { primary: "deepseek-v4-flash", fallback: [] },
-      MEDIUM: { primary: "deepseek-v4-flash", fallback: [] },
-      COMPLEX: { primary: "deepseek-v4-pro", fallback: [] },
-      REASONING: { primary: "deepseek-v4-pro", fallback: [] },
-    };
-
-    try {
-      store.setSession("s1", "deepseek-v4-pro", "REASONING");
-
-      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
-      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
-      expect(store.recordRequestHash("s1", "aaa")).toBe(true);
-      expect(store.escalateSession("s1", tierConfigs)).toBeUndefined();
-
-      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
-      expect(store.recordRequestHash("s1", "aaa")).toBe(false);
-      expect(store.recordRequestHash("s1", "aaa")).toBe(true);
-    } finally {
-      store.close();
-    }
+    expect(DEFAULT_SESSION_CONFIG).not.toHaveProperty("maxSameRequestStrikes");
   });
 });
 
@@ -254,6 +165,17 @@ describe("session model registry coupling", () => {
 
     expect(source).not.toContain('"deepseek-v4-flash"');
     expect(source).not.toContain('"deepseek-v4-pro"');
+  });
+
+  it("does not retain repeated-request escalation state", () => {
+    const source = readFileSync(fileURLToPath(new URL("../src/session.ts", import.meta.url)), "utf8");
+
+    expect(source).not.toContain("sameRequestStrikes");
+    expect(source).not.toContain("maxSameRequestStrikes");
+    expect(source).not.toContain("pendingEscalationRequestHash");
+    expect(source).not.toContain("lastEscalationRequestHash");
+    expect(source).not.toContain("escalateSession");
+    expect(source).not.toContain("recordRequestHash");
   });
 });
 

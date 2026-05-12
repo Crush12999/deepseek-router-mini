@@ -9,7 +9,6 @@ import {
   DEFAULT_ROUTING_CONFIG,
   buildTraceSummary,
   emitRouteTrace,
-  getFallbackChain,
   getPromptPreview,
   route,
 } from "./router/index.js";
@@ -20,8 +19,8 @@ import type {
   TraceReason,
   TraceSessionAction,
 } from "./router/index.js";
-import type { RouterOptions, RoutingDecision, Tier, TierConfig } from "./router/types.js";
-import { deriveSessionId, hashRequestContent, SessionStore } from "./session.js";
+import type { RouterOptions, RoutingDecision, Tier } from "./router/types.js";
+import { deriveSessionId, SessionStore } from "./session.js";
 
 export const VERSION = "0.1.0";
 
@@ -43,7 +42,6 @@ const PUBLIC_HEADER_PREFIXES = [
   "x-xiaoyi-router-",
   ["x", "deepseek", "router"].join("-") + "-",
 ] as const;
-const TIER_ORDER: Tier[] = ["SIMPLE", "MEDIUM", "COMPLEX", "REASONING"];
 
 export type ProxyOptions = RouterConfigInput;
 
@@ -245,32 +243,17 @@ async function fetchUpstream(
   }
 }
 
-async function discardBody(response: Response): Promise<void> {
-  try {
-    await response.body?.cancel();
-  } catch {
-    // Best effort cleanup before trying the fallback model.
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Model selection
-// ---------------------------------------------------------------------------
-
 type SelectedModel = {
   model: RealModelId;
   tier: Tier;
   decision?: RoutingDecision;
-  fallbackChain: RealModelId[];
   routeText: string;
   requestedModel: SupportedModelId;
   sessionId?: string;
   routed: boolean;
   userExplicit: boolean;
   explicit: boolean;
-  pendingEscalation: boolean;
   sessionAction: TraceSessionAction;
-  tierConfigs: Record<Tier, TierConfig>;
 };
 
 function buildModelPricing(): Map<string, ModelPricing> {
@@ -280,24 +263,6 @@ function buildModelPricing(): Map<string, ModelPricing> {
       getModelPricing(modelId),
     ]),
   );
-}
-
-function extractToolNames(tools: unknown): string[] {
-  if (!Array.isArray(tools)) return [];
-
-  return tools
-    .map((tool) => {
-      if (!tool || typeof tool !== "object") return undefined;
-      const record = tool as Record<string, unknown>;
-      const fn = record.function;
-      if (fn && typeof fn === "object") {
-        const name = (fn as Record<string, unknown>).name;
-        if (typeof name === "string") return name;
-      }
-      const name = record.name;
-      return typeof name === "string" ? name : undefined;
-    })
-    .filter((name): name is string => Boolean(name));
 }
 
 function getMaxOutputTokens(body: Record<string, unknown>): number {
@@ -334,53 +299,16 @@ function toRealModelId(model: string): RealModelId {
   return MODEL_ROLES.strong;
 }
 
-function toRealFallbackChain(models: string[], selectedModel: RealModelId): RealModelId[] {
-  const chain = models.map(toRealModelId);
-  if (!chain.includes(selectedModel)) {
-    chain.unshift(selectedModel);
-  }
-
-  return [...new Set(chain)];
-}
-
 function getExplicitTier(model: RealModelId): Tier {
   return model === MODEL_ROLES.strong ? "COMPLEX" : "MEDIUM";
-}
-
-function getExplicitFallbackChain(model: RealModelId): RealModelId[] {
-  return model === MODEL_ROLES.light ? [MODEL_ROLES.light, MODEL_ROLES.strong] : [MODEL_ROLES.strong];
 }
 
 function isReusableSessionPinModel(model: RealModelId): boolean {
   return model !== MODEL_ROLES.light;
 }
 
-function getActualTier(
-  model: RealModelId,
-  selected: Pick<SelectedModel, "model" | "tier" | "tierConfigs">,
-): Tier {
-  if (model === selected.model) return selected.tier;
-
-  const selectedIndex = TIER_ORDER.indexOf(selected.tier);
-  for (const tier of TIER_ORDER.slice(Math.max(0, selectedIndex + 1))) {
-    if (selected.tierConfigs[tier]?.primary === model) {
-      return tier;
-    }
-  }
-
-  for (const tier of TIER_ORDER) {
-    if (selected.tierConfigs[tier]?.primary === model) {
-      return tier;
-    }
-  }
-
-  return selected.tier;
-}
-
-function getTraceReason(selected: SelectedModel, fallback: boolean, failed: boolean): TraceReason {
+function getTraceReason(selected: SelectedModel, failed: boolean): TraceReason {
   if (selected.explicit) return "user";
-  if (fallback) return "fallback";
-  if (selected.pendingEscalation) return "escalated";
   if (selected.decision?.tier === "REASONING") return "reasoning";
   if (failed) return "error";
   return "first-pass";
@@ -391,7 +319,6 @@ function buildPublicHeaders(
   selected: SelectedModel,
   actualModel: RealModelId,
   finalTier: Tier,
-  fallback: boolean,
   trace: string,
 ): Record<string, string> {
   return {
@@ -399,7 +326,7 @@ function buildPublicHeaders(
     "x-xiaoyi-router-tier": finalTier,
     "x-xiaoyi-router-trace": trace,
     "x-xiaoyi-router-routed": String(selected.routed),
-    "x-xiaoyi-router-fallback": String(fallback),
+    "x-xiaoyi-router-fallback": "false",
     "x-xiaoyi-router-upstream": cfg.baseUrl,
   };
 }
@@ -409,12 +336,11 @@ function emitProxyTrace(
   selected: SelectedModel,
   actualModel: RealModelId,
   finalTier: Tier,
-  fallback: boolean,
   attempts: TraceAttempt[],
   sessionAction: TraceSessionAction,
   failed: boolean,
 ): string {
-  const reason = getTraceReason(selected, fallback, failed);
+  const reason = getTraceReason(selected, failed);
   const trace = buildTraceSummary({
     requestedModel: selected.requestedModel,
     actualModel,
@@ -423,7 +349,7 @@ function emitProxyTrace(
     reason,
     routed: selected.routed,
     explicit: selected.explicit,
-    fallback,
+    fallback: false,
   });
   const detail: RouteTraceLog = {
     trace,
@@ -436,7 +362,7 @@ function emitProxyTrace(
     score: selected.decision?.score,
     agenticScore: selected.decision?.agenticScore,
     routed: selected.routed,
-    fallback,
+    fallback: false,
     attempts,
     sessionAction,
     ...(cfg.traceMode === "debug" && { promptPreview: getPromptPreview(selected.routeText) }),
@@ -455,7 +381,6 @@ function chooseModel(
 ): SelectedModel {
   const prompt = extractPrompt(body.messages ?? []);
   const sessionId = deriveSessionId(headers, body.messages ?? []);
-  const toolNames = extractToolNames(body.tools);
   const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
 
   if (requestedModel !== "auto") {
@@ -464,59 +389,31 @@ function chooseModel(
     return {
       model,
       tier,
-      fallbackChain: getExplicitFallbackChain(model),
       routeText: prompt.routeText,
       requestedModel,
       sessionId,
       routed: false,
       userExplicit: true,
       explicit: true,
-      pendingEscalation: false,
       sessionAction: "none",
-      tierConfigs: DEFAULT_ROUTING_CONFIG.tiers,
     };
   }
 
-  const requestHash = sessionId ? hashRequestContent(prompt.routeText, toolNames) : undefined;
   const existing = cfg.sessionPinning ? sessionStore.getSession(sessionId) : undefined;
 
-  if (existing) {
-    const shouldEscalate = requestHash ? sessionStore.recordRequestHash(sessionId, requestHash) : false;
-    const escalated = shouldEscalate
-      ? sessionStore.escalateSession(sessionId, DEFAULT_ROUTING_CONFIG.tiers)
-      : undefined;
-    const entry = sessionStore.getSession(sessionId) ?? existing;
-
-    if (!escalated && !isReusableSessionPinModel(entry.model)) {
-      if (!requestHash) {
-        sessionStore.touchSession(sessionId);
-      }
-    } else {
-      const model = escalated?.model ?? entry.model;
-      const tier = escalated?.tier ?? entry.tier;
-      const chain = model === MODEL_ROLES.light
-        ? toRealFallbackChain(getFallbackChain(tier, DEFAULT_ROUTING_CONFIG.tiers), model)
-        : [model];
-
-      if (!requestHash) {
-        sessionStore.touchSession(sessionId);
-      }
-
-      return {
-        model,
-        tier,
-        fallbackChain: chain,
-        routeText: prompt.routeText,
-        requestedModel,
-        sessionId,
-        routed: true,
-        userExplicit: entry.userExplicit,
-        explicit: false,
-        pendingEscalation: Boolean(escalated),
-        sessionAction: escalated ? "escalate" : "reuse",
-        tierConfigs: DEFAULT_ROUTING_CONFIG.tiers,
-      };
-    }
+  if (existing && isReusableSessionPinModel(existing.model)) {
+    sessionStore.touchSession(sessionId);
+    return {
+      model: existing.model,
+      tier: existing.tier,
+      routeText: prompt.routeText,
+      requestedModel,
+      sessionId,
+      routed: true,
+      userExplicit: existing.userExplicit,
+      explicit: false,
+      sessionAction: "reuse",
+    };
   }
 
   const decision = route(
@@ -526,30 +423,18 @@ function chooseModel(
     buildRouterOptions(hasTools),
   );
   const model = toRealModelId(decision.model);
-  const tierConfigs = decision.tierConfigs ?? DEFAULT_ROUTING_CONFIG.tiers;
-  const fallbackChain = toRealFallbackChain(getFallbackChain(decision.tier, tierConfigs), model);
-
-  if (!isReusableSessionPinModel(model)) {
-    sessionStore.setSession(sessionId, model, decision.tier, false);
-  }
-  if (!existing && requestHash) {
-    sessionStore.recordRequestHash(sessionId, requestHash);
-  }
 
   return {
     model,
     tier: decision.tier,
     decision,
-    fallbackChain,
     routeText: prompt.routeText,
     requestedModel,
     sessionId,
     routed: true,
     userExplicit: false,
     explicit: false,
-    pendingEscalation: false,
-    sessionAction: !isReusableSessionPinModel(model) ? "set" : "none",
-    tierConfigs,
+    sessionAction: "none",
   };
 }
 
@@ -605,72 +490,28 @@ async function proxyChat(
   );
 
   let actualModel = selected.model;
-  let fallback = false;
-  let attempt: AttemptResult | undefined;
-  const attempts: TraceAttempt[] = [];
-
-  for (const [index, model] of selected.fallbackChain.entries()) {
-    actualModel = model;
-    fallback = index > 0;
-    attempt = await fetchUpstream(cfg, req, bodyObj, model);
-    attempts.push(
-      attempt.ok
-        ? { model, result: "ok", status: attempt.response.status }
-        : attempt.reason === "retryable"
-          ? { model, result: "retryable", status: attempt.response.status }
-          : { model, result: "network_error" },
-    );
-
-    if (attempt.ok) {
-      break;
-    }
-
-    const hasNext = index < selected.fallbackChain.length - 1;
-    if (!hasNext) {
-      break;
-    }
-
-    if (attempt.reason === "retryable") {
-      await discardBody(attempt.response);
-    }
-  }
-
-  if (!attempt) {
-    const finalTier = getActualTier(actualModel, selected);
-    const trace = emitProxyTrace(
-      cfg,
-      selected,
-      actualModel,
-      finalTier,
-      fallback,
-      attempts,
-      selected.sessionAction,
-      true,
-    );
-    const headers = buildPublicHeaders(cfg, selected, actualModel, finalTier, fallback, trace);
-    writeJsonWithHeaders(res, 502, { error: "Upstream request failed" }, headers);
-    return;
-  }
-
-  const finalTier = getActualTier(actualModel, selected);
+  const attempt = await fetchUpstream(cfg, req, bodyObj, actualModel);
+  const attempts: TraceAttempt[] = [
+    attempt.ok
+      ? { model: actualModel, result: "ok", status: attempt.response.status }
+      : attempt.reason === "retryable"
+        ? { model: actualModel, result: "retryable", status: attempt.response.status }
+        : { model: actualModel, result: "network_error" },
+  ];
+  const finalTier = selected.tier;
   let sessionAction = selected.sessionAction;
 
   if (!attempt.ok && attempt.reason === "network_error") {
-    if (selected.pendingEscalation) {
-      sessionStore.clearSession(selected.sessionId);
-      sessionAction = "clear";
-    }
     const trace = emitProxyTrace(
       cfg,
       selected,
       actualModel,
       finalTier,
-      fallback,
       attempts,
       sessionAction,
       true,
     );
-    const headers = buildPublicHeaders(cfg, selected, actualModel, finalTier, fallback, trace);
+    const headers = buildPublicHeaders(cfg, selected, actualModel, finalTier, trace);
     writeJsonWithHeaders(
       res,
       502,
@@ -680,11 +521,6 @@ async function proxyChat(
       headers,
     );
     return;
-  }
-
-  if (!attempt.ok && selected.pendingEscalation) {
-    sessionStore.clearSession(selected.sessionId);
-    sessionAction = "clear";
   }
 
   if (attempt.ok && selected.sessionId && !selected.explicit && isReusableSessionPinModel(actualModel)) {
@@ -699,17 +535,16 @@ async function proxyChat(
     }
   }
 
-  const trace = emitProxyTrace(
+    const trace = emitProxyTrace(
     cfg,
     selected,
     actualModel,
     finalTier,
-    fallback,
     attempts,
     sessionAction,
     !attempt.ok,
   );
-  const headers = buildPublicHeaders(cfg, selected, actualModel, finalTier, fallback, trace);
+  const headers = buildPublicHeaders(cfg, selected, actualModel, finalTier, trace);
   const responseHeaders = copyResponseHeaders(attempt.response, headers);
   res.statusCode = attempt.response.status;
   for (const [k, v] of Object.entries(responseHeaders)) {

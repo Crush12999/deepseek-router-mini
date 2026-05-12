@@ -396,7 +396,6 @@ describe("proxy", () => {
       method: "rules",
       routed: true,
       fallback: false,
-      sessionAction: "set",
       promptPreview: "一二三四五六七八九十...mnop中文测试尾巴",
     });
     expect(logged).toHaveProperty("confidence");
@@ -755,17 +754,12 @@ describe("proxy", () => {
     expect(requestedModels(upstream.requests)).toEqual(["deepseek-v4-flash", "deepseek-v4-pro"]);
   });
 
-  it("falls back from flash to pro on retryable upstream failure", async () => {
+  it("keeps auto flash on a retryable upstream failure without falling back to pro", async () => {
     let count = 0;
     const upstream = await startUpstream((_req, res) => {
       count += 1;
-      if (count === 1) {
-        res.writeHead(429, { "content-type": "application/json" });
-        res.end(JSON.stringify({ error: "rate limited" }));
-        return;
-      }
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ choices: [{ message: { content: "pro ok" } }] }));
+      res.writeHead(429, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "rate limited" }));
     });
     handles.push(upstream);
     const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
@@ -780,26 +774,22 @@ describe("proxy", () => {
       }),
     });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(429);
     expect(res.headers.get(legacyRouterHeader("model"))).toBeNull();
-    expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-pro");
-    expect(res.headers.get("x-xiaoyi-router-tier")).toBe("COMPLEX");
-    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("auto:complex:pro:fallback");
-    expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("true");
-    expect(requestedModels(upstream.requests)).toEqual(["deepseek-v4-flash", "deepseek-v4-pro"]);
+    expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-flash");
+    expect(res.headers.get("x-xiaoyi-router-tier")).toBe("MEDIUM");
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("auto:medium:flash:error");
+    expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("false");
+    expect(count).toBe(1);
+    expect(requestedModels(upstream.requests)).toEqual(["deepseek-v4-flash"]);
   });
 
-  it("pins the actual fallback model for later auto requests", async () => {
+  it("does not fall back from an explicit flash request when upstream fails", async () => {
     let count = 0;
     const upstream = await startUpstream((_req, res) => {
       count += 1;
-      if (count === 1) {
-        res.writeHead(429, { "content-type": "application/json" });
-        res.end(JSON.stringify({ error: "rate limited" }));
-        return;
-      }
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ choices: [{ message: { content: "pro ok" } }] }));
+      res.writeHead(429, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "rate limited" }));
     });
     handles.push(upstream);
     const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
@@ -807,156 +797,23 @@ describe("proxy", () => {
 
     const res = await request(proxy.port, "/v1/chat/completions", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-session-id": "fallback-session" },
+      headers: { "content-type": "application/json", "x-session-id": "explicit-flash-failure" },
       body: JSON.stringify({
-        model: "auto",
+        model: "deepseek-v4-flash",
         messages: [{ role: "user", content: "hello" }],
       }),
     });
 
-    expect(res.status).toBe(200);
-
-    await request(proxy.port, "/v1/chat/completions", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-session-id": "fallback-session" },
-      body: JSON.stringify({
-        model: "auto",
-        messages: [{ role: "user", content: "Translate hello" }],
-      }),
-    });
-
-    expect(requestedModels(upstream.requests)).toEqual([
-      "deepseek-v4-flash",
-      "deepseek-v4-pro",
-      "deepseek-v4-pro",
-    ]);
+    expect(res.status).toBe(429);
+    expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-flash");
+    expect(res.headers.get("x-xiaoyi-router-tier")).toBe("MEDIUM");
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("explicit:medium:flash:user");
+    expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("false");
+    expect(count).toBe(1);
+    expect(requestedModels(upstream.requests)).toEqual(["deepseek-v4-flash"]);
   });
 
-  it("does not pin an auto session to a fallback model when every fallback attempt fails", async () => {
-    let count = 0;
-    const upstream = await startUpstream((_req, res) => {
-      count += 1;
-      if (count === 1) {
-        res.writeHead(429, { "content-type": "application/json" });
-        res.end(JSON.stringify({ error: "rate limited" }));
-        return;
-      }
-      if (count === 2) {
-        res.writeHead(503, { "content-type": "application/json" });
-        res.end(JSON.stringify({ error: "unavailable" }));
-        return;
-      }
-
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ choices: [{ message: { content: "flash ok" } }] }));
-    });
-    handles.push(upstream);
-    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
-    handles.push(proxy);
-
-    const headers = { "content-type": "application/json", "x-session-id": "failed-fallback-session" };
-
-    const failed = await request(proxy.port, "/v1/chat/completions", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        model: "auto",
-        messages: [{ role: "user", content: "hello" }],
-      }),
-    });
-
-    expect(failed.status).toBe(503);
-    expect(failed.headers.get("x-xiaoyi-router-trace")).toBe("auto:complex:pro:fallback");
-
-    const next = await request(proxy.port, "/v1/chat/completions", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        model: "auto",
-        messages: [{ role: "user", content: "Translate hello" }],
-      }),
-    });
-
-    expect(next.status).toBe(200);
-    expect(requestedModels(upstream.requests)).toEqual([
-      "deepseek-v4-flash",
-      "deepseek-v4-pro",
-      "deepseek-v4-flash",
-    ]);
-  });
-
-  it("keeps fallback trace reason and retryable attempts when all fallback attempts fail", async () => {
-    const upstream = await startUpstream((_req, res) => {
-      res.writeHead(503, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: "unavailable" }));
-    });
-    handles.push(upstream);
-    const logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0, traceMode: "debug" });
-    handles.push(proxy);
-
-    const res = await request(proxy.port, "/v1/chat/completions", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        model: "auto",
-        messages: [{ role: "user", content: "hello" }],
-      }),
-    });
-
-    expect(res.status).toBe(503);
-    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("auto:complex:pro:fallback");
-    const logged = JSON.parse(String(logSpy.mock.calls[0]?.[0])) as Record<string, unknown>;
-    expect(logged).toMatchObject({
-      trace: "auto:complex:pro:fallback",
-      fallback: true,
-      attempts: [
-        { model: "deepseek-v4-flash", result: "retryable", status: 503 },
-        { model: "deepseek-v4-pro", result: "retryable", status: 503 },
-      ],
-    });
-  });
-
-  it("clears pending escalation sessions without losing escalated trace reason", async () => {
-    let count = 0;
-    const upstream = await startUpstream((_req, res) => {
-      count += 1;
-      if (count >= 3) {
-        res.writeHead(503, { "content-type": "application/json" });
-        res.end(JSON.stringify({ error: "unavailable" }));
-        return;
-      }
-
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ choices: [{ message: { content: "flash ok" } }] }));
-    });
-    handles.push(upstream);
-    const logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0, traceMode: "debug" });
-    handles.push(proxy);
-
-    const headers = { "content-type": "application/json", "x-session-id": "clear-escalated-session" };
-    const body = JSON.stringify({
-      model: "auto",
-      messages: [{ role: "user", content: "Translate hello" }],
-    });
-
-    await request(proxy.port, "/v1/chat/completions", { method: "POST", headers, body });
-    await request(proxy.port, "/v1/chat/completions", { method: "POST", headers, body });
-    const failed = await request(proxy.port, "/v1/chat/completions", { method: "POST", headers, body });
-
-    expect(failed.status).toBe(503);
-    expect(failed.headers.get("x-xiaoyi-router-trace")).toBe("auto:complex:pro:escalated");
-    const logged = JSON.parse(String(logSpy.mock.calls[2]?.[0])) as Record<string, unknown>;
-    expect(logged).toMatchObject({
-      trace: "auto:complex:pro:escalated",
-      actualModel: "deepseek-v4-pro",
-      sessionAction: "clear",
-      attempts: [{ model: "deepseek-v4-pro", result: "retryable", status: 503 }],
-    });
-  });
-
-  it("escalates the proxy path after three identical auto requests and only does it once", async () => {
+  it("keeps repeated auto tool-loop requests on flash without upgrading to pro", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
     const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
@@ -965,7 +822,8 @@ describe("proxy", () => {
     const headers = { "content-type": "application/json", "x-session-id": "three-strike-session" };
     const body = JSON.stringify({
       model: "auto",
-      messages: [{ role: "user", content: "Translate hello" }],
+      tools: [{ type: "function", function: { name: "search" } }],
+      messages: [{ role: "user", content: "Translate hello and check one tool result." }],
     });
 
     for (let i = 0; i < 4; i++) {
@@ -980,8 +838,8 @@ describe("proxy", () => {
     expect(requestedModels(upstream.requests)).toEqual([
       "deepseek-v4-flash",
       "deepseek-v4-flash",
-      "deepseek-v4-pro",
-      "deepseek-v4-pro",
+      "deepseek-v4-flash",
+      "deepseek-v4-flash",
     ]);
   });
 
