@@ -137,6 +137,7 @@ describe("OpenClaw plugin lifecycle", () => {
       registerProvider: (provider: unknown) => providerCalls.push(provider),
       registerService: (service: OpenClawService) => serviceCalls.push(service),
       logger: {
+        debug: vi.fn(),
         info: vi.fn(),
         error: vi.fn(),
       },
@@ -165,7 +166,14 @@ describe("OpenClaw plugin lifecycle", () => {
     });
 
     await serviceCalls[0]!.start();
-    expect(startProxy).toHaveBeenCalledWith({ port: 8402, baseUrl: "https://api.deepseek.com" });
+    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      traceLogger: expect.objectContaining({
+        debug: expect.any(Function),
+        info: expect.any(Function),
+      }),
+    }));
     expect(api.logger.info).toHaveBeenCalledWith(
       "Xiaoyi Router listening on http://127.0.0.1:8402/v1",
     );
@@ -195,10 +203,14 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(startProxy).not.toHaveBeenCalled();
 
     await serviceCalls[0]!.start();
-    expect(startProxy).toHaveBeenCalledWith({
+    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
       port: 9011,
       baseUrl: "https://gateway.example.com",
-    });
+      traceLogger: expect.objectContaining({
+        debug: expect.any(Function),
+        info: expect.any(Function),
+      }),
+    }));
   });
 
   it("uses pluginConfig port and upstreamUrl for runtime and local provider config", async () => {
@@ -232,7 +244,14 @@ describe("OpenClaw plugin lifecycle", () => {
     });
 
     await serviceCalls[0]!.start();
-    expect(startProxy).toHaveBeenCalledWith({ port: 9999, baseUrl: "https://plugin.example.com" });
+    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+      port: 9999,
+      baseUrl: "https://plugin.example.com",
+      traceLogger: expect.objectContaining({
+        debug: expect.any(Function),
+        info: expect.any(Function),
+      }),
+    }));
   });
 
   it.each(["runtime", "full"])(
@@ -299,10 +318,14 @@ describe("OpenClaw plugin lifecycle", () => {
     });
 
     await serviceCalls[0]!.start();
-    expect(startProxy).toHaveBeenCalledWith({
+    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
       port: 8402,
       baseUrl: "https://gateway.example.com/v4",
-    });
+      traceLogger: expect.objectContaining({
+        debug: expect.any(Function),
+        info: expect.any(Function),
+      }),
+    }));
   });
 
   it("passes OpenClaw provider apiKey and headers through to the proxy runtime", async () => {
@@ -339,7 +362,7 @@ describe("OpenClaw plugin lifecycle", () => {
     registerOpenClawPlugin(api, { startProxy });
     await serviceCalls[0]!.start();
 
-    expect(startProxy).toHaveBeenCalledWith({
+    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
       port: 8402,
       baseUrl: "https://api.deepseek.com",
       apiKey: "config-key",
@@ -348,7 +371,11 @@ describe("OpenClaw plugin lifecycle", () => {
         "X-Override": "request",
         "X-Request": "yes",
       },
-    });
+      traceLogger: expect.objectContaining({
+        debug: expect.any(Function),
+        info: expect.any(Function),
+      }),
+    }));
   });
 
   it("prefers provider apiKey over api_key for proxy runtime", async () => {
@@ -375,11 +402,15 @@ describe("OpenClaw plugin lifecycle", () => {
     registerOpenClawPlugin(api, { startProxy });
     await serviceCalls[0]!.start();
 
-    expect(startProxy).toHaveBeenCalledWith({
+    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
       port: 8402,
       baseUrl: "https://api.deepseek.com",
       apiKey: "camel-key",
-    });
+      traceLogger: expect.objectContaining({
+        debug: expect.any(Function),
+        info: expect.any(Function),
+      }),
+    }));
   });
 
   it("passes provider request headers over provider headers for proxy runtime", async () => {
@@ -416,7 +447,7 @@ describe("OpenClaw plugin lifecycle", () => {
     registerOpenClawPlugin(api, { startProxy });
     await serviceCalls[0]!.start();
 
-    expect(startProxy).toHaveBeenCalledWith({
+    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
       port: 8402,
       baseUrl: "https://api.deepseek.com",
       headers: {
@@ -425,7 +456,11 @@ describe("OpenClaw plugin lifecycle", () => {
         "x-provider-only": "yes",
         "x-request-only": "yes",
       },
-    });
+      traceLogger: expect.objectContaining({
+        debug: expect.any(Function),
+        info: expect.any(Function),
+      }),
+    }));
   });
 
   it("prefers pluginConfig over environment variables", async () => {
@@ -460,7 +495,14 @@ describe("OpenClaw plugin lifecycle", () => {
     });
 
     await serviceCalls[0]!.start();
-    expect(startProxy).toHaveBeenCalledWith({ port: 9999, baseUrl: "https://plugin.example.com" });
+    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+      port: 9999,
+      baseUrl: "https://plugin.example.com",
+      traceLogger: expect.objectContaining({
+        debug: expect.any(Function),
+        info: expect.any(Function),
+      }),
+    }));
   });
 
   it("falls back to env/default when pluginConfig port is invalid", async () => {
@@ -493,7 +535,14 @@ describe("OpenClaw plugin lifecycle", () => {
     });
 
     await serviceCalls[0]!.start();
-    expect(startProxy).toHaveBeenCalledWith({ port: 9011, baseUrl: "https://api.deepseek.com" });
+    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+      port: 9011,
+      baseUrl: "https://api.deepseek.com",
+      traceLogger: expect.objectContaining({
+        debug: expect.any(Function),
+        info: expect.any(Function),
+      }),
+    }));
   });
 
   it.each(["discovery", "cli-metadata", "setup-only", "tool-discovery"])(
@@ -762,6 +811,37 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(api.logger.error).toHaveBeenCalledWith(
       "Xiaoyi Router failed to start on port 8402: listen EADDRINUSE: address already in use 127.0.0.1:8402",
     );
+  });
+
+  it("falls back to info when the plugin logger has no debug method", async () => {
+    const info = vi.fn();
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {},
+      registerProvider: vi.fn(),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+      logger: {
+        info,
+      },
+    };
+
+    registerOpenClawPlugin(api, { startProxy });
+    await serviceCalls[0]!.start();
+
+    const traceLogger = startProxy.mock.calls[0]?.[0].traceLogger as {
+      debug: (message: string) => void;
+      info: (message: string) => void;
+    };
+
+    traceLogger.debug("trace debug fallback");
+    traceLogger.info("trace info");
+
+    expect(info).toHaveBeenCalledWith("trace debug fallback");
+    expect(info).toHaveBeenCalledWith("trace info");
   });
 });
 

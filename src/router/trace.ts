@@ -5,17 +5,13 @@ import type { RoutingDecision, Tier } from "./types.js";
 export type TraceMode = "off" | "summary" | "debug";
 export type TraceReason =
   | "first-pass"
-  | "fallback"
   | "user"
   | "reasoning"
-  | "escalated"
   | "error";
 export type TraceSessionAction =
   | "none"
   | "set"
-  | "reuse"
-  | "escalate"
-  | "clear";
+  | "reuse";
 
 export type TraceAttempt = {
   model: RealModelId;
@@ -51,7 +47,16 @@ export type RouteTraceLog = {
   promptPreview?: string;
 };
 
-type TraceWriter = (message: string) => void;
+export type TraceWriter = (message: string) => void;
+export type TraceLogger = { debug?: TraceWriter; info?: TraceWriter };
+
+function defaultTraceWriter(): TraceWriter {
+  return console.debug.bind(console);
+}
+
+export function resolveTraceWriter(logger?: TraceLogger): TraceWriter {
+  return logger?.debug ?? logger?.info ?? defaultTraceWriter();
+}
 
 export function normalizeTraceMode(mode: unknown): TraceMode {
   if (mode === "summary" || mode === "debug") {
@@ -83,7 +88,7 @@ export function buildTraceSummary(input: TraceSummaryInput): string {
 export function emitRouteTrace(
   mode: TraceMode,
   detail: RouteTraceLog,
-  writer: TraceWriter = console.error,
+  writer: TraceWriter = defaultTraceWriter(),
 ): void {
   if (mode === "off") {
     return;

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { MODEL_ROLES } from "../src/models.js";
 import type { RealModelId } from "../src/models.js";
@@ -7,6 +7,7 @@ import {
   emitRouteTrace,
   getPromptPreview,
   normalizeTraceMode,
+  resolveTraceWriter,
 } from "../src/router/index.js";
 import type {
   RouteTraceLog,
@@ -119,15 +120,12 @@ describe("router tracing helper", () => {
 
   it("emits JSON trace logs in debug mode with planned reasons and attempt results", () => {
     const writes: string[] = [];
-    const reasons: TraceReason[] = ["reasoning", "error"];
-    const attemptModels: RealModelId[] = [
-      MODEL_ROLES.light,
-      MODEL_ROLES.strong,
-    ];
+    const reasons: TraceReason[] = ["first-pass", "user", "reasoning", "error"];
+    const attemptModels: RealModelId[] = [MODEL_ROLES.strong];
     const attempts: TraceAttempt[] = [
       { model: attemptModels[0]!, result: "retryable", status: 429 },
       { model: attemptModels[0]!, result: "network_error" },
-      { model: attemptModels[1]!, result: "ok" },
+      { model: attemptModels[0]!, result: "ok" },
     ];
     const detail: RouteTraceLog = {
       trace: "auto:complex:pro:reasoning",
@@ -156,7 +154,7 @@ describe("router tracing helper", () => {
       attempts,
       promptPreview: "Summarize Redis briefly.",
     });
-    expect(reasons).toEqual(["reasoning", "error"]);
+    expect(reasons).toEqual(["first-pass", "user", "reasoning", "error"]);
   });
 
   it("emits a single-line trace summary in summary mode", () => {
@@ -201,5 +199,40 @@ describe("router tracing helper", () => {
 
     expect(() => emitRouteTrace("summary", detail, writeError)).not.toThrow();
     expect(() => emitRouteTrace("debug", detail, writeError)).not.toThrow();
+  });
+
+  it("prefers logger.debug and falls back to logger.info", () => {
+    const debug = vi.fn();
+    const info = vi.fn();
+
+    resolveTraceWriter({ debug, info })("debug message");
+    expect(debug).toHaveBeenCalledWith("debug message");
+    expect(info).not.toHaveBeenCalled();
+
+    resolveTraceWriter({ info })("info message");
+    expect(info).toHaveBeenCalledWith("info message");
+  });
+
+  it("uses console.debug as the default trace writer instead of console.error", () => {
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const detail: RouteTraceLog = {
+      trace: "auto:medium:flash:first-pass",
+      requestedModel: "auto",
+      actualModel: MODEL_ROLES.light,
+      tier: "MEDIUM",
+      profile: "auto",
+      method: "rules",
+      routed: true,
+      fallback: false,
+      sessionAction: "none",
+    };
+
+    emitRouteTrace("summary", detail);
+
+    expect(debugSpy).toHaveBeenCalledWith(
+      "[xiaoyi-router] auto:medium:flash:first-pass model=deepseek-v4-flash fallback=false",
+    );
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 });

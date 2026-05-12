@@ -39,6 +39,7 @@ export {
   emitRouteTrace,
   getPromptPreview,
   normalizeTraceMode,
+  resolveTraceWriter,
   registerStrategy,
   route,
   selectModel,
@@ -55,10 +56,12 @@ export type {
   TierConfig,
   RouteTraceLog,
   TraceAttempt,
+  TraceLogger,
   TraceMode,
   TraceReason,
   TraceSessionAction,
   TraceSummaryInput,
+  TraceWriter,
 } from "./router/index.js";
 export {
   DEFAULT_SESSION_CONFIG,

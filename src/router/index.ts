@@ -31,6 +31,7 @@ export {
   emitRouteTrace,
   getPromptPreview,
   normalizeTraceMode,
+  resolveTraceWriter,
 } from "./trace.js";
 export type {
   ClassifierConfig,
@@ -48,8 +49,10 @@ export type { ModelPricing } from "./selector.js";
 export type {
   RouteTraceLog,
   TraceAttempt,
+  TraceLogger,
   TraceMode,
   TraceReason,
   TraceSessionAction,
   TraceSummaryInput,
+  TraceWriter,
 } from "./trace.js";

@@ -320,7 +320,8 @@ describe("proxy", () => {
   it("does not write trace logs by default", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
-    const logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
     handles.push(proxy);
 
@@ -334,13 +335,14 @@ describe("proxy", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(logSpy).not.toHaveBeenCalled();
+    expect(debugSpy).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 
   it("writes one summary trace log when trace mode is summary", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
-    const logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
     const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0, traceMode: "summary" });
     handles.push(proxy);
 
@@ -363,7 +365,7 @@ describe("proxy", () => {
   it("writes debug trace JSON with a prompt preview but without full prompt data", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
-    const logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
     const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0, traceMode: "debug" });
     handles.push(proxy);
     const routePrompt = "一二三四五六七八九十abcdefghijklmnop中文测试尾巴";
@@ -412,7 +414,7 @@ describe("proxy", () => {
   it("records set session action when a first auto route succeeds on pro", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
-    const logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
     const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0, traceMode: "debug" });
     handles.push(proxy);
 
@@ -435,6 +437,28 @@ describe("proxy", () => {
       actualModel: "deepseek-v4-pro",
       sessionAction: "set",
     });
+  });
+
+  it("uses console.debug for trace logging without touching console.error", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0, traceMode: "debug" });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "auto",
+        messages: [{ role: "user", content: "Summarize briefly: OpenClaw routes simple tasks." }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(debugSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 
   it("routes structured output system prompts to flash when the task is ordinary", async () => {

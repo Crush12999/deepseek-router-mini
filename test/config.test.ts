@@ -96,4 +96,13 @@ describe("config", () => {
     process.env.XIAOYI_ROUTER_PORT = "99999";
     expect(resolveConfig().port).toBe(DEFAULT_PORT);
   });
+
+  it("preserves an injected trace logger", () => {
+    const traceLogger = {
+      debug: () => {},
+      info: () => {},
+    };
+
+    expect(resolveConfig({ traceLogger }).traceLogger).toBe(traceLogger);
+  });
 });

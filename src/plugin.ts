@@ -22,6 +22,7 @@ export type OpenClawPluginApi = {
   registerProvider?: (provider: unknown) => void;
   registerService: (service: OpenClawService) => void;
   logger?: {
+    debug?: (message: string) => void;
     info?: (message: string) => void;
     error?: (message: string) => void;
   };
@@ -47,6 +48,21 @@ let activeProxy: ProxyHandle | undefined;
 const closedProxies = new WeakSet<ProxyHandle>();
 const closingProxies = new WeakMap<ProxyHandle, Promise<void>>();
 const RUNTIME_REGISTRATION_MODES = new Set(["full", "runtime", "activate", "active"]);
+
+function createTraceLogger(api: OpenClawPluginApi): ProxyOptions["traceLogger"] {
+  return {
+    debug: (message) => {
+      if (api.logger?.debug) {
+        api.logger.debug(message);
+        return;
+      }
+      api.logger?.info?.(message);
+    },
+    info: (message) => {
+      api.logger?.info?.(message);
+    },
+  };
+}
 
 function ensureObject(parent: JsonObject, key: string): JsonObject {
   const value = parent[key];
@@ -245,6 +261,7 @@ function createProxyService(
         const proxy = await runtime.startProxy({
           port,
           baseUrl: upstreamUrl,
+          traceLogger: createTraceLogger(api),
           ...resolveProviderRuntimeOverrides(api),
         });
         serviceProxy = proxy;

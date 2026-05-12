@@ -11,6 +11,7 @@ import {
   emitRouteTrace,
   getPromptPreview,
   route,
+  resolveTraceWriter,
 } from "./router/index.js";
 import type {
   ModelPricing,
@@ -340,6 +341,7 @@ function emitProxyTrace(
   sessionAction: TraceSessionAction,
   failed: boolean,
 ): string {
+  const writer = resolveTraceWriter(cfg.traceLogger);
   const reason = getTraceReason(selected, failed);
   const trace = buildTraceSummary({
     requestedModel: selected.requestedModel,
@@ -368,7 +370,7 @@ function emitProxyTrace(
     ...(cfg.traceMode === "debug" && { promptPreview: getPromptPreview(selected.routeText) }),
   };
 
-  emitRouteTrace(cfg.traceMode, detail);
+  emitRouteTrace(cfg.traceMode, detail, writer);
   return trace;
 }
 
