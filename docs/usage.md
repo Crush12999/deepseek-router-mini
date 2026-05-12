@@ -341,9 +341,9 @@ rm -rf "$tmpbase" "./${PACKAGE_TGZ}"
 
 ## 自动路由说明
 
-只有请求模型为 `auto` 时才会执行自动路由。当前默认策略是 Flash 优先：简单摘要、短文本、常规问答、普通代码改动、轻量 agentic 任务和常规结构化输出默认使用 `deepseek-v4-flash`；复杂推理、达到长上下文阈值、自然多文件调试或修复流程默认使用 `deepseek-v4-pro`。路由审计样本会把 Flash 占比钉在 80% 到 90% 之间，后续调整比例时优先改规则配置和审计样本。
+只有请求模型为 `auto` 时才会执行自动路由。当前默认策略是 Flash 优先：简单摘要、短文本、常规问答、普通代码改动、轻量 agentic 任务和常规结构化输出默认使用 `deepseek-v4-flash`；复杂推理、自然多文件调试或修复流程默认使用 `deepseek-v4-pro`。长上下文会参与评分，但不会仅因超过固定 token 阈值而直接强制切到 Pro。路由审计样本会把 Flash 占比钉在 80% 到 90% 之间，后续调整比例时优先改规则配置和审计样本。
 
-显式模型优先于自动路由。显式请求 `deepseek-v4-flash` 时，代理会先使用 Flash，并在可重试失败时 fallback 到 `deepseek-v4-pro`；显式请求 `deepseek-v4-pro` 时不会降级到 Flash。显式请求会把 `x-xiaoyi-router-routed` 设为 `false`。
+显式模型优先于自动路由。显式请求 `deepseek-v4-flash` 时固定使用 Flash；显式请求 `deepseek-v4-pro` 时固定使用 Pro。显式请求会把 `x-xiaoyi-router-routed` 设为 `false`。
 
 ### 简单任务
 
@@ -410,7 +410,7 @@ Inspect the auth and session files, trace the regression, and tell me why the in
 
 ### 长上下文
 
-当估算输入长度达到 `128000` tokens 及以上时，路由到 Pro。估算方式为系统提示词与路由文本拼接后的字符数除以 4 并向上取整，即 `Math.ceil(fullText.length / 4)`。这个阈值含边界：恰好 `128000` estimated tokens 也会升级到 Pro。
+长上下文会作为评分和能力信号参与路由判断，但当前没有“达到多少 estimated tokens 就直接升 Pro”的硬阈值。估算方式仍是系统提示词与路由文本拼接后的字符数除以 4 并向上取整，即 `Math.ceil(fullText.length / 4)`；只是这个估算值现在只参与整体评分，而不单独决定最终模型。
 
 ### 工具与 OpenClaw bootstrap 场景
 
@@ -423,7 +423,7 @@ OpenClaw agent 经常会在请求中附带工具列表，或者在消息里包�
 
 ### 会话钉住
 
-`auto` 请求默认开启会话钉住（session pinning）。代理会根据请求头 `x-session-id` 或首段消息内容派生会话 ID。当某个会话路由或回退到 Pro 后，同一会话后续 `auto` 请求会继续使用 Pro，避免一段复杂会话在 Flash 和 Pro 之间来回跳动。
+`auto` 请求默认开启会话钉住（session pinning）。代理会根据请求头 `x-session-id` 或首段消息内容派生会话 ID。当某个会话成功路由到 Pro 后，同一会话后续 `auto` 请求会继续使用 Pro，避免一段复杂会话在 Flash 和 Pro 之间来回跳动。Flash 请求不会建立可复用 pin，后续仍会重新路由。
 
 建议 OpenClaw 或调用方显式传入稳定的 `x-session-id`：
 
@@ -492,7 +492,7 @@ XIAOYI_ROUTER_TRACE=summary node dist/cli.js
 [xiaoyi-router] auto:agentic:pro:first-pass model=deepseek-v4-pro fallback=false
 ```
 
-`debug` 输出结构化 JSON，包含最终模型、tier、profile、session 动作、fallback 尝试和 prompt preview。prompt preview 只保留路由文本的前 10 个字符和后 10 个字符，中间用 `...` 省略；不会记录完整 prompt、system prompt、messages、Authorization、Cookie 或上游自定义 headers。
+`debug` 输出结构化 JSON，包含最终模型、tier、profile、session 动作、单次上游尝试和 prompt preview。prompt preview 只保留路由文本的前 10 个字符和后 10 个字符，中间用 `...` 省略；不会记录完整 prompt、system prompt、messages、Authorization、Cookie 或上游自定义 headers。
 
 ### CLI 参数
 
@@ -748,7 +748,7 @@ curl -NS http://127.0.0.1:8402/v1/chat/completions \
 | `x-xiaoyi-router-tier`     | 本次路由判定的复杂度层级，值为 `SIMPLE`、`MEDIUM`、`COMPLEX` 或 `REASONING`。     |
 | `x-xiaoyi-router-trace`    | 紧凑路由摘要，格式类似 `auto:medium:flash:first-pass`。                           |
 | `x-xiaoyi-router-routed`   | 是否经过 `auto` 路由。请求模型为 `auto` 时通常为 `true`，显式模型请求为 `false`。 |
-| `x-xiaoyi-router-fallback` | 是否发生 Flash 到 Pro 的回退。                                                    |
+| `x-xiaoyi-router-fallback` | 是否发生备用模型切换。当前实现固定为 `false`。                                     |
 | `x-xiaoyi-router-upstream` | 当前代理配置的真实上游 API base。                                                  |
 
 示例：
@@ -794,7 +794,7 @@ curl -iS http://127.0.0.1:8402/v1/chat/completions \
 | 上游网络错误                  |       `502` | `{"error":"<network error>"}`            |
 | 代理内部未捕获错误            |       `502` | `{"error":"Bad Gateway","detail":"..."}` |
 
-Flash 请求在遇到可重试上游状态码 `429`、`500`、`502`、`503`、`504` 时会尝试回退到 Pro。显式 Pro 请求不会降级。若最终仍是网络错误，返回 `502`，此类错误响应不保证包含路由响应头。
+当前代理不会在 Flash 和 Pro 之间自动切换。上游返回 `429`、`500`、`502`、`503`、`504` 时，代理直接透传该失败响应；网络错误返回 `502`。此类错误响应仍尽量附带路由响应头，便于确认本次原本选中的模型。
 
 ## OpenClaw 使用
 

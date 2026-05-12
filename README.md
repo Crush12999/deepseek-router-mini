@@ -8,9 +8,9 @@ It supports only three public model IDs:
 - `deepseek-v4-flash`
 - `deepseek-v4-pro`
 
-`auto` is routed locally with a Flash-first policy. Simple summaries, short text, ordinary Q&A, lightweight code edits, simple agentic work, and routine structured output default to `deepseek-v4-flash`. Complex reasoning, estimated input at or above 128,000 tokens, and natural multi-file debugging or repair workflows default to `deepseek-v4-pro`.
+`auto` is routed locally with a Flash-first policy. Simple summaries, short text, ordinary Q&A, lightweight code edits, simple agentic work, and routine structured output default to `deepseek-v4-flash`. Complex reasoning and natural multi-file debugging or repair workflows default to `deepseek-v4-pro`. Longer context participates in routing signals, but it no longer forces Pro by threshold alone.
 
-Explicit model requests take priority. Explicit `deepseek-v4-flash` requests may fall back to `deepseek-v4-pro` on retryable failures; explicit `deepseek-v4-pro` requests are never downgraded.
+Explicit model requests take priority. Explicit `deepseek-v4-flash` requests stay on Flash; explicit `deepseek-v4-pro` requests stay on Pro.
 
 ## Install
 

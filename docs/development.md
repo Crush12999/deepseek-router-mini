@@ -18,7 +18,6 @@
 - 让用户使用 `auto` 时，由本地规则把普通请求发给 Flash，把复杂请求发给 Pro。
 - 在 OpenClaw 中以插件形式写入或修复 `models.providers.xiaoyiprovider`，把标准 OpenAI 兼容 provider 配置指向本地代理。
 - 保留用户已有上游密钥和自定义 Header，不在插件中写入真实密钥。
-- 对显式 Flash 请求提供有限 fallback：当 Flash 上游返回可重试状态或网络错误时，改用 Pro 再试一次。
 - 避免引入钱包、x402、USDC、BlockRun、Solana、缓存等非目标能力。
 
 当前版本不是通用 OpenAI 代理，也不是多 Provider 路由器。除 `GET /health` 和 `POST /v1/chat/completions` 外，其它路径都返回 404；`GET /v1/models` 明确未实现。
@@ -32,7 +31,7 @@
 - OpenClaw 插件：默认导出插件对象，OpenClaw 启动时调用 `register(api)`。
 - Provider 配置注入：写入或修复 `api.config.models.providers.xiaoyiprovider`，但不注册 provider。
 - 路由器：根据 `auto` 请求的文本、工具、长度等因素选择 Flash 或 Pro。
-- 会话钉住：同一会话一旦升级到 Pro，后续 `auto` 请求继续走 Pro。
+- 会话钉住：同一会话一旦成功进入 Pro，后续 `auto` 请求继续走 Pro。
 - 上游转发：把请求发往 OpenAI 兼容上游，默认是 `https://api.deepseek.com`。
 
 典型 OpenClaw 请求流如下：
@@ -42,7 +41,7 @@ OpenClaw Gateway
   -> xiaoyiprovider Provider 配置 baseUrl = http://127.0.0.1:8402/v1
   -> POST /v1/chat/completions
   -> xiaoyi-router 本地代理
-  -> auto 路由、会话钉住、fallback
+  -> auto 路由、会话钉住
   -> POST https://api.deepseek.com/chat/completions
   -> 返回响应并追加 x-xiaoyi-router-* 响应头
 ```
@@ -109,13 +108,13 @@ OpenClaw Gateway
 | `src/models.ts`          | 定义唯一支持的 3 个模型 ID、模型元数据和模型 ID 校验。                           |
 | `src/provider.ts`        | 定义 Xiaoyi provider 配置使用的模型价格、能力、上下文窗口等元数据。              |
 | `src/plugin.ts`          | 实现 OpenClaw 插件注册、配置注入、服务生命周期和代理句柄管理。                   |
-| `src/proxy.ts`           | 实现 HTTP 服务、请求解析、模型选择、Header 合并、上游转发、fallback 和响应透传。 |
+| `src/proxy.ts`           | 实现 HTTP 服务、请求解析、模型选择、Header 合并、上游转发和响应透传。             |
 | `src/router/config.ts`   | 定义默认路由版本、评分维度、tier 边界、profile tier 和 override。                |
 | `src/router/rules.ts`    | 实现多维规则评分、codebase debugging 识别和 agentic 评分。                       |
 | `src/router/strategy.ts` | 实现 `RulesStrategy`，把评分结果映射为 tier、profile 和路由决策。                |
-| `src/router/selector.ts` | 根据 tier 配置选择模型、计算成本，并保留旧版 `selectModel(input)` 兼容入口。     |
+| `src/router/selector.ts` | 根据 tier 配置选择模型、计算成本，并暴露 tier helper。                            |
 | `src/router/trace.ts`    | 生成紧凑 trace 摘要，按 `off` / `summary` / `debug` 输出路由诊断日志。           |
-| `src/session.ts`         | 根据 `x-session-id` 或首条用户消息生成会话 ID，记录 Pro 复用和重复请求升级状态。 |
+| `src/session.ts`         | 根据 `x-session-id` 或首条用户消息生成会话 ID，记录可复用的 Pro 会话状态。       |
 | `src/cli.ts`             | 解析 CLI 参数，启动代理，处理 `SIGINT` / `SIGTERM`。                             |
 | `src/index.ts`           | 导出公共 API，并默认导出 OpenClaw 插件对象。                                     |
 
@@ -154,20 +153,20 @@ OpenClaw Gateway
 | Tier        | 主模型              | fallback          |
 | ----------- | ------------------- | ----------------- |
 | `SIMPLE`    | `deepseek-v4-flash` | 无                |
-| `MEDIUM`    | `deepseek-v4-flash` | `deepseek-v4-pro` |
+| `MEDIUM`    | `deepseek-v4-flash` | 无                |
 | `COMPLEX`   | `deepseek-v4-pro`   | 无                |
 | `REASONING` | `deepseek-v4-pro`   | 无                |
 
 几个重要细节：
 
-- 估算输入达到 `128000` tokens 时强制 `COMPLEX`，走 Pro。
 - 命中至少 2 个推理关键词时进入 `REASONING`，走 Pro。
 - 明确的代码库调试、回归定位、测试失败修复链路进入 `COMPLEX`，走 Pro。
 - 结构化输出不会直接强制 Pro，只会把低于 `MEDIUM` 的请求提升到 `MEDIUM`。
 - 轻量 agentic 请求即使带工具，也可以保持 Flash；工具存在会影响 profile，但不是无条件 Pro 开关。
+- 长上下文只作为评分与能力信号参与决策，不再用固定阈值直接强制 Pro。
 - 置信度低于阈值时使用 `MEDIUM` 作为保守默认层。
 
-`src/router/classifier.ts` 和旧版 `selectModel(input)` 仍作为兼容 helper 保留，测试会验证它们的历史行为；当前代理主链路使用 `route()`、`RulesStrategy` 和 tier 配置。
+`src/router/classifier.ts` 和 `src/router/selector.ts` 中的 helper 仍可单独测试；当前代理主链路使用 `route()`、`RulesStrategy` 和 tier 配置。
 
 ### 4.4 OpenClaw bootstrap 包装处理
 
@@ -190,14 +189,12 @@ Follow the BOOTSTRAP.md instructions above now.
 
 测试中验证了这类请求会继续走 Flash。
 
-### 4.5 会话复用与升级
+### 4.5 会话复用
 
-会话逻辑的核心原则是「复用 Pro，不复用普通 Flash 决策」：
+会话逻辑的核心原则是「复用成功的 Pro，不复用普通 Flash 决策」：
 
 - 如果某个 `auto` 会话实际走 Pro 且请求成功，后续同一会话的 `auto` 请求继续走 Pro。
-- 如果某个 `auto` 会话走 Flash，代理也会记录会话和请求哈希，用于重复请求升级判断；后续不会因为这条记录直接固定走 Flash。
-- 同一会话中相同路由文本和工具名称连续出现 3 次时，代理会尝试升级到下一个可用 tier。
-- 如果升级后的上游请求失败，代理会清理这次 pending escalation，避免把失败升级固定下来。
+- 如果某个 `auto` 会话走 Flash，不会创建可复用 pin；后续请求继续重新路由。
 - 显式 Flash / Pro 请求不改变 `x-xiaoyi-router-routed`，但代理仍会派生会话 ID 供内部流程使用。
 
 会话 ID 来源：
@@ -318,7 +315,7 @@ export const XIAOYI_OPENCLAW_MODELS: OpenClawModelDefinition[] =
   }));
 ```
 
-不要为此修改 `src/models.ts` 中的 `SUPPORTED_MODEL_IDS` 或 `MODEL_ROLES`。代理内部仍需要知道 Flash / Pro，才能完成 `auto` 路由、fallback、显式模型校验和 session pin。
+不要为此修改 `src/models.ts` 中的 `SUPPORTED_MODEL_IDS` 或 `MODEL_ROLES`。代理内部仍需要知道 Flash / Pro，才能完成 `auto` 路由、显式模型校验和 session pin。
 
 ### 5.5 Config 透传
 
@@ -508,24 +505,17 @@ OpenClaw 场景下，常见情况是 Gateway 已经根据 Provider 配置注入�
 | `x-xiaoyi-router-tier`     | 实际路由 tier：`SIMPLE`、`MEDIUM`、`COMPLEX` 等。   |
 | `x-xiaoyi-router-trace`    | 紧凑路由摘要，例如 `auto:medium:flash:first-pass`。 |
 | `x-xiaoyi-router-routed`   | 是否经过 `auto` 路由。                              |
-| `x-xiaoyi-router-fallback` | 是否从 Flash fallback 到 Pro。                      |
+| `x-xiaoyi-router-fallback` | 是否发生备用模型切换；当前实现固定为 `false`。      |
 | `x-xiaoyi-router-upstream` | 当前代理配置的真实上游 API base。                   |
 
-### 7.6 Fallback
+### 7.6 失败处理
 
-可重试状态码：
+当前代理不会在模型之间自动 fallback：
 
-```text
-429, 500, 502, 503, 504
-```
-
-fallback 规则：
-
-- 如果首次目标模型是 `deepseek-v4-flash`，且上游返回可重试状态，代理会丢弃响应体，再用 `deepseek-v4-pro` 重试。
-- 如果首次目标模型是 `deepseek-v4-flash`，且发生网络错误，也会用 Pro 重试。
-- 显式 `deepseek-v4-flash` 请求同样允许在可重试失败时 fallback 到 `deepseek-v4-pro`。
-- 显式 `deepseek-v4-pro` 请求不会降级，也不会再试 Flash。
-- 对 `auto` 请求，如果 fallback 后实际走 Pro 且请求成功，会把该会话记录为可复用 Pro 会话。
+- 首次目标模型是 `deepseek-v4-flash` 或 `deepseek-v4-pro` 时，都只发起一次上游请求。
+- 上游返回 `429`、`500`、`502`、`503`、`504` 时，代理直接透传该失败响应。
+- 网络错误返回 `502`。
+- `x-xiaoyi-router-fallback` 作为稳定响应头保留，但当前始终为 `false`。
 
 ### 7.7 流式响应
 
@@ -653,10 +643,10 @@ npm run format
 建议保持模块级测试的边界清晰：
 
 - `test/models.test.ts`：验证支持模型列表、模型 ID 校验、真实上游模型识别和模型元数据。
-- `test/router.test.ts`：验证评分路由、agentic profile、结构化输出、长上下文、fallback chain 和旧版 helper 兼容行为。
+- `test/router.test.ts`：验证评分路由、agentic profile、结构化输出、长上下文评分信号、fallback chain helper 和 selector helper 行为。
 - `test/router-trace.test.ts`：验证 trace 摘要、`summary` / `debug` 日志和 prompt preview。
 - `test/router-audit.test.ts`：验证典型任务集的 Flash / Pro 分布校准。
-- `test/session.test.ts`：验证 Pro 复用、Flash 记录、重复请求升级、禁用 pinning、Header 和内容派生会话 ID。
+- `test/session.test.ts`：验证 Pro 复用、禁用 pinning、Header 和内容派生会话 ID。
 - `test/config.test.ts`：验证默认值、环境变量、Header JSON、入参覆盖优先级和 trace mode 默认行为。
 - `test/cli.test.ts`：验证参数解析、帮助输出、未知命令处理。
 - `test/provider.test.ts`：验证 provider 配置使用的模型定义完整性。
@@ -673,8 +663,8 @@ npm run format
 - OpenClaw bootstrap 包装文本处理。
 - Header 合并和大小写去重。
 - `Authorization` 与 `apiKey` 的优先级。
-- 会话复用、重复请求升级和失败升级清理。
-- Flash 到 Pro 的 fallback。
+- 会话复用。
+- Flash 请求失败时不自动切换到 Pro。
 - 网络错误返回 502。
 - 非法 JSON 返回 400。
 - 流式响应透传。
@@ -982,11 +972,9 @@ openclaw config get models.providers.xiaoyiprovider
 
 可能原因：
 
-- 请求估算输入达到 `128000` tokens，触发长上下文规则。
 - 用户最后一段真实输入被评分为 `COMPLEX` 或 `REASONING`，例如包含 debug、failing tests、architecture、refactor、root cause、prove、derive 等强信号。
 - 同一 `x-session-id` 之前已经成功复用或升级到 Pro。
-- 同一会话中相同请求连续出现 3 次，触发重复请求升级。
-- Flash 首次请求返回可重试状态，触发 fallback 到 Pro。
+- 长上下文、工具存在、结构化输出等信号与其他规则叠加后，把请求打到了 Pro 所在 tier。
 
 可以查看响应头确认原因范围：
 
@@ -1033,10 +1021,9 @@ export XIAOYI_BASE_URL="https://gateway.example.com/v4"
 
 - 响应缓存：仅对非流式、确定性请求启用，并把 `model`、`messages`、`tools`、`temperature`、`max_tokens`、`baseUrl` 纳入缓存键；必须区分 Flash 和 Pro。
 - 更多路由规则：把规则拆成可配置策略，增加更精确的多语言复杂度判断。
-- 观测性：在响应头或日志中暴露路由原因、会话 pin 命中、fallback 原因、上游耗时。
+- 观测性：在响应头或日志中暴露路由原因、会话 pin 命中和上游耗时。
 - OpenClaw 真实版本兼容矩阵：记录不同 OpenClaw 版本对 `registerService`、`registrationMode`、Provider 配置字段的行为差异。
 - 配置校验与错误提示：对格式非法、协议不受支持或明显不可用的上游 API base 给出更清晰提示。
-- 流式 fallback 策略：当前 fallback 发生在收到可重试状态或网络错误时；如果上游流已经开始，中途失败无法安全切换模型。
-- 字段命名规范化：session 内部仍保留 `sameRequestStrikes`、`maxSameRequestStrikes` 这类历史命名。对外文档统一称为「连续重试升级」，后续如要调整字段名，应作为兼容性改造单独处理，并保留旧配置别名或迁移说明。
+- 流式失败处理：如果上游流已经开始，中途失败无法安全切换模型；当前保持单模型单次请求语义。
 
 维护这类能力时，应优先补测试：路由规则改动补 `test/router.test.ts`，代理行为改动补 `test/proxy.test.ts`，OpenClaw 生命周期改动补 `test/plugin.test.ts`。

@@ -9,11 +9,11 @@
 该方案适用于以下场景：
 
 - OpenClaw 或本地客户端需要一个稳定的 OpenAI 兼容入口。
-- 团队希望普通任务优先使用 Flash，复杂推理、调试、长上下文和高风险代码任务自动升级到 Pro。
+- 团队希望普通任务优先使用 Flash，复杂推理、调试和高风险代码任务按能力档位进入 Pro。
 - 团队可以接受基于规则与评分的本地路由，而不是每次都调用额外 LLM 做分类。
 - 上游 API Key、`x-uid` 等鉴权与业务 Header 由环境变量、OpenClaw Provider 配置或请求 Header 管理，不由插件清单保存。
 
-该方案不定位为通用多 Provider 网关。当前版本只实现必要链路：健康检查、Chat Completions 代理、模型路由、会话升级、fallback、OpenClaw 配置注入和路由观测。
+该方案不定位为通用多 Provider 网关。当前版本只实现必要链路：健康检查、Chat Completions 代理、模型路由、Pro 会话复用、OpenClaw 配置注入和路由观测。
 
 ## 2. 背景与目标
 
@@ -29,7 +29,7 @@ OpenClaw 和本地 OpenAI 兼容客户端通常只关心一个模型入口，但
 - 兼容 OpenClaw 插件生命周期，通过 `registerService()` 启停本地代理。
 - 写入或修复 `models.providers.xiaoyiprovider`，让 OpenClaw 的标准 `openai-completions` Provider 指向本地代理。
 - 保留用户已有 `apiKey`、`api_key`、`headers`、`request.headers` 和未知字段。
-- 提供响应头和可选日志 trace，支持排查最终路由、fallback 和上游地址。
+- 提供响应头和可选日志 trace，支持排查最终路由、会话复用和上游地址。
 
 ### 2.3 非目标
 
@@ -51,7 +51,7 @@ OpenClaw 和本地 OpenAI 兼容客户端通常只关心一个模型入口，但
 | OpenClaw 插件     | 在 OpenClaw 启动时注册服务，并注入 Provider 配置。                     |
 | Provider 配置注入 | 写入 `models.providers.xiaoyiprovider`，把 OpenClaw 请求导向本地代理。 |
 | 路由器            | 对 `auto` 请求做规则评分、分层、profile 选择和模型选择。               |
-| 会话存储          | 记录会话状态，复用 Pro 决策，并对重复失败倾向的 Flash 会话升级。       |
+| 会话存储          | 记录成功 Pro 会话状态，后续同一会话复用 Pro 决策。                     |
 | 上游转发          | 合并 Header，改写 `model`，转发到上游 OpenAI 兼容 API。                |
 
 完整链路如下：
@@ -63,7 +63,7 @@ flowchart LR
   localApi[本地 Router API<br/>/v1/chat/completions]
   proxy[Xiaoyi Router HTTP Proxy]
   router[路由器<br/>auto / explicit]
-  session[SessionStore<br/>复用 / 升级]
+  session[SessionStore<br/>Pro 复用]
   upstream[上游 OpenAI 兼容 API<br/>/chat/completions]
   response[响应透传<br/>x-xiaoyi-router-*]
 
@@ -149,13 +149,11 @@ flowchart TD
   choose{请求模型}
   explicit[显式 Flash / Pro]
   auto[auto 评分路由]
-  session[会话复用 / 重复升级]
+  session[会话 Pro 复用]
   headers[合并上游 Header]
   rewrite[改写请求体 model]
   upstream[请求上游 /chat/completions]
   result{上游结果}
-  retry{是否可 fallback}
-  fallback[尝试下一个模型]
   success[透传响应体<br/>追加路由 Header]
   fail[HTTP 502<br/>附带路由 Header]
 
@@ -172,10 +170,8 @@ flowchart TD
   session --> headers
   headers --> rewrite --> upstream --> result
   result -- 成功 --> success
-  result -- 可重试失败 --> retry
-  retry -- 是 --> fallback --> upstream
-  retry -- 否 --> fail
-  result -- 网络错误且无后续模型 --> fail
+  result -- HTTP 失败 --> fail
+  result -- 网络错误 --> fail
 ```
 
 ### 4.3 响应处理链路
@@ -204,7 +200,7 @@ flowchart LR
 | `x-xiaoyi-router-tier`     | 路由分层：`SIMPLE`、`MEDIUM`、`COMPLEX` 或 `REASONING`。 |
 | `x-xiaoyi-router-trace`    | 紧凑路由摘要，例如 `auto:medium:flash:first-pass`。      |
 | `x-xiaoyi-router-routed`   | 是否经过 `auto` 路由。                                   |
-| `x-xiaoyi-router-fallback` | 是否使用了 fallback 后续模型。                           |
+| `x-xiaoyi-router-fallback` | 当前请求是否发生备用模型切换；当前实现固定为 `false`。   |
 | `x-xiaoyi-router-upstream` | 当前代理配置的真实上游 API base。                        |
 
 ## 5. 路由策略设计
@@ -216,10 +212,10 @@ flowchart LR
 | 模型 ID             | 定位                         | 用法                                       |
 | ------------------- | ---------------------------- | ------------------------------------------ |
 | `auto`              | 默认自动路由入口             | 本地选择 Flash 或 Pro。                    |
-| `deepseek-v4-flash` | 低成本、低延迟模型           | 显式轻模型请求，失败时可 fallback 到 Pro。 |
+| `deepseek-v4-flash` | 低成本、低延迟模型           | 显式轻模型请求，固定走 Flash。             |
 | `deepseek-v4-pro`   | 复杂推理、调试和长上下文模型 | 显式强模型请求，不降级。                   |
 
-显式模型请求不进入 `auto` 评分路由，但仍会经过代理的 Header 合并、上游转发、响应头追加和可重试处理。
+显式模型请求不进入 `auto` 评分路由，但仍会经过代理的 Header 合并、上游转发和响应头追加。
 
 ### 5.2 评分分层
 
@@ -230,18 +226,15 @@ flowchart TD
   input[routeText + systemPrompt + tools]
   estimate[估算输入 tokens]
   score[多维规则评分]
-  force{是否达到<br/>128000 tokens}
   reasoning{是否命中<br/>推理强规则}
   debugging{是否命中<br/>codebase debugging}
   confidence{置信度是否足够}
   fallbackTier[默认 MEDIUM]
   tier[输出 tier]
   profile[选择 profile<br/>auto / agentic]
-  model[选择主模型和 fallback chain]
+  model[选择主模型]
 
-  input --> estimate --> score --> force
-  force -- 是 --> tier
-  force -- 否 --> reasoning
+  input --> estimate --> score --> reasoning
   reasoning -- 是 --> tier
   reasoning -- 否 --> debugging
   debugging -- 是 --> tier
@@ -282,17 +275,17 @@ flowchart TD
 | Tier        | 默认主模型 | fallback |
 | ----------- | ---------- | -------- |
 | `SIMPLE`    | Flash      | 无       |
-| `MEDIUM`    | Flash      | Pro      |
+| `MEDIUM`    | Flash      | 无       |
 | `COMPLEX`   | Pro        | 无       |
 | `REASONING` | Pro        | 无       |
 
 关键规则：
 
-- 估算输入达到 `128000` tokens 时强制 `COMPLEX`，走 Pro。
 - 命中至少 2 个推理关键词时进入 `REASONING`，走 Pro。
 - 明确的代码库调试、回归定位、测试失败修复链路进入 `COMPLEX`，走 Pro。
 - 结构化输出不会直接强制 Pro，只会把低于 `MEDIUM` 的请求提升到 `MEDIUM`。
 - 轻量 agentic 请求即使带工具，也可以保持 Flash；工具存在会影响 profile，但不是无条件 Pro 开关。
+- 长上下文只作为评分和能力信号参与决策，不再以固定阈值直接强制 Pro。
 - 置信度不足时使用 `MEDIUM` 作为保守默认层。
 
 ### 5.3 Profile 选择
@@ -311,57 +304,26 @@ OpenClaw CLI 请求可能把工具说明、历史上下文、系统约束和真�
 
 当前实现对用户消息应用方括号时间戳 / turn 格式提取规则，优先使用最后一段真实用户输入作为 `routeText`。完整消息仍用于请求转发，上游看到的请求体不被裁剪。
 
-### 5.5 Fallback 策略
+### 5.5 失败处理
 
-可重试状态码包括 `429`、`500`、`502`、`503` 和 `504`。fallback 决策如下：
+当前代理运行时不会在模型之间自动切换：
 
-```mermaid
-flowchart TD
-  first[首次上游请求]
-  result{结果}
-  ok[返回上游响应]
-  retryable{状态码是否为<br/>429 / 500 / 502 / 503 / 504}
-  network{是否网络错误}
-  next{fallback chain<br/>是否还有模型}
-  discard[取消失败响应体]
-  retry[用下一个模型重试]
-  fail[返回 502 或最终上游响应]
-
-  first --> result
-  result -- 成功 --> ok
-  result -- HTTP 失败 --> retryable
-  retryable -- 是 --> next
-  retryable -- 否 --> fail
-  result -- 网络错误 --> network
-  network -- 是 --> next
-  next -- 是 --> discard --> retry --> first
-  next -- 否 --> fail
-```
-
-策略：
-
-- `SIMPLE` 默认没有 fallback。
-- `MEDIUM` 默认 Flash，fallback 到 Pro。
-- `COMPLEX` 和 `REASONING` 直接 Pro，无降级。
-- 显式 Flash 请求也可以在可重试失败或网络错误时 fallback 到 Pro。
-- 显式 Pro 请求不降级。
-- fallback 前会尽力取消失败响应体，避免占用资源。
-- fallback 成功后，`x-xiaoyi-router-fallback` 为 `true`，trace reason 为 `fallback`。
+- 路由一旦选中 Flash 或 Pro，就只向该模型发起一次上游请求。
+- 上游返回 `429`、`500`、`502`、`503`、`504` 时，代理直接透传该失败响应。
+- 发生网络错误时，代理返回 `502`。
+- `x-xiaoyi-router-fallback` 仍保留为响应头字段，但当前实现固定为 `false`，用于表达「本次没有发生备用模型切换」。
 
 ## 6. 会话策略设计
 
-会话用于减少同一上下文内模型选择来回波动，并处理重复请求需要升级的场景。
+会话用于减少同一上下文内模型选择来回波动。
 
 ```mermaid
 stateDiagram-v2
   [*] --> NoSession: 无 x-session-id / 无可用内容
   [*] --> RouteNormally: 有会话 ID
-  RouteNormally --> FlashRecorded: auto 走 Flash
+  RouteNormally --> FlashStateless: auto 走 Flash
   RouteNormally --> ProReusable: auto 走 Pro 成功
-  FlashRecorded --> RouteNormally: 新请求重新路由
-  FlashRecorded --> Escalating: 相同请求连续 3 次
-  Escalating --> ProReusable: 升级请求成功
-  Escalating --> RouteNormally: 升级请求失败并清理 pending 状态
+  FlashStateless --> RouteNormally: 新请求重新路由
   ProReusable --> ProReusable: 后续 auto 复用 Pro
 ```
 
@@ -373,28 +335,17 @@ stateDiagram-v2
 2. 没有 Header 时，提取第一条用户消息文本，规范化空白后做 SHA-256，截取前 8 位十六进制作为内容会话 ID。
 3. 没有 Header 且没有用户文本时，不生成会话 ID。
 
-### 6.2 Pro 复用与 Flash 记录
+### 6.2 Pro 复用语义
 
-当前实现的核心原则是「复用 Pro，不复用普通 Flash 决策」：
+当前实现的核心原则是「只复用成功的 Pro，会话不记住普通 Flash 决策」：
 
 - `auto` 请求实际走 Pro 且成功后，会写入可复用会话状态。
 - 后续同一会话的 `auto` 请求会直接复用 Pro。
-- `auto` 请求走 Flash 时，也会记录会话，用于重复请求计数和后续升级判断。
-- 已记录的 Flash 会话不会直接作为「pin」复用；下一次仍会重新路由，除非触发重复请求升级。
+- `auto` 请求走 Flash 时不会创建可复用 pin；下一次仍会重新路由。
 
-这样设计可以避免一次简单任务把整个会话长期固定在 Flash，同时保留「同一请求反复出现可能说明 Flash 不足」的升级能力。
+这样设计可以避免一次简单任务把整个会话长期固定在 Flash，同时保留复杂会话一旦进入 Pro 后的稳定性。
 
-### 6.3 重复请求升级
-
-会话记录会保存规范化后的请求哈希，哈希输入包括路由文本和工具名称。默认同一会话中相同请求连续出现 3 次时，尝试把会话升级到下一个可用 tier。
-
-升级成功后：
-
-- 会话模型和 tier 更新。
-- `x-xiaoyi-router-trace` 的 reason 可体现为 `escalated`。
-- 如果升级后的上游请求失败，会清理这次 pending escalation，避免把失败升级固定下来。
-
-### 6.4 生命周期
+### 6.3 生命周期
 
 默认会话 TTL 为 30 分钟，清理间隔为 5 分钟。代理关闭时会调用 `SessionStore.close()` 清理定时器。会话状态只在内存中保存，进程重启后丢失。
 
@@ -480,7 +431,7 @@ Header 只接受字符串值。`request.headers` 会覆盖同名 `headers`。这
 - 实际模型。
 - tier。
 - 是否 `auto` 路由。
-- 是否 fallback。
+- 是否发生备用模型切换；当前实现固定为 `false`。
 - 当前上游 API base。
 - 紧凑 trace 摘要。
 
@@ -510,8 +461,8 @@ export XIAOYI_ROUTER_TRACE=debug
 | 类型                 | 覆盖范围                                                                       |
 | -------------------- | ------------------------------------------------------------------------------ |
 | 模型与 Provider 测试 | 模型 ID、价格、能力、OpenClaw 模型定义。                                       |
-| 路由测试             | 评分路由、agentic profile、长上下文、结构化输出、fallback chain、兼容 helper。 |
-| 代理集成测试         | 本地 HTTP 服务、Header 合并、模型改写、fallback、流式透传、错误处理。          |
+| 路由测试             | 评分路由、agentic profile、长上下文评分信号、结构化输出、selector helper。     |
+| 代理集成测试         | 本地 HTTP 服务、Header 合并、模型改写、流式透传、错误处理。                    |
 | 插件测试             | 配置注入、生命周期、启动失败、注册失败回滚、运行模式。                         |
 | 包入口测试           | 构建后入口、npm metadata、OpenClaw manifest 与发布文件。                       |
 
@@ -521,9 +472,9 @@ export XIAOYI_ROUTER_TRACE=debug
 
 - 降低使用成本：普通请求优先走 Flash。
 - 降低接入复杂度：客户端只需要面向 OpenAI 兼容接口调用。
-- 保持人工可控：用户显式指定 Pro 时不降级，显式 Flash 时只在可重试失败时升级。
+- 保持人工可控：用户显式指定 Flash 或 Pro 时，代理尊重该能力档位。
 - 兼容 OpenClaw：不依赖不稳定 Provider 注册路径，使用配置注入接入标准 provider。
-- 可排查：响应 Header 与 trace 能定位实际模型、fallback 和上游地址。
+- 可排查：响应 Header 与 trace 能定位实际模型、会话复用状态和上游地址。
 - 风险面较小：当前只实现必要 HTTP 接口，不引入缓存、支付、钱包等额外状态。
 
 ## 13. 主要风险与缓解
@@ -534,9 +485,9 @@ export XIAOYI_ROUTER_TRACE=debug
 | OpenClaw 版本差异              | 插件注册或模型展示行为不一致。      | 不注册 provider，只修复 provider 配置；文档要求以 provider 配置、`/health` 和真实请求验证为准。 |
 | 端口冲突                       | 插件服务启动失败。                  | 支持 `port` 配置和 `XIAOYI_ROUTER_PORT`；启动失败日志包含端口。                                 |
 | 上游鉴权配置错误               | 请求返回 401 / 403。                | 支持请求 Header、Provider `apiKey`、`api_key` 和环境变量多来源。                                |
-| fallback 掩盖 Flash 稳定性问题 | 调用成功但成本上升。                | 响应头标记 fallback，trace 记录尝试链路。                                                       |
-| 进程内会话状态丢失             | 重启后失去 Pro 复用和重复升级记录。 | 当前作为可接受取舍；会话只用于优化，不作为强一致业务状态。                                      |
-| 流式响应中途失败无法切换模型   | 长流式请求可能直接失败。            | 当前仅在收到可重试状态或网络错误时 fallback；文档明确边界。                                     |
+| 上游 Flash 失败直接返回        | 简单请求不会自动升 Pro 兜底。       | 这是有意的成本控制策略；由显式 Pro、复杂规则和 Pro 会话复用承担升级职责。                       |
+| 进程内会话状态丢失             | 重启后失去 Pro 复用记录。           | 当前作为可接受取舍；会话只用于优化，不作为强一致业务状态。                                      |
+| 流式响应中途失败无法切换模型   | 长流式请求可能直接失败。            | 当前不做流内切换；文档明确边界。                                                                |
 
 ## 14. 替代方案比较
 
@@ -557,7 +508,7 @@ export XIAOYI_ROUTER_TRACE=debug
 3. 用 `/health`、直接 `curl` 和 OpenClaw agent 各验证一次链路。
 4. 开启 `XIAOYI_ROUTER_TRACE=summary` 做短期观察。
 5. 重点观察简单任务、代码任务、调试任务和长上下文任务的实际模型分布。
-6. 当模型分布、fallback 比例和错误率符合预期后，再将 `xiaoyiprovider/auto` 作为默认模型入口使用。
+6. 当模型分布和错误率符合预期后，再将 `xiaoyiprovider/auto` 作为默认模型入口使用。
 
 上线前最低验证命令：
 
@@ -572,7 +523,7 @@ npm pack --dry-run
 ## 16. 后续演进方向
 
 - 路由规则配置化：允许不同团队按成本或质量偏好调整阈值。
-- 更细粒度观测：暴露耗时、fallback 原因、会话命中、升级原因。
+- 更细粒度观测：暴露耗时、路由原因和会话命中。
 - OpenClaw 版本兼容矩阵：记录不同版本的插件生命周期和 provider 展示差异。
 - 响应缓存：仅作为 Phase 2 候选，且必须区分 Flash / Pro、上游地址和关键生成参数。
 - 流式失败处理：明确中途失败时的调用方体验和重试策略。
