@@ -144,6 +144,8 @@ function scoreCodebaseDebugging(text: string, context: RuleContext): DimensionSc
     /\binvestigate why\b/,
     /\bwork out why\b/,
     /\broot cause\b/,
+    /\bdebug\b.*\bfailing tests?\b/,
+    /\bdebug\b.*\bfailing test\b/,
     /\bdebug tests?\b/,
     /\bdebug failures?\b/,
     /\bregression\b/,
@@ -217,6 +219,8 @@ function scoreCodebaseDebugging(text: string, context: RuleContext): DimensionSc
   const hasNegativeIntent = hasPattern(text, negativeIntentPatterns);
   const isToolDiagnosis =
     context.hasTools === true && hasScope && hasFailure && hasExecutionIntent;
+  const isDirectMultiFileDiagnosis =
+    hasScope && hasFailure && hasExecutionIntent && /\bdebug\b/.test(text);
   const isRepairWorkflow =
     hasScope && hasFailure && hasRepair && hasVerification && hasExecutionIntent;
 
@@ -224,7 +228,7 @@ function scoreCodebaseDebugging(text: string, context: RuleContext): DimensionSc
     !hasNegativeIntent &&
     hasScope &&
     hasFailure &&
-    (isToolDiagnosis || isRepairWorkflow)
+    (isToolDiagnosis || isDirectMultiFileDiagnosis || isRepairWorkflow)
   ) {
     const labels = [
       "scope",

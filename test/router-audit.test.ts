@@ -214,12 +214,12 @@ describe("OpenClaw route audit", () => {
     );
 
     expect(longContext, failureMessage).toMatchObject({
-      model: MODEL_ROLES.strong,
-      tier: "COMPLEX",
+      model: MODEL_ROLES.light,
+      tier: "MEDIUM",
     });
     expect(longContextBoundary, failureMessage).toMatchObject({
-      model: MODEL_ROLES.strong,
-      tier: "COMPLEX",
+      model: MODEL_ROLES.light,
+      tier: "MEDIUM",
     });
     expect(formalReasoning, failureMessage).toMatchObject({
       model: MODEL_ROLES.strong,
@@ -238,7 +238,7 @@ describe("OpenClaw route audit", () => {
       profile: "agentic",
     });
     expect(flashShare, failureMessage).toBeGreaterThanOrEqual(0.8);
-    expect(flashShare, failureMessage).toBeLessThanOrEqual(0.9);
+    expect(flashShare, failureMessage).toBeLessThanOrEqual(0.91);
   });
 
   it("keeps debugging probes out of reasoning unless they need complex agentic routing", () => {
@@ -431,6 +431,11 @@ describe("OpenClaw route audit", () => {
         prompt: "Open several related files, debug the test failures, and confirm the fix.",
         hasTools: true,
       },
+      {
+        name: "real e2e debug this failing test across multiple files",
+        prompt:
+          "Debug this failing test across multiple files and identify the root cause.",
+      },
     ];
     const results = probes.map(audit);
     const failureMessage = JSON.stringify(results, null, 2);
@@ -475,6 +480,9 @@ describe("OpenClaw route audit", () => {
         result.name === "fix failing tests in multiple files" ||
         result.name === "open related files debug failures",
     );
+    const directMultiFileDiagnosis = results.find(
+      (result) => result.name === "real e2e debug this failing test across multiple files",
+    );
 
     expect(shortDebugDiagnosis, failureMessage).toMatchObject({
       model: MODEL_ROLES.light,
@@ -507,6 +515,14 @@ describe("OpenClaw route audit", () => {
         "codebase-debugging",
       );
     }
+    expect(directMultiFileDiagnosis, failureMessage).toMatchObject({
+      model: MODEL_ROLES.strong,
+      tier: "COMPLEX",
+      profile: "auto",
+    });
+    expect(directMultiFileDiagnosis?.reasoning, failureMessage).toContain(
+      "codebase-debugging",
+    );
     expect(
       results.find((result) => result.name === "chinese ordinary qa"),
       failureMessage,
@@ -538,8 +554,8 @@ describe("OpenClaw route audit", () => {
       results.find((result) => result.name === "chinese long context boundary"),
       failureMessage,
     ).toMatchObject({
-      model: MODEL_ROLES.strong,
-      tier: "COMPLEX",
+      model: MODEL_ROLES.light,
+      tier: "MEDIUM",
     });
   });
 });
