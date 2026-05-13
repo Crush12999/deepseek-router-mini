@@ -23,7 +23,7 @@ export type RoutingDecision = {
   savings: number;
   agenticScore?: number;
   tierConfigs?: Record<Tier, TierConfig>;
-  profile?: "auto" | "eco" | "premium" | "agentic";
+  profile?: "auto" | "agentic";
 };
 
 export interface RouterStrategy {
@@ -39,7 +39,6 @@ export interface RouterStrategy {
 export type RouterOptions = {
   config: RoutingConfig;
   modelPricing: Map<string, ModelPricing>;
-  routingProfile?: "eco" | "auto" | "premium";
   hasTools?: boolean;
 };
 
@@ -92,7 +91,5 @@ export type RoutingConfig = {
   scoring: ScoringConfig;
   tiers: Record<Tier, TierConfig>;
   agenticTiers?: Record<Tier, TierConfig> | null;
-  ecoTiers?: Record<Tier, TierConfig> | null;
-  premiumTiers?: Record<Tier, TierConfig> | null;
   overrides: OverridesConfig;
 };

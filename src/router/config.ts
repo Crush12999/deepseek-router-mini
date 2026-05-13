@@ -417,20 +417,6 @@ export const DEFAULT_ROUTING_CONFIG: RoutingConfig = {
     REASONING: { primary: STRONG, fallback: [] },
   },
 
-  premiumTiers: {
-    SIMPLE: { primary: STRONG, fallback: [] },
-    MEDIUM: { primary: STRONG, fallback: [] },
-    COMPLEX: { primary: STRONG, fallback: [] },
-    REASONING: { primary: STRONG, fallback: [] },
-  },
-
-  ecoTiers: {
-    SIMPLE: { primary: LIGHT, fallback: [] },
-    MEDIUM: { primary: LIGHT, fallback: [] },
-    COMPLEX: { primary: STRONG, fallback: [] },
-    REASONING: { primary: STRONG, fallback: [] },
-  },
-
   overrides: {
     structuredOutputMinTier: "MEDIUM",
     ambiguousDefaultTier: "MEDIUM",

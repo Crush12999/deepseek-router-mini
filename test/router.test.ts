@@ -149,7 +149,7 @@ describe("smart router", () => {
   });
 
   it("calculates cost relative to the strong baseline", () => {
-    const cost = calculateModelCost(MODEL_ROLES.light, pricing, 1_000_000, 1_000_000, "auto");
+    const cost = calculateModelCost(MODEL_ROLES.light, pricing, 1_000_000, 1_000_000);
 
     expect(cost.costEstimate).toBeCloseTo(0.7);
     expect(cost.baselineCost).toBeCloseTo(2.24);
