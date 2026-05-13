@@ -267,6 +267,7 @@ flowchart TD
 - 引用上下文复杂度。
 - 否定约束。
 - 领域专有词。
+- Agentic 任务特征。
 - codebase debugging 任务。
 - agentic 任务特征。
 
@@ -290,13 +291,12 @@ flowchart TD
 
 ### 5.3 Profile 选择
 
-路由器支持 `auto`、`agentic`、`eco`、`premium` 等 profile 概念。当前代理默认使用自动 profile 选择，不向 HTTP API 暴露显式 profile 参数。
+路由器当前只使用 `auto` 和自动触发的 `agentic` profile。请求带工具，或 agentic 分数达到阈值时，会使用 `agenticTiers`；否则使用默认 tiers。
 
 默认行为：
 
 - 请求带工具，或 agentic 分数达到阈值时，使用 `agenticTiers`。
 - 当前 `agenticTiers` 与默认 tiers 在模型映射上保持一致，但 trace 会标记为 `agentic`。
-- `ecoTiers` 和 `premiumTiers` 保留在路由库能力中，当前代理未对外开放配置入口。
 
 ### 5.4 OpenClaw bootstrap 处理
 
