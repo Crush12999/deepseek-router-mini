@@ -19,7 +19,6 @@ export function selectModel(
   modelPricing: Map<string, ModelPricing>,
   estimatedInputTokens: number,
   maxOutputTokens: number,
-  routingProfile?: "eco" | "auto" | "premium",
   agenticScore?: number,
   score?: number,
 ): RoutingDecision;
@@ -32,7 +31,6 @@ export function selectModel(
   modelPricing: Map<string, ModelPricing>,
   estimatedInputTokens: number,
   maxOutputTokens: number,
-  routingProfile?: "eco" | "auto" | "premium",
   agenticScore?: number,
   score?: number,
 ): RoutingDecision {
@@ -47,7 +45,6 @@ export function selectModel(
     modelPricing,
     estimatedInputTokens,
     maxOutputTokens,
-    routingProfile,
   );
 
   return {
@@ -72,7 +69,6 @@ export function calculateModelCost(
   modelPricing: Map<string, ModelPricing>,
   estimatedInputTokens: number,
   maxOutputTokens: number,
-  routingProfile?: "eco" | "auto" | "premium",
 ): { costEstimate: number; baselineCost: number; savings: number } {
   const pricing = modelPricing.get(model);
   const inputCost = (estimatedInputTokens / 1_000_000) * (pricing?.inputPrice ?? 0);
@@ -84,11 +80,9 @@ export function calculateModelCost(
   const baselineOutput = (maxOutputTokens / 1_000_000) * (baselinePricing?.outputPrice ?? BASELINE_OUTPUT_PRICE);
   const baselineCost = baselineInput + baselineOutput;
   const savings =
-    routingProfile === "premium"
-      ? 0
-      : baselineCost > 0
-        ? Math.max(0, (baselineCost - costEstimate) / baselineCost)
-        : 0;
+    baselineCost > 0
+      ? Math.max(0, (baselineCost - costEstimate) / baselineCost)
+      : 0;
 
   return { costEstimate, baselineCost, savings };
 }

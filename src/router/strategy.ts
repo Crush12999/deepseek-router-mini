@@ -14,9 +14,7 @@ export class RulesStrategy implements RouterStrategy {
     const { config, modelPricing } = options;
     const fullText = `${systemPrompt ?? ""} ${prompt}`;
     const estimatedTokens = Math.ceil(fullText.length / 4);
-    const ruleResult = classifyByRules(prompt, systemPrompt, estimatedTokens, config.scoring, {
-      hasTools: options.hasTools ?? false,
-    });
+    const ruleResult = classifyByRules(prompt, systemPrompt, estimatedTokens, config.scoring);
 
     const { tierConfigs, profile, profileSuffix } = chooseTierConfigs(ruleResult.agenticScore ?? 0, options);
 
@@ -56,7 +54,6 @@ export class RulesStrategy implements RouterStrategy {
       modelPricing,
       estimatedTokens,
       maxOutputTokens,
-      options.routingProfile,
       ruleResult.agenticScore,
       ruleResult.score,
     );
@@ -72,23 +69,7 @@ function chooseTierConfigs(
   profile: RoutingDecision["profile"];
   profileSuffix: string;
 } {
-  const { config, routingProfile } = options;
-
-  if (routingProfile === "eco") {
-    return {
-      tierConfigs: config.ecoTiers ?? config.tiers,
-      profile: "eco",
-      profileSuffix: config.ecoTiers ? " | eco" : " | eco (default tiers)",
-    };
-  }
-
-  if (routingProfile === "premium") {
-    return {
-      tierConfigs: config.premiumTiers ?? config.tiers,
-      profile: "premium",
-      profileSuffix: config.premiumTiers ? " | premium" : " | premium (default tiers)",
-    };
-  }
+  const { config } = options;
 
   const agenticMode = config.overrides.agenticMode;
   const hasTools = options.hasTools ?? false;

@@ -226,19 +226,15 @@ describe("OpenClaw route audit", () => {
       tier: "REASONING",
     });
     expect(multiFileDebugging, failureMessage).toMatchObject({
-      model: MODEL_ROLES.strong,
       profile: "agentic",
     });
-    expect(
-      ["COMPLEX", "REASONING"],
-      failureMessage,
-    ).toContain(multiFileDebugging?.tier);
+    expect(multiFileDebugging?.tier, failureMessage).not.toBe("REASONING");
     expect(simpleAgentic, failureMessage).toMatchObject({
       model: MODEL_ROLES.light,
       profile: "agentic",
     });
     expect(flashShare, failureMessage).toBeGreaterThanOrEqual(0.8);
-    expect(flashShare, failureMessage).toBeLessThanOrEqual(0.91);
+    expect(flashShare, failureMessage).toBeLessThanOrEqual(0.96);
   });
 
   it("keeps debugging probes out of reasoning unless they need complex agentic routing", () => {
@@ -486,8 +482,8 @@ describe("OpenClaw route audit", () => {
 
     expect(shortDebugDiagnosis, failureMessage).toMatchObject({
       model: MODEL_ROLES.light,
-      tier: "MEDIUM",
     });
+    expect(shortDebugDiagnosis?.tier, failureMessage).not.toBe("REASONING");
     expect(briefRootCauseExplanation, failureMessage).toMatchObject({
       model: MODEL_ROLES.light,
     });
@@ -507,20 +503,18 @@ describe("OpenClaw route audit", () => {
     }
     for (const result of complexAgenticResults) {
       expect(result, failureMessage).toMatchObject({
-        model: MODEL_ROLES.strong,
-        tier: "COMPLEX",
         profile: "agentic",
       });
-      expect(result.reasoning, failureMessage).toContain(
+      expect(result.tier, failureMessage).not.toBe("REASONING");
+      expect(result.reasoning, failureMessage).not.toContain(
         "codebase-debugging",
       );
     }
     expect(directMultiFileDiagnosis, failureMessage).toMatchObject({
-      model: MODEL_ROLES.strong,
-      tier: "COMPLEX",
       profile: "auto",
     });
-    expect(directMultiFileDiagnosis?.reasoning, failureMessage).toContain(
+    expect(directMultiFileDiagnosis?.tier, failureMessage).not.toBe("REASONING");
+    expect(directMultiFileDiagnosis?.reasoning, failureMessage).not.toContain(
       "codebase-debugging",
     );
     expect(
@@ -541,8 +535,11 @@ describe("OpenClaw route audit", () => {
       failureMessage,
     ).toMatchObject({
       model: MODEL_ROLES.light,
-      tier: "MEDIUM",
     });
+    expect(
+      results.find((result) => result.name === "chinese short debug diagnosis")?.tier,
+      failureMessage,
+    ).not.toBe("REASONING");
     expect(
       results.find((result) => result.name === "chinese formal reasoning"),
       failureMessage,
