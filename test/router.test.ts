@@ -49,11 +49,11 @@ const representativeScoringKeywords = [
 const deprecatedCodeKeywords = ["debug", "fix", "refactor"] as const;
 
 describe("smart router", () => {
-  it("routes simple prompts to the light model with the default medium tier", () => {
+  it("routes simple prompts to the light model", () => {
     const decision = route("Summarize Redis in one paragraph.", undefined, 512, options());
 
     expect(decision.model).toBe(MODEL_ROLES.light);
-    expect(decision.tier).toBe("MEDIUM");
+    expect(decision.tier).toBe("SIMPLE");
     expect(decision.profile).toBe("auto");
     expect(decision.tierConfigs).toBe(DEFAULT_ROUTING_CONFIG.tiers);
   });

@@ -14,9 +14,7 @@ export class RulesStrategy implements RouterStrategy {
     const { config, modelPricing } = options;
     const fullText = `${systemPrompt ?? ""} ${prompt}`;
     const estimatedTokens = Math.ceil(fullText.length / 4);
-    const ruleResult = classifyByRules(prompt, systemPrompt, estimatedTokens, config.scoring, {
-      hasTools: options.hasTools ?? false,
-    });
+    const ruleResult = classifyByRules(prompt, systemPrompt, estimatedTokens, config.scoring);
 
     const { tierConfigs, profile, profileSuffix } = chooseTierConfigs(ruleResult.agenticScore ?? 0, options);
 

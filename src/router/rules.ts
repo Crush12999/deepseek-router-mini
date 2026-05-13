@@ -41,7 +41,6 @@ export const COMPLEX_PATTERNS = [
 ];
 
 type DimensionScore = { name: string; score: number; signal: string | null };
-type RuleContext = { hasTools?: boolean };
 
 function scoreTokenCount(
   estimatedTokens: number,
@@ -88,166 +87,6 @@ function scoreQuestionComplexity(prompt: string): DimensionScore {
     : { name: "questionComplexity", score: 0, signal: null };
 }
 
-function hasPattern(text: string, patterns: RegExp[]): boolean {
-  return patterns.some((pattern) => pattern.test(text));
-}
-
-function scoreCodebaseDebugging(text: string, context: RuleContext): DimensionScore {
-  const negativeIntentPatterns = [
-    /\brewrite\b/,
-    /\bsummarize\b/,
-    /\bparaphrase\b/,
-    /\brephrase\b/,
-    /\bpolish\b/,
-    /\bwalk through\b/,
-    /\boutline\b/,
-    /\blabel\b/,
-    /\btitle\b/,
-    /\bexample\b/,
-    /\blist\b/,
-    /\bwhat does it mean\b/,
-    /\bwhat it means\b/,
-    /\bdiscuss\b/,
-    /\badvice\b/,
-    /改写/,
-    /重写/,
-    /总结/,
-    /概述/,
-    /列出/,
-    /释义/,
-    /润色/,
-    /^(please\s+)?(explain|rewrite|describe|summarize|paraphrase|rephrase|polish|walk through|outline|label|title|list)\b.*\b(this|the)\b.*\b(sentence|note|phrase|text|content)\b/,
-    /^(explain|describe|rewrite|summarize|paraphrase|rephrase|polish|walk through|outline|label|title|list)\b.*:/,
-    /^(请)?(解释|改写|重写|总结|概述|列出|释义|润色|描述|说明)(这句话|这段话|这个\s?note|以下内容|下面内容|：|:)/,
-  ];
-  const scopePatterns = [
-    /\bauth and session files?\b/,
-    /\brouter and proxy modules?\b/,
-    /\bcodebase\b/,
-    /\brepository\b/,
-    /\brepo\b/,
-    /\bseveral related files?\b/,
-    /\bmultiple files?\b/,
-    /\bacross (?:the )?repo\b/,
-    /\bacross (?:the )?(?:files?|codebase)\b/,
-    /\brelevant modules?\b/,
-    /\brelated files?\b/,
-    /相关模块/,
-    /多个文件/,
-    /代码库/,
-    /仓库/,
-    /模块/,
-  ];
-  const failurePatterns = [
-    /\bfind why\b/,
-    /\bfigure out why\b/,
-    /\binvestigate why\b/,
-    /\bwork out why\b/,
-    /\broot cause\b/,
-    /\bdebug\b.*\bfailing tests?\b/,
-    /\bdebug\b.*\bfailing test\b/,
-    /\bdebug tests?\b/,
-    /\bdebug failures?\b/,
-    /\bregression\b/,
-    /\bis failing\b/,
-    /\bsuite is failing\b/,
-    /\bintegration suite is failing\b/,
-    /\bwhat broke\b/,
-    /\btrace the regression\b/,
-    /\bdiagnose\b/,
-    /\bisolate\b/,
-    /\bstarted failing\b/,
-    /\bsuite started failing\b/,
-    /\btests started failing\b/,
-    /\bsuite breaks?\b/,
-    /\bbroken tests?\b/,
-    /\btest failures?\b/,
-    /\bfailing tests?\b/,
-    /测试套件开始失败/,
-    /测试失败/,
-    /回归/,
-    /坏掉/,
-    /不通过/,
-  ];
-  const repairPatterns = [
-    /\bpatch(?:es|ed|ing)?\b/,
-    /\brepair(?:s|ed|ing)?\b/,
-    /\bfix(?:es|ed|ing)?\b/,
-  ];
-  const verificationPatterns = [
-    /\brerun\b/,
-    /\brerun the suite\b/,
-    /\btests are green\b/,
-    /\bmake sure\b/,
-    /\bverify\b/,
-    /\beverything passes\b/,
-    /\bconfirm\b/,
-  ];
-  const executionIntentPatterns = [
-    /\binspect\b/,
-    /\bcheck\b/,
-    /\bopen\b/,
-    /\blook through\b/,
-    /\bread\b/,
-    /\binvestigate\b/,
-    /\bdebug\b/,
-    /\btrace\b/,
-    /\bdiagnose\b/,
-    /\bisolate\b/,
-    /\bidentify\b/,
-    /\bwork out\b/,
-    /\bfind\b/,
-    /\bfigure out\b/,
-    /\bfix\b/,
-    /\bpatch\b/,
-    /\brepair\b/,
-    /\bverify\b/,
-    /\bconfirm\b/,
-    /\brerun\b/,
-    /检查/,
-    /找出/,
-    /排查/,
-    /调试/,
-    /修复/,
-    /验证/,
-  ];
-  const hasScope = hasPattern(text, scopePatterns);
-  const hasFailure = hasPattern(text, failurePatterns);
-  const hasRepair = hasPattern(text, repairPatterns);
-  const hasVerification = hasPattern(text, verificationPatterns);
-  const hasExecutionIntent = hasPattern(text, executionIntentPatterns);
-  const hasNegativeIntent = hasPattern(text, negativeIntentPatterns);
-  const isToolDiagnosis =
-    context.hasTools === true && hasScope && hasFailure && hasExecutionIntent;
-  const isDirectMultiFileDiagnosis =
-    hasScope && hasFailure && hasExecutionIntent && /\bdebug\b/.test(text);
-  const isRepairWorkflow =
-    hasScope && hasFailure && hasRepair && hasVerification && hasExecutionIntent;
-
-  if (
-    !hasNegativeIntent &&
-    hasScope &&
-    hasFailure &&
-    (isToolDiagnosis || isDirectMultiFileDiagnosis || isRepairWorkflow)
-  ) {
-    const labels = [
-      "scope",
-      "failure",
-      ...(hasRepair ? ["repair"] : []),
-      ...(hasVerification ? ["verify"] : []),
-      ...(context.hasTools ? ["tools"] : []),
-    ];
-
-    return {
-      name: "codebaseDebugging",
-      score: 1,
-      signal: `codebase-debugging (${labels.join(", ")})`,
-    };
-  }
-
-  return { name: "codebaseDebugging", score: 0, signal: null };
-}
-
 function scoreAgenticTask(
   text: string,
   keywords: string[],
@@ -292,7 +131,6 @@ export function classifyByRules(
   _systemPrompt: string | undefined,
   estimatedTokens: number,
   config: ScoringConfig,
-  context: RuleContext = {},
 ): ScoringResult {
   const userText = prompt.toLowerCase();
   const dimensions: DimensionScore[] = [
@@ -310,7 +148,6 @@ export function classifyByRules(
     scoreKeywordMatch(userText, config.referenceKeywords, "referenceComplexity", "references", { low: 1, high: 2 }, { none: 0, low: 0.3, high: 0.5 }),
     scoreKeywordMatch(userText, config.negationKeywords, "negationComplexity", "negation", { low: 2, high: 3 }, { none: 0, low: 0.3, high: 0.5 }),
     scoreKeywordMatch(userText, config.domainSpecificKeywords, "domainSpecificity", "domain-specific", { low: 1, high: 2 }, { none: 0, low: 0.5, high: 0.8 }),
-    scoreCodebaseDebugging(userText, context),
   ];
 
   const agenticResult = scoreAgenticTask(userText, config.agenticTaskKeywords);
@@ -329,20 +166,6 @@ export function classifyByRules(
     return {
       score: weightedScore,
       tier: "REASONING",
-      confidence: Math.max(calibrateConfidence(Math.max(weightedScore, 0.3), config.confidenceSteepness), 0.85),
-      signals,
-      agenticScore: agenticResult.agenticScore,
-      dimensions,
-    };
-  }
-
-  const hasCodebaseDebugging = dimensions.some(
-    (dimension) => dimension.name === "codebaseDebugging" && dimension.score > 0,
-  );
-  if (hasCodebaseDebugging) {
-    return {
-      score: weightedScore,
-      tier: "COMPLEX",
       confidence: Math.max(calibrateConfidence(Math.max(weightedScore, 0.3), config.confidenceSteepness), 0.85),
       signals,
       agenticScore: agenticResult.agenticScore,

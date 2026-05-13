@@ -311,8 +311,8 @@ describe("proxy", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get(legacyRouterHeader("model"))).toBeNull();
     expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-flash");
-    expect(res.headers.get("x-xiaoyi-router-tier")).toBe("MEDIUM");
-    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("auto:medium:flash:first-pass");
+    expect(res.headers.get("x-xiaoyi-router-tier")).toBe("SIMPLE");
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("auto:simple:flash:first-pass");
     expect(res.headers.get("x-xiaoyi-router-routed")).toBe("true");
     expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
   });
@@ -358,7 +358,7 @@ describe("proxy", () => {
     expect(res.status).toBe(200);
     expect(logSpy).toHaveBeenCalledTimes(1);
     expect(logSpy).toHaveBeenCalledWith(
-      "[xiaoyi-router] auto:medium:flash:first-pass model=deepseek-v4-flash fallback=false",
+      "[xiaoyi-router] auto:simple:flash:first-pass model=deepseek-v4-flash fallback=false",
     );
   });
 
@@ -801,8 +801,8 @@ describe("proxy", () => {
     expect(res.status).toBe(429);
     expect(res.headers.get(legacyRouterHeader("model"))).toBeNull();
     expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-flash");
-    expect(res.headers.get("x-xiaoyi-router-tier")).toBe("MEDIUM");
-    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("auto:medium:flash:error");
+    expect(res.headers.get("x-xiaoyi-router-tier")).toBe("SIMPLE");
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("auto:simple:flash:error");
     expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("false");
     expect(count).toBe(1);
     expect(requestedModels(upstream.requests)).toEqual(["deepseek-v4-flash"]);
