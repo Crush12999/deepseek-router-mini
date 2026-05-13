@@ -99,6 +99,17 @@ function audit(sample: AuditSample): AuditResult {
   };
 }
 
+function expectNoCodebaseDebuggingSignal(
+  result: AuditResult | undefined,
+  failureMessage: string,
+): void {
+  expect(result, failureMessage).toBeDefined();
+  expect(
+    result?.reasoning,
+    `${failureMessage}\nExpected routing reasoning to drop the removed codebase debugging signal.`,
+  ).not.toContain("codebase-debugging");
+}
+
 describe("OpenClaw route audit", () => {
   it("keeps the non-explicit sample distribution calibrated to 80-90% flash", () => {
     const samples: AuditSample[] = [
@@ -501,9 +512,7 @@ describe("OpenClaw route audit", () => {
       expect(["COMPLEX", "REASONING"], failureMessage).not.toContain(
         result.tier,
       );
-      expect(result.reasoning, failureMessage).not.toContain(
-        "codebase-debugging",
-      );
+      expectNoCodebaseDebuggingSignal(result, failureMessage);
     }
     for (const result of complexAgenticResults) {
       expect(result, failureMessage).toMatchObject({
@@ -511,18 +520,14 @@ describe("OpenClaw route audit", () => {
         tier: "COMPLEX",
         profile: "agentic",
       });
-      expect(result.reasoning, failureMessage).toContain(
-        "codebase-debugging",
-      );
+      expectNoCodebaseDebuggingSignal(result, failureMessage);
     }
     expect(directMultiFileDiagnosis, failureMessage).toMatchObject({
       model: MODEL_ROLES.strong,
       tier: "COMPLEX",
       profile: "auto",
     });
-    expect(directMultiFileDiagnosis?.reasoning, failureMessage).toContain(
-      "codebase-debugging",
-    );
+    expectNoCodebaseDebuggingSignal(directMultiFileDiagnosis, failureMessage);
     expect(
       results.find((result) => result.name === "chinese ordinary qa"),
       failureMessage,

@@ -26,6 +26,28 @@ function options(overrides: Partial<RouterOptions> = {}): RouterOptions {
   };
 }
 
+const expectedRemovedRoutingFields = [
+  "ecoTiers",
+  "premiumTiers",
+] as const;
+
+const representativeScoringKeywords = [
+  ["codeKeywords", "インポート"],
+  ["reasoningKeywords", "цепочка рассуждений"],
+  ["simpleKeywords", "да или нет"],
+  ["technicalKeywords", "خوارزمية"],
+  ["creativeKeywords", "мозговой штурм"],
+  ["imperativeVerbs", "развернуть"],
+  ["constraintIndicators", "على الأكثر"],
+  ["outputFormatKeywords", "جدول"],
+  ["referenceKeywords", "أعلاه"],
+  ["negationKeywords", "لا تفعل"],
+  ["domainSpecificKeywords", "جينوميات"],
+  ["agenticTaskKeywords", "قراءة ملف"],
+] as const;
+
+const deprecatedCodeKeywords = ["debug", "fix", "refactor"] as const;
+
 describe("smart router", () => {
   it("routes simple prompts to the light model with the default medium tier", () => {
     const decision = route("Summarize Redis in one paragraph.", undefined, 512, options());
@@ -132,5 +154,37 @@ describe("smart router", () => {
     expect(cost.costEstimate).toBeCloseTo(0.7);
     expect(cost.baselineCost).toBeCloseTo(2.24);
     expect(cost.savings).toBeGreaterThan(0);
+  });
+
+  it("removes deprecated routing config and profile compatibility fields", () => {
+    expect(DEFAULT_ROUTING_CONFIG.scoring.dimensionWeights).not.toHaveProperty(
+      "codebaseDebugging",
+    );
+    for (const field of expectedRemovedRoutingFields) {
+      expect(DEFAULT_ROUTING_CONFIG, `expected ${field} to be removed`).not.toHaveProperty(
+        field,
+      );
+    }
+  });
+
+  it("keeps representative 15-dimension scoring keywords and thresholds aligned", () => {
+    for (const [keywordGroup, keyword] of representativeScoringKeywords) {
+      expect(
+        DEFAULT_ROUTING_CONFIG.scoring[keywordGroup],
+        `expected ${keywordGroup} to include ${keyword}`,
+      ).toContain(keyword);
+    }
+    for (const keyword of deprecatedCodeKeywords) {
+      expect(
+        DEFAULT_ROUTING_CONFIG.scoring.codeKeywords,
+        `expected codeKeywords to drop deprecated token ${keyword}`,
+      ).not.toContain(keyword);
+    }
+    expect(DEFAULT_ROUTING_CONFIG.scoring.tierBoundaries).toMatchObject({
+      simpleMedium: 0,
+      mediumComplex: 0.3,
+      complexReasoning: 0.5,
+    });
+    expect(DEFAULT_ROUTING_CONFIG.scoring.confidenceThreshold).toBe(0.7);
   });
 });
