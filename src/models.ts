@@ -6,13 +6,7 @@ export const MODEL_ROLES = {
   agentic: "deepseek-v4-pro",
 } as const;
 
-export const SUPPORTED_MODEL_IDS = [
-  MODEL_ROLES.auto,
-  MODEL_ROLES.light,
-  MODEL_ROLES.strong,
-] as const;
-
-export type SupportedModelId = (typeof SUPPORTED_MODEL_IDS)[number];
+export type SupportedModelId = "auto" | "deepseek-v4-flash" | "deepseek-v4-pro";
 export type RealModelId = Exclude<SupportedModelId, "auto">;
 export type ModelRole = keyof typeof MODEL_ROLES;
 
@@ -70,7 +64,6 @@ export const XIAOYI_MODELS: XiaoyiModel[] = [
   },
 ];
 
-const SUPPORTED_SET = new Set<string>(SUPPORTED_MODEL_IDS);
 const MODEL_MAP = new Map<SupportedModelId, XiaoyiModel>(XIAOYI_MODELS.map((model) => [model.id, model]));
 
 export function getDefaultModelForRole(role: Exclude<ModelRole, "auto">): RealModelId;
@@ -79,18 +72,10 @@ export function getDefaultModelForRole(role: ModelRole): SupportedModelId {
   return MODEL_ROLES[role];
 }
 
-export function isValidModel(modelId: string): modelId is SupportedModelId {
-  return SUPPORTED_SET.has(modelId);
-}
-
 export function getModel(modelId: SupportedModelId): XiaoyiModel;
 export function getModel(modelId: string): XiaoyiModel | undefined;
 export function getModel(modelId: string): XiaoyiModel | undefined {
-  if (!isValidModel(modelId)) {
-    return undefined;
-  }
-
-  return MODEL_MAP.get(modelId);
+  return MODEL_MAP.get(modelId as SupportedModelId);
 }
 
 export function isRealModel(modelId: SupportedModelId): modelId is RealModelId {
@@ -109,35 +94,17 @@ export function getModelContextWindow(modelId: string): number | undefined {
   return getModel(modelId)?.contextWindow;
 }
 
-function unsupportedModelError(modelId: string): Error {
-  return new Error(
-    `Unsupported model "${modelId}". Supported models: ${SUPPORTED_MODEL_IDS.join(", ")}`,
-  );
-}
-
 export function getModelPricing(modelId: SupportedModelId): { inputPrice: number; outputPrice: number };
 export function getModelPricing(modelId: string): { inputPrice: number; outputPrice: number };
 export function getModelPricing(modelId: string): { inputPrice: number; outputPrice: number } {
-  if (!isValidModel(modelId)) {
-    throw unsupportedModelError(modelId);
+  const model = getModel(modelId);
+  if (!model) {
+    const supportedModels = XIAOYI_MODELS.map((m) => m.id).join(", ");
+    throw new Error(`Unsupported model "${modelId}". Supported models: ${supportedModels}`);
   }
 
-  const model = getModel(modelId);
   return {
     inputPrice: model.inputPrice,
     outputPrice: model.outputPrice,
   };
-}
-
-export function validateModelId(
-  model: unknown,
-): { ok: true; model: SupportedModelId } | { ok: false; message: string } {
-  if (typeof model !== "string" || !isValidModel(model)) {
-    return {
-      ok: false,
-      message: unsupportedModelError(String(model)).message,
-    };
-  }
-
-  return { ok: true, model };
 }

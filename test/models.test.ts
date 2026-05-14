@@ -2,23 +2,21 @@ import { describe, expect, it } from "vitest";
 
 import {
   MODEL_ROLES,
-  SUPPORTED_MODEL_IDS,
   XIAOYI_MODELS,
   type XiaoyiModel,
   getDefaultModelForRole,
   getModel,
   getModelPricing,
   isRealModel,
-  validateModelId,
 } from "../src/models.js";
 
 const legacyExport = (name: string) => ["DEEPSEEK", name].join("_");
 
 describe("xiaoyi model registry", () => {
   it("keeps model ids centralized and unique", () => {
-    expect(SUPPORTED_MODEL_IDS).toEqual(["auto", "deepseek-v4-flash", "deepseek-v4-pro"]);
-    expect(XIAOYI_MODELS.map((model) => model.id)).toEqual(SUPPORTED_MODEL_IDS);
-    expect(new Set(XIAOYI_MODELS.map((model) => model.id)).size).toBe(SUPPORTED_MODEL_IDS.length);
+    const modelIds = XIAOYI_MODELS.map((model) => model.id);
+    expect(modelIds).toEqual(["auto", "deepseek-v4-flash", "deepseek-v4-pro"]);
+    expect(new Set(modelIds).size).toBe(XIAOYI_MODELS.length);
   });
 
   it("exports xiaoyi public model symbols without legacy aliases", async () => {
@@ -57,12 +55,12 @@ describe("xiaoyi model registry", () => {
   });
 
   it("validates supported model ids", () => {
-    expect(validateModelId("auto")).toEqual({ ok: true, model: "auto" });
-    expect(validateModelId("deepseek-v4-flash")).toEqual({ ok: true, model: "deepseek-v4-flash" });
-    expect(validateModelId("deepseek-v4-pro")).toEqual({ ok: true, model: "deepseek-v4-pro" });
-    expect(validateModelId("flash").ok).toBe(false);
-    expect(validateModelId("pro").ok).toBe(false);
-    expect(validateModelId("openai/gpt-5.5").ok).toBe(false);
+    expect(getModel("auto")).toBeDefined();
+    expect(getModel("deepseek-v4-flash")).toBeDefined();
+    expect(getModel("deepseek-v4-pro")).toBeDefined();
+    expect(getModel("flash")).toBeUndefined();
+    expect(getModel("pro")).toBeUndefined();
+    expect(getModel("openai/gpt-5.5")).toBeUndefined();
   });
 
   it("exposes model metadata without callers hardcoding ids", () => {
