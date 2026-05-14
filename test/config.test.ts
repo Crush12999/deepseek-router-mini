@@ -35,7 +35,7 @@ describe("config", () => {
       apiKey: "my-key",
       headers: { "X-Custom": "yes" },
       port: 7777,
-      defaultModel: "deepseek-chat",
+      defaultModel: "deepseek-v4-flash",
       sessionPinning: false,
       traceMode: "summary",
     });
@@ -44,7 +44,7 @@ describe("config", () => {
       apiKey: "my-key",
       headers: { "X-Custom": "yes" },
       port: 7777,
-      defaultModel: "deepseek-chat",
+      defaultModel: "deepseek-v4-flash",
       sessionPinning: false,
       traceMode: "summary",
     });
