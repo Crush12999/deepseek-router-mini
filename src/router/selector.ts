@@ -1,4 +1,3 @@
-import { MODEL_ROLES } from "../models.js";
 import type { RoutingDecision, Tier, TierConfig } from "./types.js";
 
 export type ModelPricing = {
@@ -6,9 +5,8 @@ export type ModelPricing = {
   outputPrice: number;
 };
 
-const BASELINE_MODEL_ID = MODEL_ROLES.strong;
-const BASELINE_INPUT_PRICE = 0.56;
-const BASELINE_OUTPUT_PRICE = 1.68;
+const DEFAULT_BASELINE_INPUT_PRICE = 0.56;
+const DEFAULT_BASELINE_OUTPUT_PRICE = 1.68;
 
 export function selectModel(
   tier: Tier,
@@ -40,11 +38,13 @@ export function selectModel(
   }
 
   const model = config.primary;
+  const baselineModel = tierConfigs["COMPLEX"].primary;
   const costs = calculateModelCost(
     model,
     modelPricing,
     estimatedInputTokens,
     maxOutputTokens,
+    baselineModel,
   );
 
   return {
@@ -69,15 +69,16 @@ export function calculateModelCost(
   modelPricing: Map<string, ModelPricing>,
   estimatedInputTokens: number,
   maxOutputTokens: number,
+  baselineModelId?: string,
 ): { costEstimate: number; baselineCost: number; savings: number } {
   const pricing = modelPricing.get(model);
   const inputCost = (estimatedInputTokens / 1_000_000) * (pricing?.inputPrice ?? 0);
   const outputCost = (maxOutputTokens / 1_000_000) * (pricing?.outputPrice ?? 0);
   const costEstimate = inputCost + outputCost;
 
-  const baselinePricing = modelPricing.get(BASELINE_MODEL_ID);
-  const baselineInput = (estimatedInputTokens / 1_000_000) * (baselinePricing?.inputPrice ?? BASELINE_INPUT_PRICE);
-  const baselineOutput = (maxOutputTokens / 1_000_000) * (baselinePricing?.outputPrice ?? BASELINE_OUTPUT_PRICE);
+  const baselinePricing = baselineModelId ? modelPricing.get(baselineModelId) : undefined;
+  const baselineInput = (estimatedInputTokens / 1_000_000) * (baselinePricing?.inputPrice ?? DEFAULT_BASELINE_INPUT_PRICE);
+  const baselineOutput = (maxOutputTokens / 1_000_000) * (baselinePricing?.outputPrice ?? DEFAULT_BASELINE_OUTPUT_PRICE);
   const baselineCost = baselineInput + baselineOutput;
   const savings =
     baselineCost > 0
