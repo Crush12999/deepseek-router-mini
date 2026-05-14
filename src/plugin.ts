@@ -129,11 +129,19 @@ export function resolvePluginConfig(api: OpenClawPluginApi): RawConfig | undefin
   if (path) {
     return loadConfig({ kind: "file", path: path as string });
   }
-  // 如果 pluginConfig 存在且有非 port/upstreamUrl 的字段，说明用户意图提供配置但遗漏了
-  // 如果 pluginConfig 不存在或只有 port/upstreamUrl，向后兼容使用默认值
-  if (api.pluginConfig && !api.pluginConfig.port && !api.pluginConfig.upstreamUrl) {
+
+  // 向后兼容：如果只有 port/upstreamUrl，返回 undefined（由 proxy.ts legacy 模式处理）
+  const hasConfigFields = api.pluginConfig?.config || api.pluginConfig?.configPath;
+  const hasLegacyFields = api.pluginConfig?.port || api.pluginConfig?.upstreamUrl;
+
+  if (!hasConfigFields && !hasLegacyFields && api.pluginConfig) {
     throw new Error("xiaoyi-router: missing config. Set pluginConfig.config or pluginConfig.configPath");
   }
+
+  if (!hasConfigFields) {
+    return undefined; // 向后兼容或无 pluginConfig
+  }
+
   return undefined;
 }
 
