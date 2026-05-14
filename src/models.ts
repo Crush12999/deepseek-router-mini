@@ -28,10 +28,14 @@ export type XiaoyiModel = {
   roles: ModelRole[];
 };
 
-type XiaoyiModelDefinition = Omit<XiaoyiModel, "roles">;
+function deriveRolesForModel(modelId: SupportedModelId): ModelRole[] {
+  return (Object.entries(MODEL_ROLES) as [ModelRole, SupportedModelId][])
+    .filter(([, defaultModelId]) => defaultModelId === modelId)
+    .map(([role]) => role);
+}
 
-const MODEL_DEFINITIONS: Record<SupportedModelId, XiaoyiModelDefinition> = {
-  auto: {
+export const XIAOYI_MODELS: XiaoyiModel[] = [
+  {
     id: "auto",
     name: "Xiaoyi Auto",
     inputPrice: 0,
@@ -40,8 +44,9 @@ const MODEL_DEFINITIONS: Record<SupportedModelId, XiaoyiModelDefinition> = {
     maxOutput: 64_000,
     reasoning: true,
     toolCalling: true,
+    roles: deriveRolesForModel("auto"),
   },
-  "deepseek-v4-flash": {
+  {
     id: "deepseek-v4-flash",
     name: "DeepSeek V4 Flash",
     inputPrice: 0.28,
@@ -50,8 +55,9 @@ const MODEL_DEFINITIONS: Record<SupportedModelId, XiaoyiModelDefinition> = {
     maxOutput: 64_000,
     reasoning: true,
     toolCalling: true,
+    roles: deriveRolesForModel("deepseek-v4-flash"),
   },
-  "deepseek-v4-pro": {
+  {
     id: "deepseek-v4-pro",
     name: "DeepSeek V4 Pro",
     inputPrice: 0.56,
@@ -60,19 +66,9 @@ const MODEL_DEFINITIONS: Record<SupportedModelId, XiaoyiModelDefinition> = {
     maxOutput: 64_000,
     reasoning: true,
     toolCalling: true,
+    roles: deriveRolesForModel("deepseek-v4-pro"),
   },
-};
-
-function deriveRolesForModel(modelId: SupportedModelId): ModelRole[] {
-  return (Object.entries(MODEL_ROLES) as [ModelRole, SupportedModelId][])
-    .filter(([, defaultModelId]) => defaultModelId === modelId)
-    .map(([role]) => role);
-}
-
-export const XIAOYI_MODELS: XiaoyiModel[] = SUPPORTED_MODEL_IDS.map((modelId) => ({
-  ...MODEL_DEFINITIONS[modelId],
-  roles: deriveRolesForModel(modelId),
-}));
+];
 
 const SUPPORTED_SET = new Set<string>(SUPPORTED_MODEL_IDS);
 const MODEL_MAP = new Map<SupportedModelId, XiaoyiModel>(XIAOYI_MODELS.map((model) => [model.id, model]));
