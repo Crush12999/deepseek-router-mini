@@ -18,56 +18,22 @@ export type RouterConfig = {
 
 export type RouterConfigInput = Partial<RouterConfig>;
 
-function normalizeBaseUrl(value: string): string {
+export function normalizeBaseUrl(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
-function parsePort(value: string | undefined): number | undefined {
-  if (!value || !/^\d+$/.test(value)) return undefined;
-  const port = Number.parseInt(value, 10);
-  if (!Number.isInteger(port) || port <= 0 || port >= 65536) return undefined;
-  return port;
-}
-
-export function parseHeaderJson(value: string | undefined): Record<string, string> {
-  if (!value) return {};
-
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new Error("expected object");
-    }
-
-    const headers: Record<string, string> = {};
-    for (const [key, headerValue] of Object.entries(parsed)) {
-      if (typeof headerValue !== "string") {
-        throw new Error(`header ${key} must be a string`);
-      }
-      headers[key] = headerValue;
-    }
-    return headers;
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith("Invalid XIAOYI_ROUTER_HEADERS")) {
-      throw error;
-    }
-    throw new Error(
-      `Invalid XIAOYI_ROUTER_HEADERS: ${error instanceof Error ? error.message : String(error)}`,
-      { cause: error },
-    );
-  }
-}
-
+/**
+ * Pure config resolver — all values come from the caller, no process.env.
+ */
 export function resolveConfig(input: RouterConfigInput = {}): RouterConfig {
-  const envHeaders = parseHeaderJson(process.env.XIAOYI_ROUTER_HEADERS);
-
   return {
-    baseUrl: normalizeBaseUrl(input.baseUrl ?? process.env.XIAOYI_BASE_URL ?? DEFAULT_BASE_URL),
-    apiKey: input.apiKey ?? process.env.XIAOYI_API_KEY,
-    headers: { ...envHeaders, ...(input.headers ?? {}) },
-    port: input.port ?? parsePort(process.env.XIAOYI_ROUTER_PORT) ?? DEFAULT_PORT,
+    baseUrl: normalizeBaseUrl(input.baseUrl ?? DEFAULT_BASE_URL),
+    apiKey: input.apiKey,
+    headers: input.headers ?? {},
+    port: input.port ?? DEFAULT_PORT,
     defaultModel: input.defaultModel ?? "auto",
     sessionPinning: input.sessionPinning ?? true,
-    traceMode: normalizeTraceMode(input.traceMode ?? process.env.XIAOYI_ROUTER_TRACE),
+    traceMode: normalizeTraceMode(input.traceMode),
     traceLogger: input.traceLogger,
   };
 }
