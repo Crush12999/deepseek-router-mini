@@ -2,15 +2,15 @@
 
 Xiaoyi Router is a small local routing proxy for OpenAI-compatible Chat Completions APIs.
 
-It supports only three public model IDs:
+It supports three public model IDs:
 
 - `auto`
-- `deepseek-v4-flash`
-- `deepseek-v4-pro`
+- `flash`
+- `pro`
 
-`auto` is routed locally with a Flash-first policy. Simple summaries, short text, ordinary Q&A, lightweight code edits, simple agentic work, and routine structured output default to `deepseek-v4-flash`. Complex reasoning and natural multi-file debugging or repair workflows default to `deepseek-v4-pro`. Longer context participates in routing signals, but it no longer forces Pro by threshold alone.
+`auto` is routed locally with a Flash-first policy. Simple summaries, short text, ordinary Q&A, lightweight code edits, simple agentic work, and routine structured output default to `flash`. Complex reasoning and natural multi-file debugging or repair workflows default to `pro`. Longer context participates in routing signals, but it no longer forces Pro by threshold alone.
 
-Explicit model requests take priority. Explicit `deepseek-v4-flash` requests stay on Flash; explicit `deepseek-v4-pro` requests stay on Pro.
+Explicit model requests take priority. Explicit `flash` requests stay on Flash; explicit `pro` requests stay on Pro.
 
 ## Install
 
@@ -46,37 +46,28 @@ implementation. Without `xy_channel`, Xiaoyi Router can still be used as a local
 OpenAI-compatible routing service through the standard provider configuration
 above.
 
-## Run
+## CLI Usage
 
 ```bash
-export XIAOYI_API_KEY="your-api-key"
-npm run build
-node dist/cli.js
+# 启动代理（必须提供配置文件）
+xiaoyi-router --config config.json
+
+# 自定义端口
+xiaoyi-router --config config.json --port 9000
+
+# Override API key
+xiaoyi-router --config config.json --api-key sk-your-key
 ```
 
-Custom upstream:
+## OpenClaw Plugin Usage
 
 ```bash
-XIAOYI_BASE_URL="https://api.deepseek.com" node dist/cli.js --port 8402
+# 内联配置
+openclaw config set plugins.entries.xiaoyi-router.config.config '{"version":1,...}'
+
+# 文件路径
+openclaw config set plugins.entries.xiaoyi-router.config.configPath "/path/to/config.json"
 ```
-
-The default upstream is `https://api.deepseek.com`. Set `XIAOYI_BASE_URL` to use another OpenAI-compatible upstream API base.
-
-Extra upstream headers:
-
-```bash
-export XIAOYI_ROUTER_HEADERS='{"X-Request-Source":"xiaoyi-router"}'
-```
-
-`XIAOYI_API_KEY` is optional. When provided, the proxy sends `Authorization: Bearer <apiKey>` if the merged request headers do not already contain `Authorization`. When omitted, the proxy does not add `Authorization`. If request headers or configured headers already include `Authorization`, the current header merge semantics apply. `x-uid` can be passed through provider `headers` or `request.headers`.
-
-Optional route tracing:
-
-```bash
-export XIAOYI_ROUTER_TRACE=summary
-```
-
-Tracing is off by default. `summary` writes one compact routing line per request. `debug` writes structured diagnostic JSON and includes only a prompt preview, not the full prompt.
 
 ## API
 
