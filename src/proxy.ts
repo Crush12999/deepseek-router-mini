@@ -364,7 +364,6 @@ function buildPublicHeaders(
 function emitProxyTrace(
   cfg: RouterConfig,
   selected: SelectedModel,
-  modelIdForHeaders: string,
   finalTier: Tier,
   attempts: TraceAttempt[],
   sessionAction: TraceSessionAction,
@@ -420,7 +419,7 @@ function chooseModel(
   if (requestedModel !== "auto") {
     // For explicit model requests (aliases like "flash", "pro"), resolve to physical model
     const physicalModelId = resolvePublicModel(requestedModel, publicModels, registry);
-    const model = physicalModelId as RealModelId;
+    const model = toRealModelId(physicalModelId);
     const tier = getExplicitTier(model);
     return {
       model,
@@ -563,7 +562,6 @@ async function proxyChat(
     const trace = emitProxyTrace(
       cfg,
       selected,
-      modelIdForHeaders,
       finalTier,
       attempts,
       sessionAction,
@@ -596,7 +594,6 @@ async function proxyChat(
     const trace = emitProxyTrace(
     cfg,
     selected,
-    modelIdForHeaders,
     finalTier,
     attempts,
     sessionAction,
