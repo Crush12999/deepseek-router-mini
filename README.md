@@ -35,7 +35,7 @@ When loaded by OpenClaw, the router still writes or repairs
 
 - `baseUrl` points to the local router API, for example `http://127.0.0.1:8402/v1`.
 - `api` is `openai-completions`.
-- `models` matches the router registry: `auto`, `deepseek-v4-flash`, and `deepseek-v4-pro`.
+- `models` matches the router registry: `auto`, `flash`, and `pro`.
 
 Existing `apiKey`, `api_key`, `headers`, `request`, and unknown provider fields
 are preserved across Gateway restarts. The router only repairs its managed
@@ -58,6 +58,8 @@ xiaoyi-router --config config.json --port 9000
 # Override API key
 xiaoyi-router --config config.json --api-key sk-your-key
 ```
+
+**注意**：v0.2.0 起不再支持环境变量配置（`XIAOYI_API_KEY`、`XIAOYI_BASE_URL`、`XIAOYI_ROUTER_HEADERS`、`XIAOYI_ROUTER_TRACE`），所有配置必须通过 `--config` 参数提供的配置文件指定。参考 `config.example.json` 创建配置文件。
 
 ## OpenClaw Plugin Usage
 
