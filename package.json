@@ -32,7 +32,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/ test/ --no-error-on-unmatched-pattern",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "bench": "npx tsx scripts/bench.ts"
   },
   "keywords": [
     "deepseek",
