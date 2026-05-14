@@ -40,9 +40,6 @@ if (!Array.isArray(mod.XIAOYI_MODELS) || mod.XIAOYI_MODELS.length !== 3) {
   throw new Error("missing Xiaoyi model exports");
 }
 if (mod.MODEL_ROLES.light !== "deepseek-v4-flash") throw new Error("missing MODEL_ROLES export");
-if (!mod.SUPPORTED_MODEL_IDS.includes("deepseek-v4-pro")) {
-  throw new Error("missing SUPPORTED_MODEL_IDS export");
-}
 if (mod.getDefaultModelForRole("agentic") !== "deepseek-v4-pro") {
   throw new Error("missing getDefaultModelForRole export");
 }
@@ -62,9 +59,6 @@ if (mod.getModelContextWindow("deepseek-v4-pro") !== 1000000) {
 const pricing = mod.getModelPricing("deepseek-v4-pro");
 if (pricing.inputPrice !== 0.56 || pricing.outputPrice !== 1.68) {
   throw new Error("missing getModelPricing export");
-}
-if (mod.validateModelId("deepseek-v4-flash").ok !== true) {
-  throw new Error("missing validateModelId export");
 }
 if (typeof mod.route !== "function") throw new Error("missing route export");
 if (mod.DEFAULT_ROUTING_CONFIG?.overrides?.ambiguousDefaultTier !== "MEDIUM") {

@@ -8,7 +8,6 @@ export { resolveConfig } from "./config.js";
 export type { RouterConfig, RouterConfigInput } from "./config.js";
 export {
   MODEL_ROLES,
-  SUPPORTED_MODEL_IDS,
   XIAOYI_MODELS,
   getDefaultModelForRole,
   getModel,
@@ -17,7 +16,6 @@ export {
   isRealModel,
   supportsToolCalling,
   supportsVision,
-  validateModelId,
 } from "./models.js";
 export type {
   ModelRole,
