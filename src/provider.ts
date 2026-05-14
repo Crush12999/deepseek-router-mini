@@ -1,5 +1,6 @@
 import { XIAOYI_MODELS } from "./models.js";
 import type { SupportedModelId } from "./models.js";
+import type { PublicModelConfig, PhysicalModel } from "./config-schema.js";
 
 export const XIAOYI_PROVIDER_ID = "xiaoyiprovider";
 export const XIAOYI_PROVIDER_NAME = "Xiaoyi Provider";
@@ -7,7 +8,7 @@ export const XIAOYI_PROVIDER_DESCRIPTION = "Xiaoyi local routing provider for De
 export const XIAOYI_PROVIDER_API = "openai-completions";
 
 export type OpenClawModelDefinition = {
-  id: SupportedModelId;
+  id: string;
   name: string;
   api: typeof XIAOYI_PROVIDER_API;
   reasoning: boolean;
@@ -43,6 +44,61 @@ function cacheReadCost(inputPrice: number): number {
   return Number((inputPrice * 0.25).toFixed(2));
 }
 
+/**
+ * Generate OpenClaw model definitions from configuration
+ * @param publicModels Public model configuration mapping
+ * @param physicalModels Physical model definitions for metadata lookup
+ * @returns Array of OpenClaw model definitions
+ */
+export function generateOpenClawModels(
+  publicModels: Record<string, PublicModelConfig>,
+  physicalModels: PhysicalModel[]
+): OpenClawModelDefinition[] {
+  const modelMap = new Map(physicalModels.map((m) => [m.id, m]));
+
+  return Object.keys(publicModels).map((publicId) => {
+    // For router models (like "auto"), use default metadata
+    const pubConfig = publicModels[publicId]!;
+    if (pubConfig.kind === "router") {
+      return {
+        id: publicId,
+        name: "Xiaoyi Auto",
+        api: XIAOYI_PROVIDER_API,
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 1_000_000,
+        maxTokens: 64_000,
+      };
+    }
+
+    // For alias models, use the first candidate's metadata
+    const firstCandidate = pubConfig.candidates[0];
+    const physicalModel = modelMap.get(firstCandidate!);
+
+    if (!physicalModel) {
+      throw new Error(`Physical model not found for public model "${publicId}": ${firstCandidate}`);
+    }
+
+    return {
+      id: publicId,
+      name: physicalModel.name,
+      api: XIAOYI_PROVIDER_API,
+      reasoning: physicalModel.reasoning,
+      input: ["text"],
+      cost: {
+        input: physicalModel.inputPrice,
+        output: physicalModel.outputPrice,
+        cacheRead: cacheReadCost(physicalModel.inputPrice),
+        cacheWrite: physicalModel.inputPrice,
+      },
+      contextWindow: physicalModel.contextWindow,
+      maxTokens: physicalModel.maxOutput,
+    };
+  });
+}
+
+// Backward compatibility: generate from XIAOYI_MODELS
 export const XIAOYI_OPENCLAW_MODELS: OpenClawModelDefinition[] = XIAOYI_MODELS.map((model) => ({
   id: model.id,
   name: modelName(model.id, model.name),
