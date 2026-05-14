@@ -36,4 +36,26 @@ describe("resolvePublicModel", () => {
     };
     expect(() => resolvePublicModel("auto", publicModels, registry)).toThrow(/cannot resolve router/i);
   });
+
+  it("should throw for empty candidates list", () => {
+    const publicModels: Record<string, PublicModelConfig> = {
+      empty: { kind: "alias", candidates: [] },
+    };
+    expect(() => resolvePublicModel("empty", publicModels, registry)).toThrow(/no candidates available/i);
+  });
+
+  it("should throw for invalid candidate model ID", () => {
+    const publicModels: Record<string, PublicModelConfig> = {
+      invalid: { kind: "alias", candidates: ["cheap", "nonexistent"] },
+    };
+    expect(() => resolvePublicModel("invalid", publicModels, registry)).toThrow(/candidate model not found.*nonexistent/i);
+  });
+
+  it("should resolve single candidate model", () => {
+    const publicModels: Record<string, PublicModelConfig> = {
+      single: { kind: "alias", candidates: ["cheap"] },
+    };
+    const result = resolvePublicModel("single", publicModels, registry);
+    expect(result).toBe("cheap");
+  });
 });

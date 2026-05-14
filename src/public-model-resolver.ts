@@ -24,6 +24,9 @@ export function resolvePublicModel(
 
   const selection = pub.selection ?? "cheapest";
   const sorted = sortCandidates(pub.candidates, registry, selection);
+  if (sorted.length === 0) {
+    throw new Error(`No candidates available for public model: ${publicModelId}`);
+  }
   return sorted[0]!;
 }
 
@@ -44,8 +47,14 @@ function sortCandidates(
   return [...candidates].sort((a, b) => {
     const modelA = registry.get(a);
     const modelB = registry.get(b);
-    const costA = (modelA?.inputPrice ?? 0) + (modelA?.outputPrice ?? 0);
-    const costB = (modelB?.inputPrice ?? 0) + (modelB?.outputPrice ?? 0);
+    if (!modelA) {
+      throw new Error(`Candidate model not found in registry: ${a}`);
+    }
+    if (!modelB) {
+      throw new Error(`Candidate model not found in registry: ${b}`);
+    }
+    const costA = modelA.inputPrice + modelA.outputPrice;
+    const costB = modelB.inputPrice + modelB.outputPrice;
     return costA - costB;
   });
 }
