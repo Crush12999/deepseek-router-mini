@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "proxy": { "port": 8402, "upstreamUrl": "https://api.deepseek.com" },
+  "models": [
+    { "id": "test-model", "upstreamModel": "test-model", "name": "Test", "inputPrice": 0.1, "outputPrice": 0.2, "contextWindow": 100000, "maxOutput": 4000, "reasoning": false, "toolCalling": true }
+  ],
+  "publicModels": {
+    "auto": { "kind": "router" },
+    "flash": { "kind": "alias", "candidates": ["test-model"] }
+  },
+  "routing": {
+    "tiers": {
+      "SIMPLE": { "publicModel": "flash" },
+      "MEDIUM": { "publicModel": "flash" },
+      "COMPLEX": { "publicModel": "flash" },
+      "REASONING": { "publicModel": "flash" }
+    },
+    "tierBoundaries": { "simpleMedium": 0.0, "mediumComplex": 0.3, "complexReasoning": 0.5 },
+    "confidenceThreshold": 0.7,
+    "structuredOutputMinTier": "MEDIUM",
+    "ambiguousDefaultTier": "MEDIUM"
+  }
+}
