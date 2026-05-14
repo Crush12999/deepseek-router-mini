@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 
-import { DEFAULT_PORT } from "./config.js";
+import { loadConfig } from "./config-loader.js";
+import { resolveProxyConfig } from "./proxy-config-resolver.js";
 import { startProxy as startProxyImpl, VERSION } from "./proxy.js";
 import type { ProxyHandle, ProxyOptions } from "./proxy.js";
 
@@ -19,8 +20,10 @@ export type CliRuntime = {
 export type ParsedArgs = {
   help: boolean;
   version: boolean;
+  config?: string;
   port?: number;
   baseUrl?: string;
+  apiKey?: string;
   unknown: string[];
 };
 
@@ -60,6 +63,26 @@ export function parseArgs(rawArgs: string[]): ParsedArgs {
         break;
       }
 
+      case "--config": {
+        const val = rawArgs[++i];
+        if (val === undefined) {
+          result.unknown.push(arg);
+        } else {
+          result.config = val;
+        }
+        break;
+      }
+
+      case "--api-key": {
+        const val = rawArgs[++i];
+        if (val === undefined) {
+          result.unknown.push(arg);
+        } else {
+          result.apiKey = val;
+        }
+        break;
+      }
+
       case "--base-url": {
         const val = rawArgs[++i];
         if (val === undefined) {
@@ -87,21 +110,16 @@ function helpText(): string {
   return `xiaoyi-router v${VERSION}
 
 Usage:
-  xiaoyi-router                        Start the local proxy
-  xiaoyi-router --port 9000            Listen on a custom port
-  xiaoyi-router --base-url URL         Use a DeepSeek-compatible upstream API base URL
+  xiaoyi-router --config <path>          Start the local proxy with config
+  xiaoyi-router --config <path> --port 9000  Listen on a custom port
 
 Options:
   --help, -h                            Show help
   --version, -v                         Show version
-  --port <number>                       Local port, default ${DEFAULT_PORT}
-  --base-url <url>                      Upstream API base URL
-
-Environment:
-  XIAOYI_API_KEY                        Upstream API key
-  XIAOYI_BASE_URL                       Upstream API base URL
-  XIAOYI_ROUTER_PORT                    Local proxy port
-  XIAOYI_ROUTER_HEADERS                 Extra upstream headers as JSON`;
+  --config <path>                       Configuration file path (required)
+  --port <number>                       Override proxy port
+  --api-key <key>                       Override API key
+  --base-url <url>                      Override upstream API base URL`;
 }
 
 // ---------------------------------------------------------------------------
@@ -147,8 +165,29 @@ export async function runCli(rawArgs: string[], runtime: Partial<CliRuntime> = {
     return;
   }
 
+  // --config is required
+  if (!args.config) {
+    rt.error("Missing required argument: --config <path>");
+    rt.exit(1);
+    return;
+  }
+
+  // Load config from file
+  const rawConfig = loadConfig({ kind: "file", path: args.config });
+
+  // Resolve proxy config with CLI overrides
+  const proxyConfig = resolveProxyConfig(rawConfig.proxy, {
+    port: args.port,
+    upstreamUrl: args.baseUrl,
+    apiKey: args.apiKey,
+  });
+
   // Start proxy
-  const handle = await rt.startProxy({ port: args.port, baseUrl: args.baseUrl });
+  const handle = await rt.startProxy({
+    port: proxyConfig.port,
+    baseUrl: proxyConfig.upstreamUrl,
+    apiKey: proxyConfig.apiKey,
+  });
   rt.log(`xiaoyi-router listening on http://127.0.0.1:${handle.port}`);
 
   // Graceful shutdown
