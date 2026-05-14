@@ -3,8 +3,12 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import type { RouterConfig, RouterConfigInput } from "./config.js";
 import { resolveConfig } from "./config.js";
-import type { RealModelId, SupportedModelId } from "./models.js";
-import { MODEL_ROLES, getModelPricing, validateModelId } from "./models.js";
+import type { PublicModelConfig, RawConfig } from "./config-schema.js";
+import { createModelRegistry } from "./model-registry.js";
+import type { ModelRegistry } from "./model-registry.js";
+import { resolvePublicModel } from "./public-model-resolver.js";
+import type { RealModelId } from "./models.js";
+import { MODEL_ROLES, getModelPricing } from "./models.js";
 import {
   DEFAULT_ROUTING_CONFIG,
   buildTraceSummary,
@@ -67,7 +71,9 @@ const PUBLIC_HEADER_PREFIXES = [
   ["x", "deepseek", "router"].join("-") + "-",
 ] as const;
 
-export type ProxyOptions = RouterConfigInput;
+export type ProxyOptions = RouterConfigInput & {
+  config?: RawConfig;
+};
 
 export type ProxyHandle = {
   port: number;
@@ -248,13 +254,13 @@ async function fetchUpstream(
   cfg: ReturnType<typeof resolveConfig>,
   req: IncomingMessage,
   body: Record<string, unknown>,
-  model: RealModelId,
+  upstreamModel: string,
 ): Promise<AttemptResult> {
   try {
     const response = await fetch(`${cfg.baseUrl}/chat/completions`, {
       method: "POST",
       headers: buildUpstreamHeaders(req, cfg),
-      body: JSON.stringify({ ...body, model }),
+      body: JSON.stringify({ ...body, model: upstreamModel }),
     });
 
     if (RETRYABLE_STATUS.has(response.status)) {
@@ -272,7 +278,7 @@ type SelectedModel = {
   tier: Tier;
   decision?: RoutingDecision;
   routeText: string;
-  requestedModel: SupportedModelId;
+  requestedModel: string;
   sessionId?: string;
   routed: boolean;
   userExplicit: boolean;
@@ -341,12 +347,12 @@ function getTraceReason(selected: SelectedModel, failed: boolean): TraceReason {
 function buildPublicHeaders(
   cfg: RouterConfig,
   selected: SelectedModel,
-  actualModel: RealModelId,
+  publicModelId: string,
   finalTier: Tier,
   trace: string,
 ): Record<string, string> {
   return {
-    "x-xiaoyi-router-model": actualModel,
+    "x-xiaoyi-router-model": publicModelId,
     "x-xiaoyi-router-tier": finalTier,
     "x-xiaoyi-router-trace": trace,
     "x-xiaoyi-router-routed": String(selected.routed),
@@ -358,7 +364,7 @@ function buildPublicHeaders(
 function emitProxyTrace(
   cfg: RouterConfig,
   selected: SelectedModel,
-  actualModel: RealModelId,
+  publicModelId: string,
   finalTier: Tier,
   attempts: TraceAttempt[],
   sessionAction: TraceSessionAction,
@@ -366,9 +372,10 @@ function emitProxyTrace(
 ): string {
   const writer = resolveTraceWriter(cfg.traceLogger);
   const reason = getTraceReason(selected, failed);
+  // Use selected.model (RealModelId) for trace building to maintain compatibility
   const trace = buildTraceSummary({
     requestedModel: selected.requestedModel,
-    actualModel,
+    actualModel: selected.model,
     tier: finalTier,
     profile: selected.decision?.profile,
     reason,
@@ -379,7 +386,7 @@ function emitProxyTrace(
   const detail: RouteTraceLog = {
     trace,
     requestedModel: selected.requestedModel,
-    actualModel,
+    actualModel: selected.model,
     tier: finalTier,
     profile: selected.decision?.profile,
     method: selected.decision?.method,
@@ -398,7 +405,7 @@ function emitProxyTrace(
 }
 
 function chooseModel(
-  requestedModel: SupportedModelId,
+  requestedModel: string,
   body: { messages?: unknown[]; tools?: unknown[] },
   headers: IncomingMessage["headers"],
   sessionStore: SessionStore,
@@ -472,6 +479,8 @@ async function proxyChat(
   res: ServerResponse,
   cfg: RouterConfig,
   sessionStore: SessionStore,
+  publicModels: Record<string, PublicModelConfig>,
+  registry: ModelRegistry,
 ): Promise<void> {
   // Read body
   const rawBody = await readBody(req);
@@ -496,32 +505,70 @@ async function proxyChat(
 
   const bodyObj = body as Record<string, unknown>;
 
-  // Validate model
-  const validation = validateModelId(bodyObj.model);
-  if (!validation.ok) {
+  // Validate model - check if it exists in publicModels
+  const requestedModelId = bodyObj.model;
+  if (typeof requestedModelId !== "string" || !publicModels[requestedModelId]) {
     res.statusCode = 400;
     res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify({ error: validation.message }));
+    const supportedModels = Object.keys(publicModels).join(", ");
+    res.end(
+      JSON.stringify({
+        error: `Unsupported model "${String(requestedModelId)}". Supported models: ${supportedModels}`,
+      }),
+    );
     return;
   }
 
   // Choose the actual upstream model
   const selected = chooseModel(
-    validation.model,
+    requestedModelId,
     bodyObj as { messages?: unknown[]; tools?: unknown[] },
     req.headers,
     sessionStore,
     cfg,
   );
 
-  const actualModel = selected.model;
-  const attempt = await fetchUpstream(cfg, req, bodyObj, actualModel);
+  // Resolve public model ID to physical model ID
+  let physicalModelId: string;
+  let publicModelIdForHeaders: string;
+  try {
+    if (requestedModelId === "auto") {
+      // For "auto", use the routed model (already a physical model ID in legacy system)
+      physicalModelId = selected.model;
+      publicModelIdForHeaders = selected.model;
+    } else {
+      // For aliases, resolve through public-model-resolver
+      physicalModelId = resolvePublicModel(requestedModelId, publicModels, registry);
+      publicModelIdForHeaders = physicalModelId;
+    }
+  } catch (error) {
+    res.statusCode = 500;
+    res.setHeader("content-type", "application/json");
+    res.end(
+      JSON.stringify({
+        error: `Failed to resolve model: ${error instanceof Error ? error.message : String(error)}`,
+      }),
+    );
+    return;
+  }
+
+  // Get upstream model name from registry
+  const physicalModel = registry.get(physicalModelId);
+  if (!physicalModel) {
+    res.statusCode = 500;
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ error: `Physical model not found in registry: ${physicalModelId}` }));
+    return;
+  }
+
+  const upstreamModel = physicalModel.upstreamModel;
+  const attempt = await fetchUpstream(cfg, req, bodyObj, upstreamModel);
   const attempts: TraceAttempt[] = [
     attempt.ok
-      ? { model: actualModel, result: "ok", status: attempt.response.status }
+      ? { model: selected.model, result: "ok", status: attempt.response.status }
       : attempt.reason === "retryable"
-        ? { model: actualModel, result: "retryable", status: attempt.response.status }
-        : { model: actualModel, result: "network_error" },
+        ? { model: selected.model, result: "retryable", status: attempt.response.status }
+        : { model: selected.model, result: "network_error" },
   ];
   const finalTier = selected.tier;
   let sessionAction = selected.sessionAction;
@@ -530,13 +577,13 @@ async function proxyChat(
     const trace = emitProxyTrace(
       cfg,
       selected,
-      actualModel,
+      publicModelIdForHeaders,
       finalTier,
       attempts,
       sessionAction,
       true,
     );
-    const headers = buildPublicHeaders(cfg, selected, actualModel, finalTier, trace);
+    const headers = buildPublicHeaders(cfg, selected, publicModelIdForHeaders, finalTier, trace);
     writeJsonWithHeaders(
       res,
       502,
@@ -548,10 +595,10 @@ async function proxyChat(
     return;
   }
 
-  if (attempt.ok && selected.sessionId && !selected.explicit && isReusableSessionPinModel(actualModel)) {
+  if (attempt.ok && selected.sessionId && !selected.explicit && isReusableSessionPinModel(selected.model)) {
     sessionStore.setSession(
       selected.sessionId,
-      actualModel,
+      selected.model,
       finalTier,
       selected.userExplicit,
     );
@@ -563,13 +610,13 @@ async function proxyChat(
     const trace = emitProxyTrace(
     cfg,
     selected,
-    actualModel,
+    publicModelIdForHeaders,
     finalTier,
     attempts,
     sessionAction,
     !attempt.ok,
   );
-  const headers = buildPublicHeaders(cfg, selected, actualModel, finalTier, trace);
+  const headers = buildPublicHeaders(cfg, selected, publicModelIdForHeaders, finalTier, trace);
   const responseHeaders = copyResponseHeaders(attempt.response, headers);
   res.statusCode = attempt.response.status;
   for (const [k, v] of Object.entries(responseHeaders)) {
@@ -586,6 +633,46 @@ export async function startProxy(options: ProxyOptions = {}): Promise<ProxyHandl
   const cfg = resolveConfig(options);
   const sessionStore = new SessionStore({ enabled: cfg.sessionPinning });
 
+  // If config is provided, use it; otherwise fall back to legacy hardcoded models
+  let publicModels: Record<string, PublicModelConfig>;
+  let registry: ModelRegistry;
+
+  if (options.config) {
+    publicModels = options.config.publicModels;
+    registry = createModelRegistry(options.config.models);
+  } else {
+    // Legacy fallback: create a minimal config from hardcoded MODEL_ROLES
+    publicModels = {
+      auto: { kind: "router" },
+      [MODEL_ROLES.light]: { kind: "alias", candidates: [MODEL_ROLES.light], selection: "first" },
+      [MODEL_ROLES.strong]: { kind: "alias", candidates: [MODEL_ROLES.strong], selection: "first" },
+    };
+    registry = createModelRegistry([
+      {
+        id: MODEL_ROLES.light,
+        upstreamModel: MODEL_ROLES.light,
+        name: "DeepSeek V4 Flash",
+        inputPrice: 0.28,
+        outputPrice: 0.42,
+        contextWindow: 1_000_000,
+        maxOutput: 64_000,
+        reasoning: true,
+        toolCalling: true,
+      },
+      {
+        id: MODEL_ROLES.strong,
+        upstreamModel: MODEL_ROLES.strong,
+        name: "DeepSeek V4 Pro",
+        inputPrice: 0.56,
+        outputPrice: 1.68,
+        contextWindow: 1_000_000,
+        maxOutput: 64_000,
+        reasoning: true,
+        toolCalling: true,
+      },
+    ]);
+  }
+
   const server = http.createServer((req, res) => {
     void (async () => {
       try {
@@ -598,7 +685,7 @@ export async function startProxy(options: ProxyOptions = {}): Promise<ProxyHandl
         }
 
         if (req.method === "POST" && url === "/v1/chat/completions") {
-          await proxyChat(req, res, cfg, sessionStore);
+          await proxyChat(req, res, cfg, sessionStore, publicModels, registry);
           return;
         }
 
