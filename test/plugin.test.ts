@@ -112,16 +112,10 @@ describe("OpenClaw plugin lifecycle", () => {
 
   beforeEach(() => {
     serviceCalls.length = 0;
-    vi.stubEnv("XIAOYI_ROUTER_PORT", undefined);
-    vi.stubEnv("XIAOYI_BASE_URL", undefined);
   });
 
   afterEach(async () => {
-    try {
-      await Promise.allSettled(serviceCalls.map((service) => service.stop()));
-    } finally {
-      vi.unstubAllEnvs();
-    }
+    await Promise.allSettled(serviceCalls.map((service) => service.stop()));
   });
 
   it("registers synchronously and starts the proxy only when the service starts", async () => {
@@ -182,10 +176,7 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it("uses XIAOYI_ROUTER_PORT and XIAOYI_BASE_URL when present", async () => {
-    vi.stubEnv("XIAOYI_ROUTER_PORT", "9011");
-    vi.stubEnv("XIAOYI_BASE_URL", "https://gateway.example.com");
-
+  it("uses config from pluginConfig when no port/upstreamUrl overrides", async () => {
     const startProxy = vi.fn().mockResolvedValue({
       port: 9011,
       baseUrl: "https://gateway.example.com",
@@ -193,6 +184,31 @@ describe("OpenClaw plugin lifecycle", () => {
     });
     const api = {
       config: {},
+      pluginConfig: {
+        config: {
+          version: 1,
+          proxy: { port: 9011, upstreamUrl: "https://gateway.example.com" },
+          models: [
+            { id: "test-model", upstreamModel: "test-model", name: "Test", inputPrice: 0.1, outputPrice: 0.2, contextWindow: 100000, maxOutput: 4000, reasoning: false, toolCalling: true }
+          ],
+          publicModels: {
+            auto: { kind: "router" },
+            flash: { kind: "alias", candidates: ["test-model"] }
+          },
+          routing: {
+            tiers: {
+              SIMPLE: { publicModel: "flash" },
+              MEDIUM: { publicModel: "flash" },
+              COMPLEX: { publicModel: "flash" },
+              REASONING: { publicModel: "flash" }
+            },
+            tierBoundaries: { simpleMedium: 0.0, mediumComplex: 0.3, complexReasoning: 0.5 },
+            confidenceThreshold: 0.7,
+            structuredOutputMinTier: "MEDIUM",
+            ambiguousDefaultTier: "MEDIUM"
+          }
+        }
+      },
       registerProvider: vi.fn(),
       registerService: (service: OpenClawService) => serviceCalls.push(service),
     };
@@ -463,10 +479,7 @@ describe("OpenClaw plugin lifecycle", () => {
     }));
   });
 
-  it("prefers pluginConfig over environment variables", async () => {
-    vi.stubEnv("XIAOYI_ROUTER_PORT", "9011");
-    vi.stubEnv("XIAOYI_BASE_URL", "https://env.example.com");
-
+  it("prefers pluginConfig port/upstreamUrl overrides over config file values", async () => {
     const startProxy = vi.fn().mockResolvedValue({
       port: 9999,
       baseUrl: "https://plugin.example.com",
@@ -475,6 +488,29 @@ describe("OpenClaw plugin lifecycle", () => {
     const api = {
       config: {},
       pluginConfig: {
+        config: {
+          version: 1,
+          proxy: { port: 8402, upstreamUrl: "https://api.deepseek.com" },
+          models: [
+            { id: "test-model", upstreamModel: "test-model", name: "Test", inputPrice: 0.1, outputPrice: 0.2, contextWindow: 100000, maxOutput: 4000, reasoning: false, toolCalling: true }
+          ],
+          publicModels: {
+            auto: { kind: "router" },
+            flash: { kind: "alias", candidates: ["test-model"] }
+          },
+          routing: {
+            tiers: {
+              SIMPLE: { publicModel: "flash" },
+              MEDIUM: { publicModel: "flash" },
+              COMPLEX: { publicModel: "flash" },
+              REASONING: { publicModel: "flash" }
+            },
+            tierBoundaries: { simpleMedium: 0.0, mediumComplex: 0.3, complexReasoning: 0.5 },
+            confidenceThreshold: 0.7,
+            structuredOutputMinTier: "MEDIUM",
+            ambiguousDefaultTier: "MEDIUM"
+          }
+        },
         port: "9999",
         upstreamUrl: "https://plugin.example.com",
       },
@@ -505,17 +541,38 @@ describe("OpenClaw plugin lifecycle", () => {
     }));
   });
 
-  it("falls back to env/default when pluginConfig port is invalid", async () => {
-    vi.stubEnv("XIAOYI_ROUTER_PORT", "9011");
-
+  it("falls back to config port when pluginConfig port override is invalid", async () => {
     const startProxy = vi.fn().mockResolvedValue({
-      port: 9011,
+      port: 8402,
       baseUrl: "https://api.deepseek.com",
       close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
     });
     const api = {
       config: {},
       pluginConfig: {
+        config: {
+          version: 1,
+          proxy: { port: 8402, upstreamUrl: "https://api.deepseek.com" },
+          models: [
+            { id: "test-model", upstreamModel: "test-model", name: "Test", inputPrice: 0.1, outputPrice: 0.2, contextWindow: 100000, maxOutput: 4000, reasoning: false, toolCalling: true }
+          ],
+          publicModels: {
+            auto: { kind: "router" },
+            flash: { kind: "alias", candidates: ["test-model"] }
+          },
+          routing: {
+            tiers: {
+              SIMPLE: { publicModel: "flash" },
+              MEDIUM: { publicModel: "flash" },
+              COMPLEX: { publicModel: "flash" },
+              REASONING: { publicModel: "flash" }
+            },
+            tierBoundaries: { simpleMedium: 0.0, mediumComplex: 0.3, complexReasoning: 0.5 },
+            confidenceThreshold: 0.7,
+            structuredOutputMinTier: "MEDIUM",
+            ambiguousDefaultTier: "MEDIUM"
+          }
+        },
         port: "nope",
       },
       registerProvider: vi.fn(),
@@ -528,7 +585,7 @@ describe("OpenClaw plugin lifecycle", () => {
       models: {
         providers: {
           xiaoyiprovider: {
-            baseUrl: "http://127.0.0.1:9011/v1",
+            baseUrl: "http://127.0.0.1:8402/v1",
           },
         },
       },
@@ -536,7 +593,7 @@ describe("OpenClaw plugin lifecycle", () => {
 
     await serviceCalls[0]!.start();
     expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-      port: 9011,
+      port: 8402,
       baseUrl: "https://api.deepseek.com",
       traceLogger: expect.objectContaining({
         debug: expect.any(Function),
@@ -842,6 +899,177 @@ describe("OpenClaw plugin lifecycle", () => {
 
     expect(info).toHaveBeenCalledWith("trace debug fallback");
     expect(info).toHaveBeenCalledWith("trace info");
+  });
+});
+
+describe("OpenClaw plugin config-driven loading", () => {
+  const serviceCalls: OpenClawService[] = [];
+
+  beforeEach(() => {
+    serviceCalls.length = 0;
+  });
+
+  afterEach(async () => {
+    await Promise.allSettled(serviceCalls.map((service) => service.stop()));
+  });
+
+  it("loads config from pluginConfig.config (inline)", async () => {
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 9000,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {},
+      pluginConfig: {
+        config: {
+          version: 1,
+          proxy: { port: 9000, upstreamUrl: "https://api.deepseek.com" },
+          models: [
+            { id: "test-model", upstreamModel: "test-model", name: "Test", inputPrice: 0.1, outputPrice: 0.2, contextWindow: 100000, maxOutput: 4000, reasoning: false, toolCalling: true }
+          ],
+          publicModels: {
+            auto: { kind: "router" },
+            flash: { kind: "alias", candidates: ["test-model"] }
+          },
+          routing: {
+            tiers: {
+              SIMPLE: { publicModel: "flash" },
+              MEDIUM: { publicModel: "flash" },
+              COMPLEX: { publicModel: "flash" },
+              REASONING: { publicModel: "flash" }
+            },
+            tierBoundaries: { simpleMedium: 0.0, mediumComplex: 0.3, complexReasoning: 0.5 },
+            confidenceThreshold: 0.7,
+            structuredOutputMinTier: "MEDIUM",
+            ambiguousDefaultTier: "MEDIUM"
+          }
+        }
+      },
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPlugin(api, { startProxy });
+
+    expect(api.config).toMatchObject({
+      models: {
+        providers: {
+          xiaoyiprovider: {
+            baseUrl: "http://127.0.0.1:9000/v1",
+          },
+        },
+      },
+    });
+
+    await serviceCalls[0]!.start();
+    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+      port: 9000,
+      baseUrl: "https://api.deepseek.com",
+    }));
+  });
+
+  it("loads config from pluginConfig.configPath (file)", async () => {
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {},
+      pluginConfig: {
+        configPath: "/Users/ming/Documents/Code/2026/ai_repos/deepseek-router-mini/test/fixtures/minimal-config.json"
+      },
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPlugin(api, { startProxy });
+
+    expect(api.config).toMatchObject({
+      models: {
+        providers: {
+          xiaoyiprovider: {
+            baseUrl: "http://127.0.0.1:8402/v1",
+          },
+        },
+      },
+    });
+
+    await serviceCalls[0]!.start();
+    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+    }));
+  });
+
+  it("throws error when both config and configPath are missing", () => {
+    const startProxy = vi.fn();
+    const api = {
+      config: {},
+      pluginConfig: {},
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    expect(() => registerOpenClawPlugin(api, { startProxy })).toThrow(
+      "xiaoyi-router: missing config. Set pluginConfig.config or pluginConfig.configPath"
+    );
+  });
+
+  it("allows pluginConfig.port to override config file port", async () => {
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 9999,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {},
+      pluginConfig: {
+        configPath: "/Users/ming/Documents/Code/2026/ai_repos/deepseek-router-mini/test/fixtures/minimal-config.json",
+        port: 9999
+      },
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPlugin(api, { startProxy });
+
+    expect(api.config).toMatchObject({
+      models: {
+        providers: {
+          xiaoyiprovider: {
+            baseUrl: "http://127.0.0.1:9999/v1",
+          },
+        },
+      },
+    });
+
+    await serviceCalls[0]!.start();
+    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+      port: 9999,
+      baseUrl: "https://api.deepseek.com",
+    }));
+  });
+
+  it("allows pluginConfig.upstreamUrl to override config file upstreamUrl", async () => {
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://override.example.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {},
+      pluginConfig: {
+        configPath: "/Users/ming/Documents/Code/2026/ai_repos/deepseek-router-mini/test/fixtures/minimal-config.json",
+        upstreamUrl: "https://override.example.com"
+      },
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPlugin(api, { startProxy });
+
+    await serviceCalls[0]!.start();
+    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+      port: 8402,
+      baseUrl: "https://override.example.com",
+    }));
   });
 });
 

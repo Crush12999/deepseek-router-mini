@@ -1,4 +1,6 @@
 import { DEFAULT_BASE_URL, DEFAULT_PORT } from "./config.js";
+import { loadConfig } from "./config-loader.js";
+import type { RawConfig } from "./config-schema.js";
 import { startProxy as startProxyImpl } from "./proxy.js";
 import type { ProxyHandle, ProxyOptions } from "./proxy.js";
 import {
@@ -17,7 +19,12 @@ export type OpenClawService = {
 
 export type OpenClawPluginApi = {
   config: JsonObject;
-  pluginConfig?: { port?: unknown; upstreamUrl?: unknown } | Record<string, unknown>;
+  pluginConfig?: {
+    port?: unknown;
+    upstreamUrl?: unknown;
+    config?: RawConfig;
+    configPath?: string;
+  } | Record<string, unknown>;
   registrationMode?: string;
   registerProvider?: (provider: unknown) => void;
   registerService: (service: OpenClawService) => void;
@@ -106,22 +113,48 @@ function parsePortValue(value: unknown): number | undefined {
   return port;
 }
 
-function resolvePluginPort(pluginValue: unknown, envValue: string | undefined): number {
-  return parsePortValue(pluginValue) ?? parsePortValue(envValue) ?? DEFAULT_PORT;
-}
+/**
+ * 从 pluginConfig 加载配置
+ * @param api OpenClaw 插件 API
+ * @returns 解析后的配置对象，或 undefined 如果未提供配置源（向后兼容）
+ * @throws {Error} 如果 pluginConfig 存在但 config 和 configPath 都缺失
+ */
+export function resolvePluginConfig(api: OpenClawPluginApi): RawConfig | undefined {
+  const inline = api.pluginConfig?.config;
+  const path = api.pluginConfig?.configPath;
 
-function parsePluginUpstreamUrl(pluginValue: unknown, envValue: string | undefined): string {
-  if (typeof pluginValue === "string" && pluginValue.trim()) {
-    return pluginValue;
+  if (inline) {
+    return loadConfig({ kind: "inline", config: inline as RawConfig });
   }
-
-  return envValue ?? DEFAULT_BASE_URL;
+  if (path) {
+    return loadConfig({ kind: "file", path: path as string });
+  }
+  // 如果 pluginConfig 存在且有非 port/upstreamUrl 的字段，说明用户意图提供配置但遗漏了
+  // 如果 pluginConfig 不存在或只有 port/upstreamUrl，向后兼容使用默认值
+  if (api.pluginConfig && !api.pluginConfig.port && !api.pluginConfig.upstreamUrl) {
+    throw new Error("xiaoyi-router: missing config. Set pluginConfig.config or pluginConfig.configPath");
+  }
+  return undefined;
 }
 
 function resolvePluginRuntimeConfig(api: OpenClawPluginApi): { port: number; upstreamUrl: string } {
+  const config = resolvePluginConfig(api);
+  const portOverride = parsePortValue(api.pluginConfig?.port);
+  const upstreamOverride = typeof api.pluginConfig?.upstreamUrl === "string" && api.pluginConfig.upstreamUrl.trim()
+    ? api.pluginConfig.upstreamUrl
+    : undefined;
+
+  if (config) {
+    return {
+      port: portOverride ?? config.proxy.port,
+      upstreamUrl: upstreamOverride ?? config.proxy.upstreamUrl,
+    };
+  }
+
+  // 向后兼容：无配置源时使用默认值
   return {
-    port: resolvePluginPort(api.pluginConfig?.port, process.env.XIAOYI_ROUTER_PORT),
-    upstreamUrl: parsePluginUpstreamUrl(api.pluginConfig?.upstreamUrl, process.env.XIAOYI_BASE_URL),
+    port: portOverride ?? DEFAULT_PORT,
+    upstreamUrl: upstreamOverride ?? DEFAULT_BASE_URL,
   };
 }
 
