@@ -10,7 +10,10 @@ import {
 import type {
   ModelPricing,
   RouterOptions,
+  RoutingConfig,
   RoutingDecision,
+  Tier,
+  TierConfig,
   TraceReason,
 } from "../src/router/index.js";
 
@@ -18,6 +21,26 @@ const pricing: Map<string, ModelPricing> = new Map([
   [MODEL_ROLES.light, { inputPrice: 0.28, outputPrice: 0.42 }],
   [MODEL_ROLES.strong, { inputPrice: 0.56, outputPrice: 1.68 }],
 ]);
+
+const TEST_TIERS: Record<Tier, TierConfig> = {
+  SIMPLE: { primary: MODEL_ROLES.light, fallback: [] },
+  MEDIUM: { primary: MODEL_ROLES.light, fallback: [MODEL_ROLES.strong] },
+  COMPLEX: { primary: MODEL_ROLES.strong, fallback: [] },
+  REASONING: { primary: MODEL_ROLES.strong, fallback: [] },
+};
+
+const TEST_AGENTIC_TIERS: Record<Tier, TierConfig> = {
+  SIMPLE: { primary: MODEL_ROLES.light, fallback: [] },
+  MEDIUM: { primary: MODEL_ROLES.light, fallback: [MODEL_ROLES.strong] },
+  COMPLEX: { primary: MODEL_ROLES.strong, fallback: [] },
+  REASONING: { primary: MODEL_ROLES.strong, fallback: [] },
+};
+
+const TEST_CONFIG: RoutingConfig = {
+  ...DEFAULT_ROUTING_CONFIG,
+  tiers: TEST_TIERS,
+  agenticTiers: TEST_AGENTIC_TIERS,
+};
 
 type AuditSample = {
   name: string;
@@ -39,7 +62,7 @@ type AuditResult = {
 
 function options(overrides: Partial<RouterOptions> = {}): RouterOptions {
   return {
-    config: DEFAULT_ROUTING_CONFIG,
+    config: TEST_CONFIG,
     modelPricing: pricing,
     ...overrides,
   };

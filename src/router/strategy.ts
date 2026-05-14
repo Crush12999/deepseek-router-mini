@@ -84,8 +84,13 @@ function chooseTierConfigs(
     useAgenticTiers = (hasTools || isAutoAgentic) && config.agenticTiers != null;
   }
 
+  const tierConfigs = useAgenticTiers ? config.agenticTiers! : config.tiers;
+  if (!tierConfigs) {
+    throw new Error("RoutingConfig.tiers is required but not provided");
+  }
+
   return {
-    tierConfigs: useAgenticTiers ? config.agenticTiers! : config.tiers,
+    tierConfigs,
     profile: useAgenticTiers ? "agentic" : "auto",
     profileSuffix: useAgenticTiers ? ` | agentic${hasTools ? " (tools)" : ""}` : "",
   };

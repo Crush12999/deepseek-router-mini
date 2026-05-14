@@ -11,16 +11,36 @@ import {
   getFallbackChainFiltered,
   route,
 } from "../src/router/index.js";
-import type { ModelPricing, RouterOptions } from "../src/router/index.js";
+import type { ModelPricing, RouterOptions, RoutingConfig, Tier, TierConfig } from "../src/router/index.js";
 
 const pricing: Map<string, ModelPricing> = new Map([
   [MODEL_ROLES.light, { inputPrice: 0.28, outputPrice: 0.42 }],
   [MODEL_ROLES.strong, { inputPrice: 0.56, outputPrice: 1.68 }],
 ]);
 
+const TEST_TIERS: Record<Tier, TierConfig> = {
+  SIMPLE: { primary: MODEL_ROLES.light, fallback: [] },
+  MEDIUM: { primary: MODEL_ROLES.light, fallback: [MODEL_ROLES.strong] },
+  COMPLEX: { primary: MODEL_ROLES.strong, fallback: [] },
+  REASONING: { primary: MODEL_ROLES.strong, fallback: [] },
+};
+
+const TEST_AGENTIC_TIERS: Record<Tier, TierConfig> = {
+  SIMPLE: { primary: MODEL_ROLES.light, fallback: [] },
+  MEDIUM: { primary: MODEL_ROLES.light, fallback: [MODEL_ROLES.strong] },
+  COMPLEX: { primary: MODEL_ROLES.strong, fallback: [] },
+  REASONING: { primary: MODEL_ROLES.strong, fallback: [] },
+};
+
+const TEST_CONFIG: RoutingConfig = {
+  ...DEFAULT_ROUTING_CONFIG,
+  tiers: TEST_TIERS,
+  agenticTiers: TEST_AGENTIC_TIERS,
+};
+
 function options(overrides: Partial<RouterOptions> = {}): RouterOptions {
   return {
-    config: DEFAULT_ROUTING_CONFIG,
+    config: TEST_CONFIG,
     modelPricing: pricing,
     ...overrides,
   };
@@ -55,7 +75,7 @@ describe("smart router", () => {
     expect(decision.model).toBe(MODEL_ROLES.light);
     expect(decision.tier).toBe("SIMPLE");
     expect(decision.profile).toBe("auto");
-    expect(decision.tierConfigs).toBe(DEFAULT_ROUTING_CONFIG.tiers);
+    expect(decision.tierConfigs).toBe(TEST_TIERS);
   });
 
   it("routes reasoning prompts to the strong model", () => {
@@ -81,7 +101,7 @@ describe("smart router", () => {
 
     expect(decision.model).toBe(MODEL_ROLES.light);
     expect(decision.profile).toBe("agentic");
-    expect(decision.tierConfigs).toBe(DEFAULT_ROUTING_CONFIG.agenticTiers);
+    expect(decision.tierConfigs).toBe(TEST_AGENTIC_TIERS);
     expect(decision.agenticScore).toBeGreaterThan(0);
     expect(decision.score).toEqual(expect.any(Number));
   });
@@ -122,13 +142,13 @@ describe("smart router", () => {
   });
 
   it("exposes fallback chain helpers", () => {
-    expect(getFallbackChain("MEDIUM", DEFAULT_ROUTING_CONFIG.tiers)).toEqual([
+    expect(getFallbackChain("MEDIUM", TEST_TIERS)).toEqual([
       MODEL_ROLES.light,
       MODEL_ROLES.strong,
     ]);
 
     expect(
-      getFallbackChainFiltered("MEDIUM", DEFAULT_ROUTING_CONFIG.tiers, 950_000, (model) =>
+      getFallbackChainFiltered("MEDIUM", TEST_TIERS, 950_000, (model) =>
         model === MODEL_ROLES.light ? 1_000_000 : 2_000_000,
       ),
     ).toEqual([MODEL_ROLES.strong]);

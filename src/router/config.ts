@@ -1,14 +1,11 @@
 import { MODEL_ROLES } from "../models.js";
 import type { RoutingConfig } from "./types.js";
 
-const LIGHT = MODEL_ROLES.light;
-const STRONG = MODEL_ROLES.strong;
-
 export const DEFAULT_ROUTING_CONFIG: RoutingConfig = {
   version: "2.0",
 
   classifier: {
-    llmModel: LIGHT,
+    llmModel: MODEL_ROLES.light,
     llmMaxTokens: 10,
     llmTemperature: 0,
     promptTruncationChars: 500,
@@ -1027,20 +1024,6 @@ export const DEFAULT_ROUTING_CONFIG: RoutingConfig = {
     confidenceSteepness: 12,
     // Below this confidence → ambiguous (null tier)
     confidenceThreshold: 0.7,
-  },
-
-  tiers: {
-    SIMPLE: { primary: LIGHT, fallback: [] },
-    MEDIUM: { primary: LIGHT, fallback: [STRONG] },
-    COMPLEX: { primary: STRONG, fallback: [] },
-    REASONING: { primary: STRONG, fallback: [] },
-  },
-
-  agenticTiers: {
-    SIMPLE: { primary: LIGHT, fallback: [] },
-    MEDIUM: { primary: LIGHT, fallback: [STRONG] },
-    COMPLEX: { primary: STRONG, fallback: [] },
-    REASONING: { primary: STRONG, fallback: [] },
   },
 
   overrides: {

@@ -89,7 +89,7 @@ export type RoutingConfig = {
   version: string;
   classifier: ClassifierConfig;
   scoring: ScoringConfig;
-  tiers: Record<Tier, TierConfig>;
+  tiers?: Record<Tier, TierConfig>;
   agenticTiers?: Record<Tier, TierConfig> | null;
   overrides: OverridesConfig;
 };

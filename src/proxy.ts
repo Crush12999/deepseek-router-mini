@@ -16,14 +16,37 @@ import {
 import type {
   ModelPricing,
   RouteTraceLog,
+  RoutingConfig,
   TraceAttempt,
   TraceReason,
   TraceSessionAction,
+  Tier,
+  TierConfig,
 } from "./router/index.js";
-import type { RouterOptions, RoutingDecision, Tier } from "./router/types.js";
+import type { RouterOptions, RoutingDecision } from "./router/types.js";
 import { deriveSessionId, SessionStore } from "./session.js";
 
 export const VERSION = "0.1.0";
+
+const PROXY_TIERS: Record<Tier, TierConfig> = {
+  SIMPLE: { primary: MODEL_ROLES.light, fallback: [] },
+  MEDIUM: { primary: MODEL_ROLES.light, fallback: [MODEL_ROLES.strong] },
+  COMPLEX: { primary: MODEL_ROLES.strong, fallback: [] },
+  REASONING: { primary: MODEL_ROLES.strong, fallback: [] },
+};
+
+const PROXY_AGENTIC_TIERS: Record<Tier, TierConfig> = {
+  SIMPLE: { primary: MODEL_ROLES.light, fallback: [] },
+  MEDIUM: { primary: MODEL_ROLES.light, fallback: [MODEL_ROLES.strong] },
+  COMPLEX: { primary: MODEL_ROLES.strong, fallback: [] },
+  REASONING: { primary: MODEL_ROLES.strong, fallback: [] },
+};
+
+const PROXY_ROUTING_CONFIG: RoutingConfig = {
+  ...DEFAULT_ROUTING_CONFIG,
+  tiers: PROXY_TIERS,
+  agenticTiers: PROXY_AGENTIC_TIERS,
+};
 
 const HOP_BY_HOP = new Set([
   "connection",
@@ -286,7 +309,7 @@ function getMaxOutputTokens(body: Record<string, unknown>): number {
 
 function buildRouterOptions(hasTools: boolean): RouterOptions {
   return {
-    config: DEFAULT_ROUTING_CONFIG,
+    config: PROXY_ROUTING_CONFIG,
     modelPricing: buildModelPricing(),
     hasTools,
   };
