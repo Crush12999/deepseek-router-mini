@@ -326,7 +326,7 @@ function toRealModelId(model: string): RealModelId {
     return model;
   }
 
-  return MODEL_ROLES.strong;
+  throw new Error(`Invalid model ID for routing: "${model}". Expected "${MODEL_ROLES.light}" or "${MODEL_ROLES.strong}".`);
 }
 
 function getExplicitTier(model: RealModelId): Tier {
@@ -347,12 +347,12 @@ function getTraceReason(selected: SelectedModel, failed: boolean): TraceReason {
 function buildPublicHeaders(
   cfg: RouterConfig,
   selected: SelectedModel,
-  publicModelId: string,
+  modelIdForHeaders: string,
   finalTier: Tier,
   trace: string,
 ): Record<string, string> {
   return {
-    "x-xiaoyi-router-model": publicModelId,
+    "x-xiaoyi-router-model": modelIdForHeaders,
     "x-xiaoyi-router-tier": finalTier,
     "x-xiaoyi-router-trace": trace,
     "x-xiaoyi-router-routed": String(selected.routed),
@@ -364,7 +364,7 @@ function buildPublicHeaders(
 function emitProxyTrace(
   cfg: RouterConfig,
   selected: SelectedModel,
-  publicModelId: string,
+  modelIdForHeaders: string,
   finalTier: Tier,
   attempts: TraceAttempt[],
   sessionAction: TraceSessionAction,
@@ -410,13 +410,17 @@ function chooseModel(
   headers: IncomingMessage["headers"],
   sessionStore: SessionStore,
   cfg: RouterConfig,
+  publicModels: Record<string, PublicModelConfig>,
+  registry: ModelRegistry,
 ): SelectedModel {
   const prompt = extractPrompt(body.messages ?? []);
   const sessionId = deriveSessionId(headers, body.messages ?? []);
   const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
 
   if (requestedModel !== "auto") {
-    const model = requestedModel as RealModelId;
+    // For explicit model requests (aliases like "flash", "pro"), resolve to physical model
+    const physicalModelId = resolvePublicModel(requestedModel, publicModels, registry);
+    const model = physicalModelId as RealModelId;
     const tier = getExplicitTier(model);
     return {
       model,
@@ -526,31 +530,13 @@ async function proxyChat(
     req.headers,
     sessionStore,
     cfg,
+    publicModels,
+    registry,
   );
 
-  // Resolve public model ID to physical model ID
-  let physicalModelId: string;
-  let publicModelIdForHeaders: string;
-  try {
-    if (requestedModelId === "auto") {
-      // For "auto", use the routed model (already a physical model ID in legacy system)
-      physicalModelId = selected.model;
-      publicModelIdForHeaders = selected.model;
-    } else {
-      // For aliases, resolve through public-model-resolver
-      physicalModelId = resolvePublicModel(requestedModelId, publicModels, registry);
-      publicModelIdForHeaders = physicalModelId;
-    }
-  } catch (error) {
-    res.statusCode = 500;
-    res.setHeader("content-type", "application/json");
-    res.end(
-      JSON.stringify({
-        error: `Failed to resolve model: ${error instanceof Error ? error.message : String(error)}`,
-      }),
-    );
-    return;
-  }
+  // selected.model is already the resolved physical model ID
+  const physicalModelId = selected.model;
+  const modelIdForHeaders = physicalModelId;
 
   // Get upstream model name from registry
   const physicalModel = registry.get(physicalModelId);
@@ -577,13 +563,13 @@ async function proxyChat(
     const trace = emitProxyTrace(
       cfg,
       selected,
-      publicModelIdForHeaders,
+      modelIdForHeaders,
       finalTier,
       attempts,
       sessionAction,
       true,
     );
-    const headers = buildPublicHeaders(cfg, selected, publicModelIdForHeaders, finalTier, trace);
+    const headers = buildPublicHeaders(cfg, selected, modelIdForHeaders, finalTier, trace);
     writeJsonWithHeaders(
       res,
       502,
@@ -610,13 +596,13 @@ async function proxyChat(
     const trace = emitProxyTrace(
     cfg,
     selected,
-    publicModelIdForHeaders,
+    modelIdForHeaders,
     finalTier,
     attempts,
     sessionAction,
     !attempt.ok,
   );
-  const headers = buildPublicHeaders(cfg, selected, publicModelIdForHeaders, finalTier, trace);
+  const headers = buildPublicHeaders(cfg, selected, modelIdForHeaders, finalTier, trace);
   const responseHeaders = copyResponseHeaders(attempt.response, headers);
   res.statusCode = attempt.response.status;
   for (const [k, v] of Object.entries(responseHeaders)) {
