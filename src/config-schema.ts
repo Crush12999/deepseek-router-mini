@@ -14,7 +14,7 @@ export interface ProxyConfig {
   apiKey?: string;
   /** Optional custom headers to include in upstream requests */
   headers?: Record<string, string>;
-  /** Trace level for debugging */
+  /** Trace level for debugging (default: "off") */
   trace?: "off" | "summary" | "debug";
 }
 
@@ -56,7 +56,7 @@ export interface PublicModelAlias {
   kind: "alias";
   /** List of candidate physical model IDs */
   candidates: string[];
-  /** Selection strategy for choosing among candidates */
+  /** Selection strategy for choosing among candidates (default: "cheapest") */
   selection?: "cheapest" | "first";
 }
 
@@ -80,7 +80,12 @@ export interface TierConfig {
  */
 export interface RoutingConfig {
   /** Tier-to-model mappings */
-  tiers: Record<"SIMPLE" | "MEDIUM" | "COMPLEX" | "REASONING", TierConfig>;
+  tiers: {
+    SIMPLE: TierConfig;
+    MEDIUM: TierConfig;
+    COMPLEX: TierConfig;
+    REASONING: TierConfig;
+  };
   /** Score boundaries between tiers */
   tierBoundaries: {
     simpleMedium: number;
@@ -90,9 +95,9 @@ export interface RoutingConfig {
   /** Minimum confidence threshold for routing decisions */
   confidenceThreshold: number;
   /** Minimum tier for structured output requests */
-  structuredOutputMinTier: string;
+  structuredOutputMinTier: "SIMPLE" | "MEDIUM" | "COMPLEX" | "REASONING";
   /** Default tier when routing is ambiguous */
-  ambiguousDefaultTier: string;
+  ambiguousDefaultTier: "SIMPLE" | "MEDIUM" | "COMPLEX" | "REASONING";
 }
 
 /**
