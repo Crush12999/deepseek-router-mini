@@ -53,6 +53,130 @@ describe("loadConfig", () => {
     );
   });
 
+  it.each([
+    {
+      name: "reasoning",
+      update: (raw: RawConfig) => {
+        raw.publicModels.auto = {
+          kind: "router",
+          metadata: {
+            ...raw.publicModels.auto.metadata,
+            reasoning: "yes",
+          },
+        } as RawConfig["publicModels"][string];
+      },
+      error: /publicModels\.auto\.metadata\.reasoning.*boolean/i,
+    },
+    {
+      name: "contextWindow",
+      update: (raw: RawConfig) => {
+        raw.publicModels.auto = {
+          kind: "router",
+          metadata: {
+            ...raw.publicModels.auto.metadata,
+            contextWindow: "1000000",
+          },
+        } as RawConfig["publicModels"][string];
+      },
+      error: /publicModels\.auto\.metadata\.contextWindow.*number/i,
+    },
+    {
+      name: "maxTokens",
+      update: (raw: RawConfig) => {
+        raw.publicModels.auto = {
+          kind: "router",
+          metadata: {
+            ...raw.publicModels.auto.metadata,
+            maxTokens: "64000",
+          },
+        } as RawConfig["publicModels"][string];
+      },
+      error: /publicModels\.auto\.metadata\.maxTokens.*number/i,
+    },
+    {
+      name: "cost object",
+      update: (raw: RawConfig) => {
+        raw.publicModels.auto = {
+          kind: "router",
+          metadata: {
+            ...raw.publicModels.auto.metadata,
+            cost: "free",
+          },
+        } as RawConfig["publicModels"][string];
+      },
+      error: /publicModels\.auto\.metadata\.cost.*object/i,
+    },
+    {
+      name: "cost.input",
+      update: (raw: RawConfig) => {
+        raw.publicModels.auto = {
+          kind: "router",
+          metadata: {
+            ...raw.publicModels.auto.metadata,
+            cost: {
+              ...raw.publicModels.auto.metadata.cost,
+              input: "0.28",
+            },
+          },
+        } as RawConfig["publicModels"][string];
+      },
+      error: /publicModels\.auto\.metadata\.cost\.input.*number/i,
+    },
+    {
+      name: "cost.output",
+      update: (raw: RawConfig) => {
+        raw.publicModels.auto = {
+          kind: "router",
+          metadata: {
+            ...raw.publicModels.auto.metadata,
+            cost: {
+              ...raw.publicModels.auto.metadata.cost,
+              output: "0.42",
+            },
+          },
+        } as RawConfig["publicModels"][string];
+      },
+      error: /publicModels\.auto\.metadata\.cost\.output.*number/i,
+    },
+    {
+      name: "cost.cacheRead",
+      update: (raw: RawConfig) => {
+        raw.publicModels.auto = {
+          kind: "router",
+          metadata: {
+            ...raw.publicModels.auto.metadata,
+            cost: {
+              ...raw.publicModels.auto.metadata.cost,
+              cacheRead: "0.07",
+            },
+          },
+        } as RawConfig["publicModels"][string];
+      },
+      error: /publicModels\.auto\.metadata\.cost\.cacheRead.*number/i,
+    },
+    {
+      name: "cost.cacheWrite",
+      update: (raw: RawConfig) => {
+        raw.publicModels.auto = {
+          kind: "router",
+          metadata: {
+            ...raw.publicModels.auto.metadata,
+            cost: {
+              ...raw.publicModels.auto.metadata.cost,
+              cacheWrite: "0.28",
+            },
+          },
+        } as RawConfig["publicModels"][string];
+      },
+      error: /publicModels\.auto\.metadata\.cost\.cacheWrite.*number/i,
+    },
+  ])("rejects auto router with invalid metadata %s", ({ update, error }) => {
+    const raw = structuredClone(minimalConfig) as RawConfig;
+    update(raw);
+
+    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(error);
+  });
+
   it("should reject invalid candidate reference", () => {
     expect(() => loadConfig({ kind: "file", path: join(__dirname, "fixtures/invalid-config.json") })).toThrow(
       /unknown.*candidate/i
@@ -88,6 +212,27 @@ describe("loadConfig", () => {
 
     expect(() => loadConfig({ kind: "inline", config: raw as RawConfig })).toThrow(
       /confidenceThreshold.*DEFAULT_ROUTING_CONFIG\.scoring/i
+    );
+  });
+
+  it("rejects removed routing tierBoundaries field", () => {
+    const raw = structuredClone(minimalConfig) as RawConfig & {
+      routing: RawConfig["routing"] & {
+        tierBoundaries?: {
+          simpleMedium: number;
+          mediumComplex: number;
+          complexReasoning: number;
+        };
+      };
+    };
+    raw.routing.tierBoundaries = {
+      simpleMedium: 0,
+      mediumComplex: 0.3,
+      complexReasoning: 0.5,
+    };
+
+    expect(() => loadConfig({ kind: "inline", config: raw as RawConfig })).toThrow(
+      /tierBoundaries.*DEFAULT_ROUTING_CONFIG\.scoring/i
     );
   });
 
