@@ -1,6 +1,45 @@
 import { readFileSync } from "node:fs";
 import type { ConfigSource, RawConfig } from "./config-schema.js";
 
+const REMOVED_ROUTING_FIELDS = ["tierBoundaries", "confidenceThreshold"] as const;
+
+function hasOwn(value: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function assertPublicModelMetadata(value: unknown, path: string): void {
+  if (!value || typeof value !== "object") {
+    throw new Error(`${path}.metadata is required`);
+  }
+
+  const metadata = value as Record<string, unknown>;
+  const cost = metadata.cost as Record<string, unknown> | undefined;
+
+  for (const key of ["name", "reasoning", "contextWindow", "maxTokens", "cost"]) {
+    if (!hasOwn(metadata, key)) {
+      throw new Error(`${path}.metadata.${key} is required`);
+    }
+  }
+
+  for (const key of ["input", "output", "cacheRead", "cacheWrite"]) {
+    if (!cost || !hasOwn(cost, key)) {
+      throw new Error(`${path}.metadata.cost.${key} is required`);
+    }
+  }
+}
+
+function assertAliasPublicModel(publicModels: RawConfig["publicModels"], id: string, path: string): void {
+  const publicModel = publicModels[id];
+
+  if (!publicModel) {
+    throw new Error(`${path} references unknown publicModel: ${id}`);
+  }
+
+  if (publicModel.kind !== "alias") {
+    throw new Error(`${path} must reference a publicModel with kind: "alias"`);
+  }
+}
+
 /**
  * 加载并校验配置文件
  * @param source 配置源：内联对象或文件路径
@@ -18,11 +57,12 @@ export function loadConfig(source: ConfigSource): RawConfig {
  *
  * 校验项：
  * - models[].id 唯一性
- * - publicModels 必含 "auto" 且 kind: "router"
+ * - publicModels.auto 必须是 router 且 metadata 完整
  * - publicModels[*].candidates[] 引用必须在 models 中存在
  * - publicModels[*].candidates[] 非空（仅 alias）
- * - routing.tiers[*].publicModel 引用必须在 publicModels 中且 kind: "alias"
- * - routing.tiers[*].fallback[] 引用必须在 publicModels 中存在
+ * - routing.tiers[*].publicModel / fallback[] 只能引用 alias publicModel
+ * - 移除的 routing scoring 字段不能再出现在配置中
+ * - 四个 tier 必须完整声明
  * - proxy.port 是 1-65535 整数
  * - proxy.headers 值都是字符串
  *
@@ -30,57 +70,65 @@ export function loadConfig(source: ConfigSource): RawConfig {
  * @throws {Error} 如果校验失败，错误信息包含具体字段和期望值
  */
 function validateConfig(config: RawConfig): void {
-  // 检查 models[].id 唯一性
   const modelIds = new Set<string>();
+
   for (const model of config.models) {
     if (modelIds.has(model.id)) {
       throw new Error(`Duplicate model ID: ${model.id}`);
     }
+
     modelIds.add(model.id);
   }
 
-  // 检查 publicModels 必含 auto
-  if (!config.publicModels.auto || config.publicModels.auto.kind !== "router") {
-    throw new Error("publicModels must contain 'auto' with kind: 'router'");
+  const auto = config.publicModels.auto;
+  if (!auto || auto.kind !== "router") {
+    throw new Error('publicModels must contain "auto" with kind: "router"');
   }
+  assertPublicModelMetadata(auto.metadata, "publicModels.auto");
 
-  // 检查 candidates 引用和非空
-  for (const [pubId, pubConfig] of Object.entries(config.publicModels)) {
-    if (pubConfig.kind === "alias") {
-      if (pubConfig.candidates.length === 0) {
-        throw new Error(`publicModels.${pubId} candidates cannot be empty`);
-      }
-      for (const candidate of pubConfig.candidates) {
-        if (!modelIds.has(candidate)) {
-          throw new Error(`Unknown candidate '${candidate}' in publicModels.${pubId}`);
-        }
+  for (const [publicModelId, publicModel] of Object.entries(config.publicModels)) {
+    if (publicModel.kind === "router") {
+      assertPublicModelMetadata(publicModel.metadata, `publicModels.${publicModelId}`);
+      continue;
+    }
+
+    if (!Array.isArray(publicModel.candidates) || publicModel.candidates.length === 0) {
+      throw new Error(`publicModels.${publicModelId}.candidates must not be empty`);
+    }
+
+    for (const candidate of publicModel.candidates) {
+      if (!modelIds.has(candidate)) {
+        throw new Error(`Unknown candidate '${candidate}' in publicModels.${publicModelId}`);
       }
     }
   }
 
-  // 检查 tiers[].publicModel 引用
+  for (const field of REMOVED_ROUTING_FIELDS) {
+    if (hasOwn(config.routing as object, field)) {
+      throw new Error(
+        `routing.${field} has moved to DEFAULT_ROUTING_CONFIG.scoring and is no longer configurable`
+      );
+    }
+  }
+
+  for (const tier of ["SIMPLE", "MEDIUM", "COMPLEX", "REASONING"] as const) {
+    if (!config.routing.tiers[tier]) {
+      throw new Error(`routing.tiers.${tier} is required`);
+    }
+  }
+
   for (const [tier, tierConfig] of Object.entries(config.routing.tiers)) {
-    const pub = config.publicModels[tierConfig.publicModel];
-    if (!pub || pub.kind !== "alias") {
-      throw new Error(`Tier ${tier} references invalid publicModel: ${tierConfig.publicModel}`);
-    }
+    assertAliasPublicModel(config.publicModels, tierConfig.publicModel, `routing.tiers.${tier}.publicModel`);
 
-    // 检查 fallback 引用
-    if (tierConfig.fallback) {
-      for (const fallbackId of tierConfig.fallback) {
-        if (!config.publicModels[fallbackId]) {
-          throw new Error(`Tier ${tier} fallback references unknown model: ${fallbackId}`);
-        }
-      }
+    for (const fallbackId of tierConfig.fallback ?? []) {
+      assertAliasPublicModel(config.publicModels, fallbackId, `routing.tiers.${tier}.fallback`);
     }
   }
 
-  // 检查 proxy.port 范围
   if (!Number.isInteger(config.proxy.port) || config.proxy.port < 1 || config.proxy.port > 65535) {
     throw new Error(`proxy.port must be an integer between 1-65535, got: ${config.proxy.port}`);
   }
 
-  // 检查 proxy.headers 值都是字符串
   if (config.proxy.headers) {
     for (const [key, value] of Object.entries(config.proxy.headers)) {
       if (typeof value !== "string") {
