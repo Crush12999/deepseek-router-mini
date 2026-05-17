@@ -441,6 +441,37 @@ describe("proxy", () => {
     });
   });
 
+  it("does not fabricate routing decision fields for explicit debug traces", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const logSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0, traceMode: "debug" });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "deepseek-v4-flash",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const logged = JSON.parse(String(logSpy.mock.calls[0]?.[0])) as Record<string, unknown>;
+    expect(logged).toMatchObject({
+      trace: "explicit:medium:deepseek-v4-flash:user",
+      requestedModel: "deepseek-v4-flash",
+      routedModel: "deepseek-v4-flash",
+      actualModel: "deepseek-v4-flash",
+      sessionAction: "none",
+    });
+    expect(logged).not.toHaveProperty("method");
+    expect(logged).not.toHaveProperty("confidence");
+    expect(logged).not.toHaveProperty("score");
+    expect(logged).not.toHaveProperty("agenticScore");
+  });
+
   it("uses console.debug for trace logging without touching console.error", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);

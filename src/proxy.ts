@@ -393,14 +393,18 @@ function emitProxyTrace(
     profile: selected.decision?.profile ?? "default",
     reason,
     explicit: selected.explicit,
-    method: selected.decision?.method ?? "rules",
-    confidence: selected.decision?.confidence ?? 1,
-    score: selected.decision?.score ?? 0,
-    agenticScore: selected.decision?.agenticScore ?? 0,
     routed: selected.routed,
     fallback: false,
     attempts,
     sessionAction,
+    ...(selected.decision && {
+      method: selected.decision.method,
+      confidence: selected.decision.confidence,
+      ...(selected.decision.score !== undefined && { score: selected.decision.score }),
+      ...(selected.decision.agenticScore !== undefined && {
+        agenticScore: selected.decision.agenticScore,
+      }),
+    }),
     ...(cfg.traceMode === "debug" && { promptPreview: getPromptPreview(selected.routeText) }),
   };
 

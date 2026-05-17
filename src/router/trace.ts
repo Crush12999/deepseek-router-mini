@@ -31,10 +31,10 @@ export type TraceSummaryInput = {
 
 export type RouteTraceLog = TraceSummaryInput & {
   trace: string;
-  method: string;
-  confidence: number;
-  score: number;
-  agenticScore: number;
+  method?: string;
+  confidence?: number;
+  score?: number;
+  agenticScore?: number;
   attempts: TraceAttempt[];
   sessionAction: TraceSessionAction;
   promptPreview?: string;
