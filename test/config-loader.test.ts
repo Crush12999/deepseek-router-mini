@@ -170,7 +170,7 @@ describe("loadConfig", () => {
       },
       error: /publicModels\.auto\.metadata\.cost\.cacheWrite.*number/i,
     },
-  ])("rejects auto router with invalid metadata %s", ({ update, error }) => {
+  ])("rejects auto router with invalid metadata $name", ({ update, error }) => {
     const raw = structuredClone(minimalConfig) as RawConfig;
     update(raw);
 
@@ -202,6 +202,29 @@ describe("loadConfig", () => {
     raw.publicModels.flash = { kind: "alias", candidates: [] };
 
     expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(/candidates.*empty/i);
+  });
+
+  it("rejects alias metadata with invalid field types", () => {
+    const raw = structuredClone(minimalConfig) as RawConfig;
+    raw.publicModels.flash = {
+      ...raw.publicModels.flash,
+      metadata: {
+        name: "DeepSeek V4 Flash",
+        reasoning: "yes",
+        contextWindow: 1000000,
+        maxTokens: 64000,
+        cost: {
+          input: 0.28,
+          output: 0.42,
+          cacheRead: 0.07,
+          cacheWrite: 0.28,
+        },
+      },
+    } as RawConfig["publicModels"][string];
+
+    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
+      /publicModels\.flash\.metadata\.reasoning.*boolean/i
+    );
   });
 
   it("rejects removed routing scoring fields", () => {

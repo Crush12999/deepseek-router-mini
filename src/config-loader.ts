@@ -130,6 +130,10 @@ function validateConfig(config: RawConfig): void {
         throw new Error(`Unknown candidate '${candidate}' in publicModels.${publicModelId}`);
       }
     }
+
+    if (publicModel.metadata != null) {
+      assertPublicModelMetadata(publicModel.metadata, `publicModels.${publicModelId}`);
+    }
   }
 
   for (const field of REMOVED_ROUTING_FIELDS) {
