@@ -31,21 +31,35 @@ describe("package metadata", () => {
   });
 
   it("declares xiaoyi OpenClaw plugin metadata", () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
     const plugin = JSON.parse(fs.readFileSync(path.join(root, "openclaw.plugin.json"), "utf8"));
+    const pluginJson = JSON.stringify(plugin);
+
     expect(plugin).toMatchObject({
       id: "xiaoyi-router",
       name: "Xiaoyi Router",
+      version: pkg.version,
     });
     expect(plugin).not.toHaveProperty("providers");
     expect(plugin.description).toBe("Xiaoyi local routing proxy for OpenClaw");
-    expect(plugin.configSchema.properties.upstreamUrl.description).toBe(
-      "DeepSeek-compatible upstream API base URL. Can also be set with XIAOYI_BASE_URL.",
-    );
-    expect(plugin.configSchema.properties.port.description).toBe(
-      "Local proxy port. Can also be set with XIAOYI_ROUTER_PORT.",
-    );
-    expect(JSON.stringify(plugin)).not.toContain(legacyEnv("BASE_URL"));
-    expect(JSON.stringify(plugin)).not.toContain(legacyEnv("ROUTER_PORT"));
-    expect(JSON.stringify(plugin)).not.toContain(legacyEnv("ROUTER_HEADERS"));
+    expect(plugin.configSchema.description).toContain("Provide either config or configPath");
+    expect(plugin.configSchema.properties.config).toMatchObject({
+      type: "object",
+    });
+    expect(plugin.configSchema.properties.config.description).toContain("Inline RawConfig");
+    expect(plugin.configSchema.properties.configPath).toMatchObject({
+      type: "string",
+    });
+    expect(plugin.configSchema.properties.configPath.description).toContain("Path to a RawConfig JSON file");
+    expect(plugin.configSchema.properties.port.description).toContain("override config.proxy.port");
+    expect(plugin.configSchema.properties.upstreamUrl.description).toContain("override config.proxy.upstreamUrl");
+    expect(plugin.configSchema.properties.trace.description).toContain("override config.proxy.trace");
+    expect(pluginJson).not.toContain("XIAOYI_BASE_URL");
+    expect(pluginJson).not.toContain("XIAOYI_ROUTER_PORT");
+    expect(pluginJson).not.toContain("XIAOYI_ROUTER_HEADERS");
+    expect(pluginJson).not.toContain(legacyEnv("BASE_URL"));
+    expect(pluginJson).not.toContain(legacyEnv("ROUTER_PORT"));
+    expect(pluginJson).not.toContain(legacyEnv("ROUTER_HEADERS"));
+    expect(pluginJson).not.toContain("DEEPSEEK_");
   });
 });

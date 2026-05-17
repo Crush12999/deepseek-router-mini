@@ -2,23 +2,37 @@
   "id": "xiaoyi-router",
   "name": "Xiaoyi Router",
   "description": "Xiaoyi local routing proxy for OpenClaw",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "main": "./dist/index.js",
   "activation": {
     "onStartup": true
   },
   "configSchema": {
     "type": "object",
+    "description": "Provide either config or configPath. port, upstreamUrl, and trace override config.proxy.* at runtime.",
     "properties": {
+      "config": {
+        "type": "object",
+        "description": "Inline RawConfig passed directly to xiaoyi-router."
+      },
+      "configPath": {
+        "type": "string",
+        "description": "Path to a RawConfig JSON file for xiaoyi-router."
+      },
       "port": {
         "type": "number",
         "default": 8402,
-        "description": "Local proxy port. Can also be set with XIAOYI_ROUTER_PORT."
+        "description": "Runtime override config.proxy.port."
       },
       "upstreamUrl": {
         "type": "string",
         "default": "https://api.deepseek.com",
-        "description": "DeepSeek-compatible upstream API base URL. Can also be set with XIAOYI_BASE_URL."
+        "description": "Runtime override config.proxy.upstreamUrl."
+      },
+      "trace": {
+        "type": "string",
+        "enum": ["off", "summary", "debug"],
+        "description": "Runtime override config.proxy.trace."
       }
     }
   }
