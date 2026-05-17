@@ -2,7 +2,7 @@
  * 批量路由评测脚本 — 不调用模型，只测路由决策 + 耗时
  *
  * 用法:
- *   npx tsx scripts/batch-eval.ts <corpus.json> [--format jsonl|csv]
+ *   npx tsx scripts/batch-eval.ts <corpus.json> [--config config.json] [--format jsonl|csv]
  *
  * 支持两种 corpus.json 格式：
  * 1. 简化格式：
@@ -26,8 +26,13 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { route, DEFAULT_ROUTING_CONFIG, getModelPricing } from "../dist/index.js";
-import type { RouterOptions, ModelPricing } from "../dist/index.js";
+import { loadConfig } from "../src/config-loader.js";
+import { createModelRegistry } from "../src/model-registry.js";
+import type { ModelRegistry } from "../src/model-registry.js";
+import { resolvePublicModelCandidate } from "../src/public-model-resolver.js";
+import { route, DEFAULT_ROUTING_CONFIG } from "../src/router/index.js";
+import type { PublicModelConfig, Tier, TierEntry } from "../src/config-schema.js";
+import type { RouterOptions, ModelPricing, TierConfig } from "../src/router/index.js";
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 4096;
 const PROMPT_PREVIEW_LIMIT = 80;
@@ -74,8 +79,9 @@ interface EvalRow {
 type DisplayEvalRow = EvalRow;
 
 const args = process.argv.slice(2);
-const corpusArg = args.find((arg) => !arg.startsWith("--"));
+const corpusArg = parseCorpusPath(args);
 const corpusPath = resolve(corpusArg ?? "./corpus.json");
+const configPath = resolve(parseFlagValue(args, "--config") ?? "./config.example.json");
 const format = parseOutputFormat(args);
 const rawInput: unknown = JSON.parse(readFileSync(corpusPath, "utf-8"));
 
@@ -84,36 +90,32 @@ if (!Array.isArray(rawInput)) {
 }
 
 const corpus = rawInput.map((item, index) => normalizeItem(item, index));
-
-const modelPricing: Map<string, ModelPricing> = new Map();
-for (const modelId of ["deepseek-v4-flash", "deepseek-v4-pro"] as const) {
-  const pricing = getModelPricing(modelId);
-  modelPricing.set(modelId, {
-    inputPrice: pricing.inputPrice,
-    outputPrice: pricing.outputPrice,
-  });
-}
+const routerConfig = loadConfig({ kind: "file", path: configPath });
+const registry = createModelRegistry(routerConfig.models);
 
 const baseOptions: RouterOptions = {
-  config: DEFAULT_ROUTING_CONFIG,
-  modelPricing,
+  config: {
+    ...DEFAULT_ROUTING_CONFIG,
+    tiers: mapRawTierEntries(routerConfig.routing.tiers),
+    overrides: {
+      structuredOutputMinTier: routerConfig.routing.structuredOutputMinTier,
+      ambiguousDefaultTier: routerConfig.routing.ambiguousDefaultTier,
+    },
+  },
+  modelPricing: buildModelPricing(routerConfig.publicModels, registry),
 };
 
 const results: EvalRow[] = [];
 
 for (let i = 0; i < corpus.length; i++) {
   const item = corpus[i];
-  const options: RouterOptions = {
-    ...baseOptions,
-    hasTools: item.hasTools,
-  };
 
   const t0 = performance.now();
   const decision = route(
     item.prompt,
     item.systemPrompt,
     DEFAULT_MAX_OUTPUT_TOKENS,
-    options,
+    baseOptions,
   );
   const elapsedUs = Math.round((performance.now() - t0) * 1000);
   const parsedReasoning = parseReasoning(decision.reasoning);
@@ -121,7 +123,7 @@ for (let i = 0; i < corpus.length; i++) {
   results.push({
     index: i,
     promptPreview: buildPromptPreview(item.prompt),
-    model: decision.model,
+    model: decision.publicModel,
     tier: decision.tier,
     confidence: decision.confidence,
     score: decision.score ?? 0,
@@ -202,17 +204,82 @@ function roundNumber(value: number, digits: number): number {
 }
 
 function parseOutputFormat(argsList: string[]): OutputFormat {
-  const formatIndex = argsList.indexOf("--format");
-  if (formatIndex === -1) {
+  const value = parseFlagValue(argsList, "--format");
+  if (value === undefined) {
     return "jsonl";
   }
 
-  const value = argsList[formatIndex + 1];
   if (value === "jsonl" || value === "csv") {
     return value;
   }
 
   throw new Error("--format 仅支持 jsonl 或 csv");
+}
+
+function parseFlagValue(argsList: string[], flag: string): string | undefined {
+  const flagIndex = argsList.indexOf(flag);
+  if (flagIndex === -1) {
+    return undefined;
+  }
+
+  const value = argsList[flagIndex + 1];
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${flag} 需要一个参数`);
+  }
+  return value;
+}
+
+function parseCorpusPath(argsList: string[]): string | undefined {
+  for (let index = 0; index < argsList.length; index++) {
+    const arg = argsList[index];
+    if (arg.startsWith("--")) {
+      index++;
+      continue;
+    }
+    return arg;
+  }
+
+  return undefined;
+}
+
+function mapRawTierEntries(entries: Record<Tier, TierEntry>): Record<Tier, TierConfig> {
+  return Object.fromEntries(
+    Object.entries(entries).map(([tier, entry]) => [
+      tier,
+      {
+        primary: entry.publicModel,
+        fallback: entry.fallback ?? [],
+      },
+    ]),
+  ) as Record<Tier, TierConfig>;
+}
+
+function buildModelPricing(
+  publicModels: Record<string, PublicModelConfig>,
+  modelRegistry: ModelRegistry,
+): Map<string, ModelPricing> {
+  return new Map(
+    Object.entries(publicModels).map(([publicModelId, config]) => {
+      if (config.kind === "router") {
+        return [
+          publicModelId,
+          {
+            inputPrice: config.metadata.cost.input,
+            outputPrice: config.metadata.cost.output,
+          },
+        ];
+      }
+
+      const physicalModel = resolvePublicModelCandidate(publicModelId, publicModels, modelRegistry);
+      return [
+        publicModelId,
+        {
+          inputPrice: physicalModel.inputPrice,
+          outputPrice: physicalModel.outputPrice,
+        },
+      ];
+    }),
+  );
 }
 
 function buildOutputPath(inputPath: string, outputFormat: OutputFormat): string {

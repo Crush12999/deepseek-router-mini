@@ -12,5 +12,5 @@
     "outDir": "dist",
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "tsup.config.ts", "eslint.config.js"]
+  "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts", "tsup.config.ts", "eslint.config.js"]
 }

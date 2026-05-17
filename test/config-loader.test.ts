@@ -62,6 +62,18 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(/publicModels\.auto\.metadata.*required/i);
   });
 
+  it("rejects non-auto router public models", () => {
+    const raw = cloneConfig();
+    setPublicModel(raw, "manual-router", {
+      kind: "router",
+      metadata: cloneRouterMetadata(),
+    });
+
+    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
+      /publicModels\.manual-router.*only auto.*router/i,
+    );
+  });
+
   it("rejects auto router metadata with missing required fields", () => {
     const raw = cloneConfig();
     const metadata = cloneRouterMetadata();

@@ -30,7 +30,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src/ test/ --no-error-on-unmatched-pattern",
+    "lint": "eslint src/ test/ scripts/ --no-error-on-unmatched-pattern",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "bench": "npx tsx scripts/bench.ts"

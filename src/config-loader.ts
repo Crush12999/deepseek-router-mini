@@ -117,6 +117,9 @@ function validateConfig(config: RawConfig): void {
 
   for (const [publicModelId, publicModel] of Object.entries(config.publicModels)) {
     if (publicModel.kind === "router") {
+      if (publicModelId !== "auto") {
+        throw new Error(`publicModels.${publicModelId}: only auto may use kind: "router"`);
+      }
       assertPublicModelMetadata(publicModel.metadata, `publicModels.${publicModelId}`);
       continue;
     }
