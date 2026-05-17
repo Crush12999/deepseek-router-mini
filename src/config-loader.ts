@@ -13,17 +13,46 @@ function assertPublicModelMetadata(value: unknown, path: string): void {
   }
 
   const metadata = value as Record<string, unknown>;
-  const cost = metadata.cost as Record<string, unknown> | undefined;
+  const metadataPath = `${path}.metadata`;
 
   for (const key of ["name", "reasoning", "contextWindow", "maxTokens", "cost"]) {
     if (!hasOwn(metadata, key)) {
-      throw new Error(`${path}.metadata.${key} is required`);
+      throw new Error(`${metadataPath}.${key} is required`);
     }
   }
 
+  if (typeof metadata.name !== "string") {
+    throw new Error(`${metadataPath}.name must be a string`);
+  }
+
+  if (typeof metadata.reasoning !== "boolean") {
+    throw new Error(`${metadataPath}.reasoning must be a boolean`);
+  }
+
+  if (typeof metadata.contextWindow !== "number") {
+    throw new Error(`${metadataPath}.contextWindow must be a number`);
+  }
+
+  if (typeof metadata.maxTokens !== "number") {
+    throw new Error(`${metadataPath}.maxTokens must be a number`);
+  }
+
+  if (!metadata.cost || typeof metadata.cost !== "object") {
+    throw new Error(`${metadataPath}.cost must be an object`);
+  }
+
+  const cost = metadata.cost as Record<string, unknown>;
+  const costPath = `${metadataPath}.cost`;
+
   for (const key of ["input", "output", "cacheRead", "cacheWrite"]) {
-    if (!cost || !hasOwn(cost, key)) {
-      throw new Error(`${path}.metadata.cost.${key} is required`);
+    if (!hasOwn(cost, key)) {
+      throw new Error(`${costPath}.${key} is required`);
+    }
+  }
+
+  for (const key of ["input", "output", "cacheRead", "cacheWrite"] as const) {
+    if (typeof cost[key] !== "number") {
+      throw new Error(`${costPath}.${key} must be a number`);
     }
   }
 }

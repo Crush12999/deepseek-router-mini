@@ -31,6 +31,28 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(/auto.*router/i);
   });
 
+  it("rejects auto router without metadata", () => {
+    const raw = structuredClone(minimalConfig) as RawConfig;
+    raw.publicModels.auto = { kind: "router" } as RawConfig["publicModels"][string];
+
+    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(/publicModels\.auto\.metadata.*required/i);
+  });
+
+  it("rejects auto router with invalid metadata field types", () => {
+    const raw = structuredClone(minimalConfig) as RawConfig;
+    raw.publicModels.auto = {
+      kind: "router",
+      metadata: {
+        ...raw.publicModels.auto.metadata,
+        name: 123,
+      },
+    } as RawConfig["publicModels"][string];
+
+    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
+      /publicModels\.auto\.metadata\.name.*string/i
+    );
+  });
+
   it("should reject invalid candidate reference", () => {
     expect(() => loadConfig({ kind: "file", path: join(__dirname, "fixtures/invalid-config.json") })).toThrow(
       /unknown.*candidate/i
