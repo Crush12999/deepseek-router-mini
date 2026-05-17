@@ -75,7 +75,7 @@ export class SessionStore {
     if (!this.config.enabled || !sessionId) return undefined;
 
     const now = Date.now();
-    const existing = this.sessions.get(sessionId);
+    const existing = this.getSession(sessionId);
     const entry: SessionEntry = {
       sessionId,
       physicalModelId: input.physicalModelId,

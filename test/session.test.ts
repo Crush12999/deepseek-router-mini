@@ -205,6 +205,40 @@ describe("SessionStore", () => {
     }
   });
 
+  it("does not preserve usage from an expired session when setting the same id again", () => {
+    vi.useFakeTimers();
+    const store = new SessionStore({ ttlMs: 100, cleanupIntervalMs: 0 });
+
+    try {
+      vi.setSystemTime(1_000);
+      store.setSession("s1", {
+        physicalModelId: "deepseek-v4-flash",
+        routedPublicModel: "flash",
+        pinnedTier: "MEDIUM",
+      });
+      store.recordUsage("s1", { inputTokens: 10, outputTokens: 20, costEstimate: 0.5 });
+
+      vi.setSystemTime(1_101);
+      store.setSession("s1", {
+        physicalModelId: "deepseek-v4-pro",
+        routedPublicModel: "pro",
+        pinnedTier: "COMPLEX",
+      });
+
+      expect(store.getSession("s1")).toMatchObject({
+        physicalModelId: "deepseek-v4-pro",
+        routedPublicModel: "pro",
+        pinnedTier: "COMPLEX",
+        createdAt: 1_101,
+        inputTokens: 0,
+        outputTokens: 0,
+        costEstimate: 0,
+      });
+    } finally {
+      store.close();
+    }
+  });
+
   it("extends expiry when a session is touched", () => {
     vi.useFakeTimers();
     const store = new SessionStore({ ttlMs: 100, cleanupIntervalMs: 0 });
