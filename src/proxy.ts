@@ -32,7 +32,7 @@ import type { RouterOptions } from "./router/types.js";
 import type { SessionConfig } from "./session.js";
 import { deriveSessionId, SessionStore } from "./session.js";
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.2.0";
 
 const HOP_BY_HOP = new Set([
   "connection",

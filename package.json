@@ -1,6 +1,6 @@
 {
   "name": "xiaoyi-router",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "xiaoyi local routing proxy for DeepSeek V4 Flash and DeepSeek V4 Pro.",
   "type": "module",
   "main": "dist/index.js",

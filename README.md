@@ -2,15 +2,29 @@
 
 Xiaoyi Router is a small local routing proxy for OpenAI-compatible Chat Completions APIs.
 
-It supports three public model IDs:
+## Public Model Semantics
 
-- `auto`
+Xiaoyi Router only hard-codes one public model ID: `auto`.
+
+All other public model IDs are configuration-driven and come from
+`config.publicModels`. The sample `config.example.json` publishes:
+
 - `flash`
 - `pro`
 
-`auto` is routed locally with a Flash-first policy. Simple summaries, short text, ordinary Q&A, lightweight code edits, simple agentic work, and routine structured output default to `flash`. Complex reasoning and natural multi-file debugging or repair workflows default to `pro`. Longer context participates in routing signals, but it no longer forces Pro by threshold alone.
+These example aliases are not protocol constants. You can rename them, remove
+them, or add more aliases as long as `auto` remains the router entry and
+`routing.tiers.*.publicModel` points to alias entries.
 
-Explicit model requests take priority. Explicit `flash` requests stay on Flash; explicit `pro` requests stay on Pro.
+`auto` is routed locally with a Flash-first policy. Simple summaries, short
+text, ordinary Q&A, lightweight code edits, simple agentic work, and routine
+structured output default to `flash`. Complex reasoning and natural multi-file
+debugging or repair workflows default to `pro`. Longer context participates in
+routing signals, but it no longer forces Pro by threshold alone.
+
+Explicit requests to configured aliases take priority. In the sample config,
+explicit `flash` requests stay on Flash and explicit `pro` requests stay on
+Pro.
 
 ## Install
 
@@ -35,7 +49,8 @@ When loaded by OpenClaw, the router still writes or repairs
 
 - `baseUrl` points to the local router API, for example `http://127.0.0.1:8402/v1`.
 - `api` is `openai-completions`.
-- `models` matches the router registry: `auto`, `flash`, and `pro`.
+- `models` is generated from `config.publicModels`. The sample config exposes
+  `auto`, `flash`, and `pro`.
 
 Existing `apiKey`, `api_key`, `headers`, `request`, and unknown provider fields
 are preserved across Gateway restarts. The router only repairs its managed
@@ -87,20 +102,29 @@ GET /v1/models
 ```
 
 Unsupported model IDs return HTTP 400.
+Supported IDs are exactly the keys in `config.publicModels`, which must include
+`auto`.
 
 ## Response Headers
 
 The proxy adds routing headers:
 
 - `x-xiaoyi-router-model`
+- `x-xiaoyi-router-actual-model`
 - `x-xiaoyi-router-tier`
 - `x-xiaoyi-router-trace`
 - `x-xiaoyi-router-routed`
 - `x-xiaoyi-router-fallback`
 - `x-xiaoyi-router-upstream`
 
+`x-xiaoyi-router-model` is the routed public model ID. `x-xiaoyi-router-actual-model`
+is the physical upstream model ID used in the forwarded request.
+
 ## Phase 2 Candidate: Response Cache
 
-Response caching is intentionally not included in v0.1.
+Response caching is intentionally not included in v0.2.0.
 
-It is reserved as a future opt-in cost optimization for non-streaming, deterministic requests. A cache key must include at least `model`, `messages`, `tools`, `temperature`, `max_tokens`, and `baseUrl`, and must distinguish `deepseek-v4-flash` from `deepseek-v4-pro`.
+It is reserved as a future opt-in cost optimization for non-streaming,
+deterministic requests. A cache key must include at least `model`, `messages`,
+`tools`, `temperature`, `max_tokens`, and `baseUrl`, and it must distinguish
+between routed public models and the resolved physical upstream model.
