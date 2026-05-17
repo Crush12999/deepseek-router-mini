@@ -1,4 +1,5 @@
 import { performance } from "node:perf_hooks";
+import type { RawConfig } from "../src/config-schema.js";
 import { loadConfig } from "../src/config-loader.js";
 import { createModelRegistry } from "../src/model-registry.js";
 import { resolvePublicModel } from "../src/public-model-resolver.js";
@@ -9,7 +10,6 @@ const largeConfig = {
   proxy: { port: 8402, upstreamUrl: "https://api.test.com" },
   models: Array.from({ length: 100 }, (_, i) => ({
     id: `model-${i}`,
-    upstreamModel: `model-${i}`,
     name: `Model ${i}`,
     inputPrice: Math.random(),
     outputPrice: Math.random(),
@@ -19,7 +19,21 @@ const largeConfig = {
     toolCalling: true,
   })),
   publicModels: {
-    auto: { kind: "router" as const },
+    auto: {
+      kind: "router" as const,
+      metadata: {
+        name: "Auto",
+        reasoning: true,
+        contextWindow: 100000,
+        maxTokens: 4000,
+        cost: {
+          input: 0.1,
+          output: 0.2,
+          cacheRead: 0.025,
+          cacheWrite: 0.1,
+        },
+      },
+    },
     flash: { kind: "alias" as const, candidates: ["model-0", "model-1", "model-2"] },
   },
   routing: {
@@ -29,16 +43,14 @@ const largeConfig = {
       COMPLEX: { publicModel: "flash" },
       REASONING: { publicModel: "flash" },
     },
-    tierBoundaries: { simpleMedium: 0.0, mediumComplex: 0.3, complexReasoning: 0.5 },
-    confidenceThreshold: 0.7,
     structuredOutputMinTier: "MEDIUM" as const,
     ambiguousDefaultTier: "MEDIUM" as const,
   },
-};
+} satisfies RawConfig;
 
 // Benchmark 1: 加载配置
 const start1 = performance.now();
-const config = loadConfig({ kind: "inline", config: largeConfig as any });
+const config = loadConfig({ kind: "inline", config: largeConfig });
 const end1 = performance.now();
 console.log(`Load 100-model config: ${(end1 - start1).toFixed(2)}ms`);
 

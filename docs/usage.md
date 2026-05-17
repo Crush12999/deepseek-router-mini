@@ -12,7 +12,6 @@ Xiaoyi Router 在 v0.2.0 起完全采用配置驱动的模型合同。
 - `config.example.json` 里的 `flash` 和 `pro` 只是示例 alias，不是硬编码
   协议常量。
 - `models[].id` 直接就是实际上游请求使用的 model 名。
-- v0.2.0 配置格式不包含 `upstreamModel` 字段。
 
 因此，请把“公开模型”与“真实上游模型”视为两层概念：
 
@@ -258,8 +257,7 @@ x-xiaoyi-router-fallback: false
 
 ## 6. OpenClaw provider 模型注入
 
-OpenClaw provider 的 `models` 目录不再来自静态常量
-`XIAOYI_OPENCLAW_MODELS`。当前实现会根据：
+OpenClaw provider 的 `models` 目录根据运行时配置生成：
 
 - `config.publicModels`
 - `config.models`
