@@ -17,6 +17,19 @@ describe("package metadata", () => {
     expect(JSON.stringify(pkg)).not.toContain(legacyPackageName);
   });
 
+  it("keeps the package entrypoint focused on the built dist surface", () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+
+    expect(pkg.main).toBe("dist/index.js");
+    expect(pkg.types).toBe("dist/index.d.ts");
+    expect(pkg.exports).toEqual({
+      ".": {
+        import: "./dist/index.js",
+        types: "./dist/index.d.ts",
+      },
+    });
+  });
+
   it("declares xiaoyi OpenClaw plugin metadata", () => {
     const plugin = JSON.parse(fs.readFileSync(path.join(root, "openclaw.plugin.json"), "utf8"));
     expect(plugin).toMatchObject({

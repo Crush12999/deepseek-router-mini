@@ -14,7 +14,6 @@ describe("config", () => {
       apiKey: undefined,
       headers: {},
       port: DEFAULT_PORT,
-      defaultModel: "auto",
       sessionPinning: true,
       traceMode: "off",
     });
@@ -35,7 +34,6 @@ describe("config", () => {
       apiKey: "my-key",
       headers: { "X-Custom": "yes" },
       port: 7777,
-      defaultModel: "deepseek-v4-flash",
       sessionPinning: false,
       traceMode: "summary",
     });
@@ -44,7 +42,6 @@ describe("config", () => {
       apiKey: "my-key",
       headers: { "X-Custom": "yes" },
       port: 7777,
-      defaultModel: "deepseek-v4-flash",
       sessionPinning: false,
       traceMode: "summary",
     });

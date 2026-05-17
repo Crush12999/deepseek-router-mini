@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { MODEL_ROLES } from "../src/models.js";
 import {
   buildTraceSummary,
   emitRouteTrace,
@@ -30,7 +29,7 @@ describe("router tracing helper", () => {
         profile: "agentic",
         tier: "MEDIUM",
         routedModel: "custom-fast",
-        actualModel: MODEL_ROLES.light,
+        actualModel: "deepseek-v4-flash",
         reason: "first-pass",
         routed: true,
         explicit: false,
@@ -43,8 +42,8 @@ describe("router tracing helper", () => {
         requestedModel: "auto",
         profile: "default",
         tier: "MEDIUM",
-        routedModel: MODEL_ROLES.light,
-        actualModel: MODEL_ROLES.light,
+        routedModel: "deepseek-v4-flash",
+        actualModel: "deepseek-v4-flash",
         reason: "first-pass",
         routed: true,
         explicit: false,
@@ -56,11 +55,11 @@ describe("router tracing helper", () => {
   it("uses explicit as the request code for non-routed traces", () => {
     expect(
       buildTraceSummary({
-        requestedModel: MODEL_ROLES.strong,
-        routedModel: MODEL_ROLES.strong,
+        requestedModel: "deepseek-v4-pro",
+        routedModel: "deepseek-v4-pro",
         profile: "default",
         tier: "COMPLEX",
-        actualModel: MODEL_ROLES.strong,
+        actualModel: "deepseek-v4-pro",
         reason: "user",
         routed: false,
         explicit: true,
@@ -72,11 +71,11 @@ describe("router tracing helper", () => {
   it("uses explicit as the request code when explicit is true even if routed is true", () => {
     expect(
       buildTraceSummary({
-        requestedModel: MODEL_ROLES.strong,
-        routedModel: MODEL_ROLES.strong,
+        requestedModel: "deepseek-v4-pro",
+        routedModel: "deepseek-v4-pro",
         profile: "default",
         tier: "COMPLEX",
-        actualModel: MODEL_ROLES.strong,
+        actualModel: "deepseek-v4-pro",
         reason: "user",
         routed: true,
         explicit: true,
@@ -109,8 +108,8 @@ describe("router tracing helper", () => {
       {
         trace: "auto:medium:deepseek-v4-flash:first-pass",
         requestedModel: "auto",
-        routedModel: MODEL_ROLES.light,
-        actualModel: MODEL_ROLES.light,
+        routedModel: "deepseek-v4-flash",
+        actualModel: "deepseek-v4-flash",
         tier: "MEDIUM",
         profile: "default",
         reason: "first-pass",
@@ -134,15 +133,15 @@ describe("router tracing helper", () => {
     const writes: string[] = [];
     const reasons: TraceReason[] = ["first-pass", "user", "reasoning", "error"];
     const attempts: TraceAttempt[] = [
-      { model: MODEL_ROLES.strong, status: "error", error: "upstream_http_429" },
-      { model: MODEL_ROLES.strong, status: "error", error: "network_error" },
-      { model: MODEL_ROLES.strong, status: "success" },
+      { model: "deepseek-v4-pro", status: "error", error: "upstream_http_429" },
+      { model: "deepseek-v4-pro", status: "error", error: "network_error" },
+      { model: "deepseek-v4-pro", status: "success" },
     ];
     const detail: RouteTraceLog = {
       trace: "auto:complex:deepseek-v4-pro:reasoning",
       requestedModel: "auto",
-      routedModel: MODEL_ROLES.strong,
-      actualModel: MODEL_ROLES.strong,
+      routedModel: "deepseek-v4-pro",
+      actualModel: "deepseek-v4-pro",
       tier: "COMPLEX",
       profile: "default",
       reason: "reasoning",
@@ -164,8 +163,8 @@ describe("router tracing helper", () => {
     const logged = JSON.parse(writes[0]!) as RouteTraceLog;
     expect(logged).toMatchObject({
       trace: "auto:complex:deepseek-v4-pro:reasoning",
-      routedModel: MODEL_ROLES.strong,
-      actualModel: MODEL_ROLES.strong,
+      routedModel: "deepseek-v4-pro",
+      actualModel: "deepseek-v4-pro",
       attempts,
       promptPreview: "Summarize Redis briefly.",
     });
@@ -180,8 +179,8 @@ describe("router tracing helper", () => {
       {
         trace: "auto:medium:deepseek-v4-flash:first-pass",
         requestedModel: "auto",
-        routedModel: MODEL_ROLES.light,
-        actualModel: MODEL_ROLES.light,
+        routedModel: "deepseek-v4-flash",
+        actualModel: "deepseek-v4-flash",
         tier: "MEDIUM",
         profile: "default",
         reason: "first-pass",
@@ -210,8 +209,8 @@ describe("router tracing helper", () => {
     const detail: RouteTraceLog = {
       trace: "auto:medium:deepseek-v4-flash:first-pass",
       requestedModel: "auto",
-      routedModel: MODEL_ROLES.light,
-      actualModel: MODEL_ROLES.light,
+      routedModel: "deepseek-v4-flash",
+      actualModel: "deepseek-v4-flash",
       tier: "MEDIUM",
       profile: "default",
       reason: "first-pass",
@@ -248,8 +247,8 @@ describe("router tracing helper", () => {
     const detail: RouteTraceLog = {
       trace: "auto:medium:deepseek-v4-flash:first-pass",
       requestedModel: "auto",
-      routedModel: MODEL_ROLES.light,
-      actualModel: MODEL_ROLES.light,
+      routedModel: "deepseek-v4-flash",
+      actualModel: "deepseek-v4-flash",
       tier: "MEDIUM",
       profile: "default",
       reason: "first-pass",

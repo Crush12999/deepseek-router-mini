@@ -1,4 +1,3 @@
-import type { SupportedModelId } from "./models.js";
 import { normalizeTraceMode } from "./router/index.js";
 import type { TraceLogger, TraceMode } from "./router/index.js";
 
@@ -10,7 +9,6 @@ export type RouterConfig = {
   apiKey?: string;
   headers: Record<string, string>;
   port: number;
-  defaultModel: SupportedModelId;
   sessionPinning: boolean;
   traceMode: TraceMode;
   traceLogger?: TraceLogger;
@@ -31,7 +29,6 @@ export function resolveConfig(input: RouterConfigInput = {}): RouterConfig {
     apiKey: input.apiKey,
     headers: input.headers ?? {},
     port: input.port ?? DEFAULT_PORT,
-    defaultModel: input.defaultModel ?? "auto",
     sessionPinning: input.sessionPinning ?? true,
     traceMode: normalizeTraceMode(input.traceMode),
     traceLogger: input.traceLogger,

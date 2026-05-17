@@ -18,6 +18,9 @@ const pluginMetadata = JSON.parse(
   name: string;
   description: string;
 };
+const minimalConfig = JSON.parse(
+  fs.readFileSync(path.join(root, "test/fixtures/minimal-config.json"), "utf8"),
+);
 const legacyPrefix = ["DEEPSEEK"].join("");
 const legacyExport = (name: string) => [legacyPrefix, name].join("_");
 
@@ -33,54 +36,32 @@ if (mod.default.description !== ${JSON.stringify(pluginMetadata.description)}) {
 if (mod.default.version !== mod.VERSION) throw new Error("plugin version does not match VERSION");
 if (typeof mod.default.register !== "function") throw new Error("missing plugin register function");
 if (typeof mod.startProxy !== "function") throw new Error("missing startProxy export");
-if (!Array.isArray(mod.XIAOYI_OPENCLAW_MODELS) || mod.XIAOYI_OPENCLAW_MODELS.length !== 3) {
-  throw new Error("missing Xiaoyi OpenClaw model exports");
-}
-if (!Array.isArray(mod.XIAOYI_MODELS) || mod.XIAOYI_MODELS.length !== 3) {
-  throw new Error("missing Xiaoyi model exports");
-}
-if (mod.MODEL_ROLES.light !== "deepseek-v4-flash") throw new Error("missing MODEL_ROLES export");
-if (mod.getDefaultModelForRole("agentic") !== "deepseek-v4-pro") {
-  throw new Error("missing getDefaultModelForRole export");
-}
-if (mod.getModel("deepseek-v4-flash")?.id !== "deepseek-v4-flash") {
-  throw new Error("missing getModel export");
-}
-if (mod.getModel("not-a-model") !== undefined) throw new Error("getModel should reject unknown models");
-if (!mod.isRealModel("deepseek-v4-pro")) throw new Error("missing isRealModel export");
-if (mod.isRealModel("auto")) throw new Error("auto must not be treated as a real model");
-if (!mod.supportsToolCalling("deepseek-v4-flash")) {
-  throw new Error("missing supportsToolCalling export");
-}
-if (mod.supportsVision("deepseek-v4-flash")) throw new Error("Xiaoyi models should not support vision");
-if (mod.getModelContextWindow("deepseek-v4-pro") !== 1000000) {
-  throw new Error("missing getModelContextWindow export");
-}
-const pricing = mod.getModelPricing("deepseek-v4-pro");
-if (pricing.inputPrice !== 0.56 || pricing.outputPrice !== 1.68) {
-  throw new Error("missing getModelPricing export");
-}
+if (mod.XIAOYI_OPENCLAW_MODELS !== undefined) throw new Error("legacy XIAOYI_OPENCLAW_MODELS export should be removed");
+if (mod.XIAOYI_MODELS !== undefined) throw new Error("legacy XIAOYI_MODELS export should be removed");
+if (mod.MODEL_ROLES !== undefined) throw new Error("legacy MODEL_ROLES export should be removed");
+if (mod.getDefaultModelForRole !== undefined) throw new Error("legacy getDefaultModelForRole export should be removed");
+if (mod.getModel !== undefined) throw new Error("legacy getModel export should be removed");
+if (mod.isRealModel !== undefined) throw new Error("legacy isRealModel export should be removed");
+if (mod.supportsToolCalling !== undefined) throw new Error("legacy supportsToolCalling export should be removed");
+if (mod.supportsVision !== undefined) throw new Error("legacy supportsVision export should be removed");
+if (mod.getModelContextWindow !== undefined) throw new Error("legacy getModelContextWindow export should be removed");
+if (mod.getModelPricing !== undefined) throw new Error("legacy getModelPricing export should be removed");
+if (typeof mod.loadConfig !== "function") throw new Error("missing loadConfig export");
+if (typeof mod.createModelRegistry !== "function") throw new Error("missing createModelRegistry export");
+if (typeof mod.resolvePublicModel !== "function") throw new Error("missing resolvePublicModel export");
+if (typeof mod.generateOpenClawModels !== "function") throw new Error("missing generateOpenClawModels export");
 if (typeof mod.route !== "function") throw new Error("missing route export");
 if (mod.DEFAULT_ROUTING_CONFIG?.overrides?.ambiguousDefaultTier !== "MEDIUM") {
   throw new Error("missing DEFAULT_ROUTING_CONFIG export");
 }
 if (typeof mod.getFallbackChain !== "function") throw new Error("missing getFallbackChain export");
-if (typeof mod.getFallbackChainFiltered !== "function") {
-  throw new Error("missing getFallbackChainFiltered export");
-}
-if (typeof mod.filterByToolCalling !== "function") {
-  throw new Error("missing filterByToolCalling export");
-}
-if (typeof mod.filterByVision !== "function") throw new Error("missing filterByVision export");
 if (typeof mod.filterByExcludeList !== "function") {
   throw new Error("missing filterByExcludeList export");
 }
 if (typeof mod.calculateModelCost !== "function") {
   throw new Error("missing calculateModelCost export");
 }
-if (typeof mod.createXiaoyiProvider !== "function") {
-  throw new Error("missing createXiaoyiProvider export");
-}
+if (mod.createXiaoyiProvider !== undefined) throw new Error("legacy createXiaoyiProvider export should be removed");
 if (mod.XIAOYI_PROVIDER_ID !== "xiaoyiprovider") {
   throw new Error("missing XIAOYI_PROVIDER_ID export");
 }
@@ -111,6 +92,7 @@ const providers = [];
 const config = {};
 const result = mod.default.register({
   config,
+  pluginConfig: { config: ${JSON.stringify(minimalConfig)} },
   registrationMode: "discovery",
   registerProvider(provider) {
     providers.push(provider);
@@ -133,6 +115,7 @@ if (config?.models?.providers?.xiaoyiprovider?.api !== "openai-completions") {
 const secondConfig = {};
 const secondResult = mod.default.register({
   config: secondConfig,
+  pluginConfig: { config: ${JSON.stringify(minimalConfig)} },
   registrationMode: "discovery",
   registerProvider(provider) {
     throw new Error("registerProvider should not be called in discovery mode");
@@ -153,7 +136,12 @@ if (secondConfig?.models?.providers?.xiaoyiprovider?.api !== "openai-completions
 console.log(JSON.stringify({
   id: mod.default.id,
   version: mod.default.version,
-  modelCount: mod.XIAOYI_OPENCLAW_MODELS.length
+  exportedFunctions: [
+    typeof mod.loadConfig,
+    typeof mod.createModelRegistry,
+    typeof mod.resolvePublicModel,
+    typeof mod.generateOpenClawModels,
+  ]
 }));
 `;
 
@@ -164,12 +152,16 @@ describe("built package entrypoint", () => {
       await execFileAsync("npm", ["run", "build"]);
 
       const { stdout } = await execFileAsync("node", ["--input-type=module", "--eval", smokeScript]);
-      const result = JSON.parse(stdout) as { id: string; version: string; modelCount: number };
+      const result = JSON.parse(stdout) as {
+        id: string;
+        version: string;
+        exportedFunctions: string[];
+      };
 
       expect(result).toMatchObject({
         id: pluginMetadata.id,
         version: expect.any(String),
-        modelCount: 3,
+        exportedFunctions: ["function", "function", "function", "function"],
       });
     },
     30_000,

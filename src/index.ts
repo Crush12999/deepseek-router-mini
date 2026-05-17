@@ -6,32 +6,25 @@ export { VERSION } from "./proxy.js";
 
 export { resolveConfig } from "./config.js";
 export type { RouterConfig, RouterConfigInput } from "./config.js";
-export {
-  MODEL_ROLES,
-  XIAOYI_MODELS,
-  getDefaultModelForRole,
-  getModel,
-  getModelContextWindow,
-  getModelPricing,
-  isRealModel,
-  supportsToolCalling,
-  supportsVision,
-} from "./models.js";
+export { loadConfig } from "./config-loader.js";
 export type {
-  ModelRole,
-  RealModelId,
-  SupportedModelId,
-  XiaoyiModel,
-} from "./models.js";
+  ConfigSource,
+  PhysicalModel,
+  PublicModelConfig,
+  PublicModelMetadata,
+  RawConfig,
+  Tier,
+  TierEntry,
+} from "./config-schema.js";
+export { createModelRegistry } from "./model-registry.js";
+export type { ModelRegistry } from "./model-registry.js";
+export { resolvePublicModel, resolvePublicModelCandidate } from "./public-model-resolver.js";
 export {
   DEFAULT_ROUTING_CONFIG,
   RulesStrategy,
   calculateModelCost,
   filterByExcludeList,
-  filterByToolCalling,
-  filterByVision,
   getFallbackChain,
-  getFallbackChainFiltered,
   getStrategy,
   buildTraceSummary,
   emitRouteTrace,
@@ -50,7 +43,6 @@ export type {
   RoutingDecision,
   ScoringConfig,
   ScoringResult,
-  Tier,
   TierConfig,
   RouteTraceLog,
   TraceAttempt,
@@ -71,14 +63,13 @@ export type { SessionConfig, SessionEntry, SessionStats } from "./session.js";
 export { startProxy } from "./proxy.js";
 export type { ProxyHandle, ProxyOptions } from "./proxy.js";
 export {
-  XIAOYI_OPENCLAW_MODELS,
   XIAOYI_PROVIDER_API,
   XIAOYI_PROVIDER_DESCRIPTION,
   XIAOYI_PROVIDER_ID,
   XIAOYI_PROVIDER_NAME,
-  createXiaoyiProvider,
+  generateOpenClawModels,
 } from "./provider.js";
-export type { OpenClawModelDefinition, XiaoyiProvider } from "./provider.js";
+export type { OpenClawModelDefinition } from "./provider.js";
 export {
   injectXiaoyiModelsConfig,
   localProviderBaseUrl,

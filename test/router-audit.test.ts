@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import type { RealModelId } from "../src/models.js";
-import { MODEL_ROLES } from "../src/models.js";
 import {
   DEFAULT_ROUTING_CONFIG,
   buildTraceSummary,
@@ -79,8 +77,8 @@ function expectPublicModel(
   return decision.publicModel;
 }
 
-function toActualModel(publicModel: "flash" | "pro"): RealModelId {
-  return publicModel === "flash" ? MODEL_ROLES.light : MODEL_ROLES.strong;
+function toActualModel(publicModel: "flash" | "pro"): "deepseek-v4-flash" | "deepseek-v4-pro" {
+  return publicModel === "flash" ? "deepseek-v4-flash" : "deepseek-v4-pro";
 }
 
 function audit(sample: AuditSample): AuditResult {
@@ -103,9 +101,10 @@ function audit(sample: AuditSample): AuditResult {
     score: decision.score,
     trace: buildTraceSummary({
       requestedModel: "auto",
+      routedModel: actualModel,
       actualModel,
       tier: decision.tier,
-      profile: decision.profile,
+      profile: decision.profile ?? "default",
       reason,
       routed: true,
       explicit: false,
