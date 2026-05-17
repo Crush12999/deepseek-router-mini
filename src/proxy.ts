@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { RouterConfig, RouterConfigInput } from "./config.js";
 import { resolveConfig } from "./config.js";
 import type { PublicModelConfig, RawConfig } from "./config-schema.js";
+import type { TierEntry } from "./config-schema.js";
 import { createModelRegistry } from "./model-registry.js";
 import type { ModelRegistry } from "./model-registry.js";
 import { resolvePublicModel } from "./public-model-resolver.js";
@@ -21,13 +22,14 @@ import type {
   ModelPricing,
   RouteTraceLog,
   RoutingConfig,
+  RoutingDecision,
   TraceAttempt,
   TraceReason,
   TraceSessionAction,
   Tier,
   TierConfig,
 } from "./router/index.js";
-import type { RouterOptions, RoutingDecision } from "./router/types.js";
+import type { RouterOptions } from "./router/types.js";
 import { deriveSessionId, SessionStore } from "./session.js";
 
 export const VERSION = "0.1.0";
@@ -39,17 +41,9 @@ const PROXY_TIERS: Record<Tier, TierConfig> = {
   REASONING: { primary: MODEL_ROLES.strong, fallback: [] },
 };
 
-const PROXY_AGENTIC_TIERS: Record<Tier, TierConfig> = {
-  SIMPLE: { primary: MODEL_ROLES.light, fallback: [] },
-  MEDIUM: { primary: MODEL_ROLES.light, fallback: [MODEL_ROLES.strong] },
-  COMPLEX: { primary: MODEL_ROLES.strong, fallback: [] },
-  REASONING: { primary: MODEL_ROLES.strong, fallback: [] },
-};
-
 const PROXY_ROUTING_CONFIG: RoutingConfig = {
   ...DEFAULT_ROUTING_CONFIG,
   tiers: PROXY_TIERS,
-  agenticTiers: PROXY_AGENTIC_TIERS,
 };
 
 const HOP_BY_HOP = new Set([
@@ -288,7 +282,7 @@ type SelectedModel = {
   sessionAction: TraceSessionAction;
 };
 
-function buildModelPricing(): Map<string, ModelPricing> {
+function buildModelPricingForLegacyDefaults(): Map<string, ModelPricing> {
   return new Map(
     [MODEL_ROLES.light, MODEL_ROLES.strong].map((modelId) => [
       modelId,
@@ -315,11 +309,64 @@ function getMaxOutputTokens(body: Record<string, unknown>): number {
   return 1024;
 }
 
-function buildRouterOptions(hasTools: boolean): RouterOptions {
+function buildRouterOptions(
+  hasTools: boolean,
+  options?: { routingConfig?: RoutingConfig; modelPricing?: Map<string, ModelPricing> },
+): RouterOptions {
+  void hasTools;
   return {
-    config: PROXY_ROUTING_CONFIG,
-    modelPricing: buildModelPricing(),
-    hasTools,
+    config: options?.routingConfig ?? PROXY_ROUTING_CONFIG,
+    modelPricing: options?.modelPricing ?? buildModelPricingForLegacyDefaults(),
+  };
+}
+
+function buildRoutingConfigFromRawConfig(rawConfig: RawConfig): RoutingConfig {
+  return {
+    ...DEFAULT_ROUTING_CONFIG,
+    tiers: mapRawTierEntries(rawConfig.routing.tiers),
+    overrides: {
+      structuredOutputMinTier: rawConfig.routing.structuredOutputMinTier ?? "MEDIUM",
+      ambiguousDefaultTier: rawConfig.routing.ambiguousDefaultTier ?? "MEDIUM",
+    },
+  };
+}
+
+function mapRawTierEntries(entries: Record<Tier, TierEntry>): Record<Tier, TierConfig> {
+  return Object.fromEntries(
+    Object.entries(entries).map(([tier, entry]) => [
+      tier,
+      {
+        primary: entry.publicModel,
+        fallback: entry.fallback ?? [],
+      },
+    ]),
+  ) as Record<Tier, TierConfig>;
+}
+
+function buildModelPricingFromPublicModels(
+  publicModels: Record<string, PublicModelConfig>,
+  registry: ModelRegistry,
+): Map<string, ModelPricing> {
+  return new Map(
+    Object.entries(publicModels)
+      .filter(([, config]) => config.kind === "alias")
+      .map(([publicModelId, config]) => [
+        publicModelId,
+        getPublicModelPricing(config, registry),
+      ]),
+  );
+}
+
+function getPublicModelPricing(config: Extract<PublicModelConfig, { kind: "alias" }>, registry: ModelRegistry): ModelPricing {
+  const physicalModelId = config.candidates[0];
+  const model = physicalModelId ? registry.get(physicalModelId) : undefined;
+  if (!model) {
+    throw new Error(`Physical model not found in registry: ${String(physicalModelId)}`);
+  }
+
+  return {
+    inputPrice: model.inputPrice,
+    outputPrice: model.outputPrice,
   };
 }
 
@@ -420,6 +467,7 @@ function chooseModel(
   cfg: RouterConfig,
   publicModels: Record<string, PublicModelConfig>,
   registry: ModelRegistry,
+  routerOptions?: RouterOptions,
 ): SelectedModel {
   const prompt = extractPrompt(body.messages ?? []);
   const sessionId = deriveSessionId(headers, body.messages ?? []);
@@ -447,18 +495,18 @@ function chooseModel(
 
   const existing = cfg.sessionPinning ? sessionStore.getSession(sessionId) : undefined;
 
-  if (existing && isReusableSessionPinModel(existing.model)) {
+  if (existing && isReusableSessionPinModel(toRealModelId(existing.physicalModelId))) {
     sessionStore.touchSession(sessionId);
     return {
-      model: existing.model,
-      routedModel: existing.model,
-      actualModel: existing.model,
-      tier: existing.tier,
+      model: toRealModelId(existing.physicalModelId),
+      routedModel: existing.routedPublicModel,
+      actualModel: existing.physicalModelId,
+      tier: existing.pinnedTier,
       routeText: prompt.routeText,
       requestedModel,
       sessionId,
       routed: true,
-      userExplicit: existing.userExplicit,
+      userExplicit: false,
       explicit: false,
       sessionAction: "reuse",
     };
@@ -468,10 +516,11 @@ function chooseModel(
     prompt.routeText,
     prompt.system,
     getMaxOutputTokens(body as Record<string, unknown>),
-    buildRouterOptions(hasTools),
+    routerOptions ?? buildRouterOptions(hasTools),
   );
   const routedModel = decision.publicModel;
-  const model = toRealModelId(routedModel);
+  const physicalModelId = resolvePublicModel(routedModel, publicModels, registry);
+  const model = toRealModelId(physicalModelId);
 
   return {
     model,
@@ -500,6 +549,7 @@ async function proxyChat(
   sessionStore: SessionStore,
   publicModels: Record<string, PublicModelConfig>,
   registry: ModelRegistry,
+  routerOptions?: RouterOptions,
 ): Promise<void> {
   // Read body
   const rawBody = await readBody(req);
@@ -547,6 +597,7 @@ async function proxyChat(
     cfg,
     publicModels,
     registry,
+    routerOptions,
   );
 
   // selected.model is already the resolved physical model ID
@@ -602,9 +653,11 @@ async function proxyChat(
   if (attempt.ok && selected.sessionId && !selected.explicit && isReusableSessionPinModel(selected.model)) {
     sessionStore.setSession(
       selected.sessionId,
-      selected.model,
-      finalTier,
-      selected.userExplicit,
+      {
+        physicalModelId: selected.actualModel,
+        routedPublicModel: selected.routedModel,
+        pinnedTier: finalTier,
+      },
     );
     if (sessionAction === "none") {
       sessionAction = "set";
@@ -639,10 +692,15 @@ export async function startProxy(options: ProxyOptions = {}): Promise<ProxyHandl
   // If config is provided, use it; otherwise fall back to legacy hardcoded models
   let publicModels: Record<string, PublicModelConfig>;
   let registry: ModelRegistry;
+  let routerOptions: RouterOptions | undefined;
 
   if (options.config) {
     publicModels = options.config.publicModels;
     registry = createModelRegistry(options.config.models);
+    routerOptions = buildRouterOptions(false, {
+      routingConfig: buildRoutingConfigFromRawConfig(options.config),
+      modelPricing: buildModelPricingFromPublicModels(options.config.publicModels, registry),
+    });
   } else {
     // Legacy fallback: create a minimal config from hardcoded MODEL_ROLES
     publicModels = {
@@ -688,7 +746,7 @@ export async function startProxy(options: ProxyOptions = {}): Promise<ProxyHandl
         }
 
         if (req.method === "POST" && url === "/v1/chat/completions") {
-          await proxyChat(req, res, cfg, sessionStore, publicModels, registry);
+          await proxyChat(req, res, cfg, sessionStore, publicModels, registry, routerOptions);
           return;
         }
 

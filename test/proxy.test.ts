@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { RawConfig } from "../src/config-schema.js";
 import { startProxy } from "../src/proxy.js";
 import { SessionStore } from "../src/session.js";
 
@@ -109,6 +110,78 @@ async function withCleanAuthEnv<T>(callback: () => Promise<T>): Promise<T> {
     if (originalHeaders === undefined) delete process.env.XIAOYI_ROUTER_HEADERS;
     else process.env.XIAOYI_ROUTER_HEADERS = originalHeaders;
   }
+}
+
+function createAliasConfig(): RawConfig {
+  return {
+    version: 1,
+    proxy: {
+      port: 8402,
+      upstreamUrl: "https://api.deepseek.com",
+      trace: "debug",
+    },
+    models: [
+      {
+        id: "deepseek-v4-flash",
+        upstreamModel: "deepseek-v4-flash",
+        name: "DeepSeek V4 Flash",
+        inputPrice: 0.28,
+        outputPrice: 0.42,
+        contextWindow: 1_000_000,
+        maxOutput: 64_000,
+        reasoning: true,
+        toolCalling: true,
+      },
+      {
+        id: "deepseek-v4-pro",
+        upstreamModel: "deepseek-v4-pro",
+        name: "DeepSeek V4 Pro",
+        inputPrice: 0.56,
+        outputPrice: 1.68,
+        contextWindow: 1_000_000,
+        maxOutput: 64_000,
+        reasoning: true,
+        toolCalling: true,
+      },
+    ],
+    publicModels: {
+      auto: {
+        kind: "router",
+        metadata: {
+          name: "Xiaoyi Auto",
+          reasoning: true,
+          contextWindow: 1_000_000,
+          maxTokens: 64_000,
+          cost: {
+            input: 0.28,
+            output: 0.42,
+            cacheRead: 0.07,
+            cacheWrite: 0.28,
+          },
+        },
+      },
+      flash: {
+        kind: "alias",
+        candidates: ["deepseek-v4-flash"],
+        selection: "first",
+      },
+      pro: {
+        kind: "alias",
+        candidates: ["deepseek-v4-pro"],
+        selection: "first",
+      },
+    },
+    routing: {
+      tiers: {
+        SIMPLE: { publicModel: "flash" },
+        MEDIUM: { publicModel: "flash", fallback: ["pro"] },
+        COMPLEX: { publicModel: "pro" },
+        REASONING: { publicModel: "pro" },
+      },
+      structuredOutputMinTier: "MEDIUM",
+      ambiguousDefaultTier: "MEDIUM",
+    },
+  };
 }
 
 afterEach(async () => {
@@ -439,6 +512,60 @@ describe("proxy", () => {
       actualModel: "deepseek-v4-pro",
       sessionAction: "set",
     });
+  });
+
+  it("preserves public routed model and physical model when reusing a pinned session", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const logSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    const proxy = await startProxy({
+      baseUrl: upstream.baseUrl,
+      port: 0,
+      traceMode: "debug",
+      config: createAliasConfig(),
+    });
+    handles.push(proxy);
+    const headers = { "content-type": "application/json", "x-session-id": "alias-reuse-pro" };
+
+    const first = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: "auto",
+        messages: [
+          { role: "user", content: "Prove this theorem step by step and derive the result formally." },
+        ],
+      }),
+    });
+
+    expect(first.status).toBe(200);
+
+    const second = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: "auto",
+        messages: [{ role: "user", content: "Translate hello" }],
+      }),
+    });
+
+    expect(second.status).toBe(200);
+    expect(second.headers.get("x-xiaoyi-router-trace")).toContain(":pro:");
+    const firstLogged = JSON.parse(String(logSpy.mock.calls[0]?.[0])) as Record<string, unknown>;
+    const secondLogged = JSON.parse(String(logSpy.mock.calls[1]?.[0])) as Record<string, unknown>;
+    expect(firstLogged).toMatchObject({
+      routedModel: "pro",
+      actualModel: "deepseek-v4-pro",
+      sessionAction: "set",
+    });
+    expect(secondLogged).toMatchObject({
+      requestedModel: "auto",
+      routedModel: "pro",
+      actualModel: "deepseek-v4-pro",
+      sessionAction: "reuse",
+    });
+    expect(upstream.requests).toHaveLength(2);
+    expect(requestedModels(upstream.requests)).toEqual(["deepseek-v4-pro", "deepseek-v4-pro"]);
   });
 
   it("does not fabricate routing decision fields for explicit debug traces", async () => {

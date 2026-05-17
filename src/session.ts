@@ -1,13 +1,12 @@
 import { createHash } from "node:crypto";
 
-import type { RealModelId } from "./models.js";
 import type { Tier } from "./router/types.js";
 
 export type SessionEntry = {
   sessionId: string;
-  model: RealModelId;
-  tier: Tier;
-  userExplicit: boolean;
+  physicalModelId: string;
+  routedPublicModel: string;
+  pinnedTier: Tier;
   createdAt: number;
   updatedAt: number;
   expiresAt: number;
@@ -31,7 +30,6 @@ export const DEFAULT_SESSION_CONFIG: SessionConfig = {
 export type SessionStats = {
   enabled: boolean;
   size: number;
-  explicit: number;
   totalInputTokens: number;
   totalOutputTokens: number;
   totalCostEstimate: number;
@@ -66,16 +64,23 @@ export class SessionStore {
     return entry;
   }
 
-  setSession(sessionId: string | undefined, model: RealModelId, tier: Tier, userExplicit = false): SessionEntry | undefined {
+  setSession(
+    sessionId: string | undefined,
+    input: {
+      physicalModelId: string;
+      routedPublicModel: string;
+      pinnedTier: Tier;
+    },
+  ): SessionEntry | undefined {
     if (!this.config.enabled || !sessionId) return undefined;
 
     const now = Date.now();
-    const existing = this.getSession(sessionId);
+    const existing = this.sessions.get(sessionId);
     const entry: SessionEntry = {
       sessionId,
-      model,
-      tier,
-      userExplicit: existing?.userExplicit === true || userExplicit,
+      physicalModelId: input.physicalModelId,
+      routedPublicModel: input.routedPublicModel,
+      pinnedTier: input.pinnedTier,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       expiresAt: now + this.config.ttlMs,
@@ -110,13 +115,11 @@ export class SessionStore {
   getStats(): SessionStats {
     this.cleanupExpired();
 
-    let explicit = 0;
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
     let totalCostEstimate = 0;
 
     for (const entry of this.sessions.values()) {
-      if (entry.userExplicit) explicit += 1;
       totalInputTokens += entry.inputTokens;
       totalOutputTokens += entry.outputTokens;
       totalCostEstimate += entry.costEstimate;
@@ -125,7 +128,6 @@ export class SessionStore {
     return {
       enabled: this.config.enabled,
       size: this.sessions.size,
-      explicit,
       totalInputTokens,
       totalOutputTokens,
       totalCostEstimate,

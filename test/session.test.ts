@@ -68,50 +68,61 @@ describe("SessionStore", () => {
     vi.useRealTimers();
   });
 
-  it("stores actual model and tier", () => {
+  it("stores physical model, routed public model, and pinned tier", () => {
     const store = new SessionStore();
 
     try {
-      store.setSession("s1", "deepseek-v4-flash", "MEDIUM");
-      expect(store.getSession("s1")).toMatchObject({ model: "deepseek-v4-flash", tier: "MEDIUM" });
+      store.setSession("s1", {
+        physicalModelId: "deepseek-v4-flash",
+        routedPublicModel: "flash",
+        pinnedTier: "SIMPLE",
+      });
+      expect(store.getSession("s1")).toMatchObject({
+        physicalModelId: "deepseek-v4-flash",
+        routedPublicModel: "flash",
+        pinnedTier: "SIMPLE",
+      });
 
-      store.setSession("s1", "deepseek-v4-pro", "MEDIUM");
-      expect(store.getSession("s1")).toMatchObject({ model: "deepseek-v4-pro", tier: "MEDIUM" });
+      store.setSession("s1", {
+        physicalModelId: "deepseek-v4-pro",
+        routedPublicModel: "pro",
+        pinnedTier: "COMPLEX",
+      });
+      expect(store.getSession("s1")).toMatchObject({
+        physicalModelId: "deepseek-v4-pro",
+        routedPublicModel: "pro",
+        pinnedTier: "COMPLEX",
+      });
     } finally {
       store.close();
     }
   });
 
-  it("preserves userExplicit once set", () => {
-    const store = new SessionStore();
-
-    try {
-      store.setSession("s1", "deepseek-v4-flash", "MEDIUM", true);
-      store.setSession("s1", "deepseek-v4-pro", "COMPLEX");
-
-      expect(store.getSession("s1")?.userExplicit).toBe(true);
-    } finally {
-      store.close();
-    }
-  });
-
-  it("preserves createdAt, usage, and explicit state when updating a session", () => {
+  it("preserves createdAt and usage when updating a session", () => {
     vi.useFakeTimers();
     const store = new SessionStore();
 
     try {
       vi.setSystemTime(1_000);
-      store.setSession("s1", "deepseek-v4-flash", "MEDIUM", true);
+      store.setSession("s1", {
+        physicalModelId: "deepseek-v4-flash",
+        routedPublicModel: "flash",
+        pinnedTier: "MEDIUM",
+      });
       store.recordUsage("s1", { inputTokens: 10, outputTokens: 20, costEstimate: 0.5 });
       const createdAt = store.getSession("s1")?.createdAt;
 
       vi.setSystemTime(2_000);
-      store.setSession("s1", "deepseek-v4-pro", "COMPLEX");
+      store.setSession("s1", {
+        physicalModelId: "deepseek-v4-pro",
+        routedPublicModel: "pro",
+        pinnedTier: "COMPLEX",
+      });
 
       expect(store.getSession("s1")).toMatchObject({
-        model: "deepseek-v4-pro",
-        tier: "COMPLEX",
-        userExplicit: true,
+        physicalModelId: "deepseek-v4-pro",
+        routedPublicModel: "pro",
+        pinnedTier: "COMPLEX",
         createdAt,
         inputTokens: 10,
         outputTokens: 20,
@@ -126,7 +137,11 @@ describe("SessionStore", () => {
     const store = new SessionStore({ enabled: false });
 
     try {
-      store.setSession("s1", "deepseek-v4-pro", "COMPLEX", true);
+      store.setSession("s1", {
+        physicalModelId: "deepseek-v4-pro",
+        routedPublicModel: "pro",
+        pinnedTier: "COMPLEX",
+      });
 
       expect(store.getSession("s1")).toBeUndefined();
       expect(store.getStats()).toMatchObject({ size: 0, enabled: false });
@@ -139,12 +154,20 @@ describe("SessionStore", () => {
     const store = new SessionStore();
 
     try {
-      store.setSession("s1", "deepseek-v4-flash", "MEDIUM");
-      store.setSession("s2", "deepseek-v4-pro", "COMPLEX", true);
+      store.setSession("s1", {
+        physicalModelId: "deepseek-v4-flash",
+        routedPublicModel: "flash",
+        pinnedTier: "MEDIUM",
+      });
+      store.setSession("s2", {
+        physicalModelId: "deepseek-v4-pro",
+        routedPublicModel: "pro",
+        pinnedTier: "COMPLEX",
+      });
 
       expect(store.touchSession("s1")).toBe(true);
       expect(store.touchSession("missing")).toBe(false);
-      expect(store.getStats()).toMatchObject({ size: 2, explicit: 1, enabled: true });
+      expect(store.getStats()).toMatchObject({ size: 2, enabled: true });
 
       expect(store.clearSession("s1")).toBe(true);
       expect(store.clearSession("s1")).toBe(false);
@@ -160,13 +183,21 @@ describe("SessionStore", () => {
     const store = new SessionStore({ ttlMs: 100, cleanupIntervalMs: 50 });
 
     try {
-      store.setSession("s1", "deepseek-v4-flash", "MEDIUM");
+      store.setSession("s1", {
+        physicalModelId: "deepseek-v4-flash",
+        routedPublicModel: "flash",
+        pinnedTier: "MEDIUM",
+      });
       expect(store.getSession("s1")).toBeDefined();
 
       vi.advanceTimersByTime(101);
       expect(store.getSession("s1")).toBeUndefined();
 
-      store.setSession("s2", "deepseek-v4-flash", "MEDIUM");
+      store.setSession("s2", {
+        physicalModelId: "deepseek-v4-flash",
+        routedPublicModel: "flash",
+        pinnedTier: "MEDIUM",
+      });
       vi.advanceTimersByTime(150);
       expect(store.getStats().size).toBe(0);
     } finally {
@@ -180,7 +211,11 @@ describe("SessionStore", () => {
 
     try {
       vi.setSystemTime(1_000);
-      store.setSession("s1", "deepseek-v4-flash", "MEDIUM");
+      store.setSession("s1", {
+        physicalModelId: "deepseek-v4-flash",
+        routedPublicModel: "flash",
+        pinnedTier: "MEDIUM",
+      });
       const originalExpiry = store.getSession("s1")?.expiresAt;
 
       vi.setSystemTime(1_050);
