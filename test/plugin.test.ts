@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import path from "node:path";
 
 import type { RawConfig } from "../src/config-schema.js";
-import { XIAOYI_OPENCLAW_MODELS } from "../src/provider.js";
+import { generateOpenClawModels } from "../src/provider.js";
 import type { OpenClawService } from "../src/plugin.js";
 import {
   injectXiaoyiModelsConfig,
@@ -10,7 +10,7 @@ import {
   registerOpenClawPlugin as registerOpenClawPluginImpl,
 } from "../src/plugin.js";
 
-function createPluginConfig(port = 8402, upstreamUrl = "https://api.deepseek.com") {
+function createPluginConfig(port = 8402, upstreamUrl = "https://api.deepseek.com"): RawConfig {
   return {
     version: 1,
     proxy: { port, upstreamUrl, trace: "off" as const },
@@ -74,6 +74,10 @@ function createPluginConfig(port = 8402, upstreamUrl = "https://api.deepseek.com
       ambiguousDefaultTier: "MEDIUM" as const,
     },
   };
+}
+
+function createInjectedModels(config: RawConfig) {
+  return generateOpenClawModels(config.publicModels, config.models);
 }
 
 const fixtureConfigPath = path.resolve(__dirname, "fixtures/minimal-config.json");
@@ -161,8 +165,10 @@ describe("OpenClaw plugin config injection", () => {
 
   it("creates missing models.providers.xiaoyiprovider without inventing an apiKey", () => {
     const config: Record<string, unknown> = {};
+    const runtimeConfig = createPluginConfig();
+    const models = createInjectedModels(runtimeConfig);
 
-    injectXiaoyiModelsConfig(config, "http://127.0.0.1:8402/v1");
+    injectXiaoyiModelsConfig(config, "http://127.0.0.1:8402/v1", models);
 
     expect(config).toEqual({
       models: {
@@ -170,7 +176,7 @@ describe("OpenClaw plugin config injection", () => {
           xiaoyiprovider: {
             baseUrl: "http://127.0.0.1:8402/v1",
             api: "openai-completions",
-            models: XIAOYI_OPENCLAW_MODELS,
+            models,
           },
         },
       },
@@ -180,6 +186,8 @@ describe("OpenClaw plugin config injection", () => {
   });
 
   it("preserves user provider fields while repairing managed fields", () => {
+    const runtimeConfig = createPluginConfig();
+    const models = createInjectedModels(runtimeConfig);
     const config = {
       models: {
         providers: {
@@ -201,7 +209,7 @@ describe("OpenClaw plugin config injection", () => {
       },
     };
 
-    injectXiaoyiModelsConfig(config, "http://127.0.0.1:9000/v1");
+    injectXiaoyiModelsConfig(config, "http://127.0.0.1:9000/v1", models);
 
     expect(config.models.providers.xiaoyiprovider).toEqual({
       baseUrl: "http://127.0.0.1:9000/v1",
@@ -215,7 +223,7 @@ describe("OpenClaw plugin config injection", () => {
       },
       metadata: { owner: "user" },
       extra: ["keep", "me"],
-      models: XIAOYI_OPENCLAW_MODELS,
+      models,
     });
   });
 
@@ -224,6 +232,8 @@ describe("OpenClaw plugin config injection", () => {
     ["null", null],
     ["array", ["broken"]],
   ])("replaces non-object xiaoyiprovider config (%s) with managed provider config", (_caseName, value) => {
+    const runtimeConfig = createPluginConfig();
+    const models = createInjectedModels(runtimeConfig);
     const config = {
       models: {
         providers: {
@@ -232,24 +242,90 @@ describe("OpenClaw plugin config injection", () => {
       },
     };
 
-    injectXiaoyiModelsConfig(config, "http://127.0.0.1:8402/v1");
+    injectXiaoyiModelsConfig(config, "http://127.0.0.1:8402/v1", models);
 
     expect(config.models.providers.xiaoyiprovider).toEqual({
       baseUrl: "http://127.0.0.1:8402/v1",
       api: "openai-completions",
-      models: XIAOYI_OPENCLAW_MODELS,
+      models,
     });
+  });
+
+  it("injects models generated from runtime config instead of a static catalog", () => {
+    const runtimeConfig = createPluginConfig();
+    const autoModel = runtimeConfig.publicModels.auto;
+    const flashModel = runtimeConfig.publicModels.flash;
+    if (autoModel.kind !== "router" || flashModel.kind !== "alias") {
+      throw new Error("unexpected public model config in test fixture");
+    }
+
+    autoModel.metadata.cost = {
+      input: 1.23,
+      output: 4.56,
+      cacheRead: 0.31,
+      cacheWrite: 1.23,
+    };
+    autoModel.metadata.maxTokens = 12_345;
+    flashModel.metadata = {
+      name: "Flash Alias Override",
+      reasoning: false,
+      contextWindow: 222_222,
+      maxTokens: 3_333,
+      cost: {
+        input: 9.87,
+        output: 6.54,
+        cacheRead: 2.46,
+        cacheWrite: 9.87,
+      },
+    };
+    const models = createInjectedModels(runtimeConfig);
+    const config: Record<string, unknown> = {};
+
+    injectXiaoyiModelsConfig(config, "http://127.0.0.1:8402/v1", models);
+
+    expect((config.models as { providers: Record<string, { models: unknown }> }).providers.xiaoyiprovider.models).toEqual(
+      models,
+    );
+    expect(models).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "auto",
+          cost: {
+            input: 1.23,
+            output: 4.56,
+            cacheRead: 0.31,
+            cacheWrite: 1.23,
+          },
+          maxTokens: 12_345,
+        }),
+        expect.objectContaining({
+          id: "flash",
+          name: "Flash Alias Override",
+          reasoning: false,
+          cost: {
+            input: 9.87,
+            output: 6.54,
+            cacheRead: 2.46,
+            cacheWrite: 9.87,
+          },
+          contextWindow: 222_222,
+          maxTokens: 3_333,
+        }),
+      ]),
+    );
   });
 
   it("is idempotent across repeated injection", () => {
     const config: Record<string, unknown> = {};
+    const runtimeConfig = createPluginConfig();
+    const models = createInjectedModels(runtimeConfig);
 
-    injectXiaoyiModelsConfig(config, "http://127.0.0.1:8402/v1");
-    injectXiaoyiModelsConfig(config, "http://127.0.0.1:8402/v1");
+    injectXiaoyiModelsConfig(config, "http://127.0.0.1:8402/v1", models);
+    injectXiaoyiModelsConfig(config, "http://127.0.0.1:8402/v1", models);
 
     const providers = (config.models as { providers: Record<string, unknown> }).providers;
     expect(Object.keys(providers)).toEqual(["xiaoyiprovider"]);
-    expect(((providers.xiaoyiprovider) as { models: unknown[] }).models).toHaveLength(3);
+    expect(((providers.xiaoyiprovider) as { models: unknown[] }).models).toEqual(models);
   });
 });
 
@@ -397,6 +473,8 @@ describe("OpenClaw plugin lifecycle", () => {
     "does not require registerProvider on the OpenClaw API in %s mode",
     (registrationMode) => {
       const startProxy = vi.fn();
+      const runtimeConfig = createPluginConfig();
+      const models = createInjectedModels(runtimeConfig);
       const api = {
         config: {},
         registrationMode,
@@ -413,7 +491,7 @@ describe("OpenClaw plugin lifecycle", () => {
             xiaoyiprovider: {
               baseUrl: "http://127.0.0.1:8402/v1",
               api: "openai-completions",
-              models: XIAOYI_OPENCLAW_MODELS,
+              models,
             },
           },
         },
@@ -543,10 +621,16 @@ describe("OpenClaw plugin lifecycle", () => {
     registerOpenClawPlugin(api, { startProxy });
 
     api.config.models.providers.xiaoyiprovider.apiKey = "fresh-key";
-    api.config.models.providers.xiaoyiprovider.headers = {
+    const freshHeaders: Record<string, string> = {
       "X-Provider": "fresh",
       "X-New": "before-first-start",
     };
+    (
+      api.config.models.providers.xiaoyiprovider as {
+        apiKey?: string;
+        headers?: Record<string, string>;
+      }
+    ).headers = freshHeaders;
 
     await serviceCalls[0]!.start();
 
@@ -606,10 +690,16 @@ describe("OpenClaw plugin lifecycle", () => {
     await serviceCalls[0]!.stop();
 
     api.config.models.providers.xiaoyiprovider.apiKey = "next-key";
-    api.config.models.providers.xiaoyiprovider.headers = {
+    const nextHeaders: Record<string, string> = {
       "X-Provider": "next",
       "X-After-Stop": "yes",
     };
+    (
+      api.config.models.providers.xiaoyiprovider as {
+        apiKey?: string;
+        headers?: Record<string, string>;
+      }
+    ).headers = nextHeaders;
 
     await serviceCalls[0]!.start();
 
@@ -1259,7 +1349,6 @@ describe("OpenClaw plugin default export", () => {
     expect(mod.default.version).toBe(mod.VERSION);
     expect(typeof mod.default.register).toBe("function");
     expect(typeof mod.startProxy).toBe("function");
-    expect(mod.XIAOYI_OPENCLAW_MODELS).toHaveLength(3);
   });
 
   it("returns synchronously from default register and only registers a runtime service", async () => {

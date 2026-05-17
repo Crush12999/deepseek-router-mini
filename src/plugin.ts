@@ -4,7 +4,8 @@ import { resolveProxyConfig, type ProxyConfigOverrides } from "./proxy-config-re
 import { startProxy as startProxyImpl } from "./proxy.js";
 import type { ProxyHandle, ProxyOptions } from "./proxy.js";
 import {
-  XIAOYI_OPENCLAW_MODELS,
+  generateOpenClawModels,
+  type OpenClawModelDefinition,
   XIAOYI_PROVIDER_API,
   XIAOYI_PROVIDER_ID,
 } from "./provider.js";
@@ -86,9 +87,13 @@ export function localProviderBaseUrl(port: number): string {
   return `http://127.0.0.1:${port}/v1`;
 }
 
-export function injectXiaoyiModelsConfig(config: JsonObject, providerBaseUrl: string): void {
-  const models = ensureObject(config, "models");
-  const providers = ensureObject(models, "providers");
+export function injectXiaoyiModelsConfig(
+  config: JsonObject,
+  providerBaseUrl: string,
+  modelDefinitions: OpenClawModelDefinition[],
+): void {
+  const modelsConfig = ensureObject(config, "models");
+  const providers = ensureObject(modelsConfig, "providers");
   const current = providers[XIAOYI_PROVIDER_ID];
   const existing =
     current && typeof current === "object" && !Array.isArray(current) ? (current as JsonObject) : {};
@@ -97,8 +102,7 @@ export function injectXiaoyiModelsConfig(config: JsonObject, providerBaseUrl: st
     ...existing,
     baseUrl: providerBaseUrl,
     api: XIAOYI_PROVIDER_API,
-    ...("apiKey" in existing ? { apiKey: existing.apiKey } : {}),
-    models: XIAOYI_OPENCLAW_MODELS,
+    models: modelDefinitions,
   };
 }
 
@@ -322,15 +326,16 @@ function createProxyService(
 export function registerOpenClawPlugin(api: OpenClawPluginApi, runtime: PluginRuntime = defaultRuntime): void {
   const runtimeConfig = resolvePluginRuntimeConfig(api);
   const providerBaseUrl = localProviderBaseUrl(runtimeConfig.proxy.port);
+  const models = generateOpenClawModels(runtimeConfig.publicModels, runtimeConfig.models);
   const shouldRegisterRuntimeService = shouldStartRuntimeProxy(api.registrationMode);
 
   if (!shouldRegisterRuntimeService) {
-    injectXiaoyiModelsConfig(api.config, providerBaseUrl);
+    injectXiaoyiModelsConfig(api.config, providerBaseUrl, models);
     return;
   }
 
   const previousConfig = structuredClone(api.config);
-  injectXiaoyiModelsConfig(api.config, providerBaseUrl);
+  injectXiaoyiModelsConfig(api.config, providerBaseUrl, models);
   try {
     api.registerService(createProxyService(api, runtime, runtimeConfig, providerBaseUrl));
   } catch (error) {

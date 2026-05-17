@@ -1,45 +1,117 @@
 import { describe, expect, it } from "vitest";
 
+import type { RawConfig } from "../src/config-schema.js";
 import {
-  XIAOYI_OPENCLAW_MODELS,
+  generateOpenClawModels,
+  XIAOYI_PROVIDER_API,
   XIAOYI_PROVIDER_ID,
-  createXiaoyiProvider,
+  XIAOYI_PROVIDER_NAME,
 } from "../src/provider.js";
 
-describe("OpenClaw xiaoyi provider", () => {
-  it("defines the xiaoyiprovider provider with aliases and a local OpenAI-compatible baseUrl", () => {
-    const provider = createXiaoyiProvider("http://127.0.0.1:8402/v1");
+function createConfig(): RawConfig {
+  return {
+    version: 1,
+    proxy: {
+      port: 8402,
+      upstreamUrl: "https://api.deepseek.com",
+      trace: "off",
+    },
+    models: [
+      {
+        id: "deepseek-v4-flash",
+        name: "DeepSeek V4 Flash",
+        inputPrice: 0.28,
+        outputPrice: 0.42,
+        contextWindow: 1_000_000,
+        maxOutput: 64_000,
+        reasoning: true,
+        toolCalling: true,
+      },
+      {
+        id: "deepseek-v4-pro",
+        name: "DeepSeek V4 Pro",
+        inputPrice: 0.56,
+        outputPrice: 1.68,
+        contextWindow: 1_000_000,
+        maxOutput: 64_000,
+        reasoning: true,
+        toolCalling: true,
+      },
+    ],
+    publicModels: {
+      auto: {
+        kind: "router",
+        metadata: {
+          name: "Xiaoyi Auto",
+          reasoning: true,
+          contextWindow: 1_000_000,
+          maxTokens: 64_000,
+          cost: {
+            input: 0.28,
+            output: 0.42,
+            cacheRead: 0.07,
+            cacheWrite: 0.28,
+          },
+        },
+      },
+      cheap: {
+        kind: "alias",
+        candidates: ["deepseek-v4-pro", "deepseek-v4-flash"],
+      },
+      pro: {
+        kind: "alias",
+        candidates: ["deepseek-v4-pro"],
+        selection: "first",
+        metadata: {
+          name: "Xiaoyi Pro",
+          reasoning: true,
+          contextWindow: 200_000,
+          maxTokens: 16_000,
+          cost: {
+            input: 0.61,
+            output: 1.8,
+            cacheRead: 0.15,
+            cacheWrite: 0.61,
+          },
+        },
+      },
+    },
+    routing: {
+      tiers: {
+        SIMPLE: { publicModel: "cheap" },
+        MEDIUM: { publicModel: "cheap" },
+        COMPLEX: { publicModel: "pro" },
+        REASONING: { publicModel: "pro" },
+      },
+      structuredOutputMinTier: "MEDIUM",
+      ambiguousDefaultTier: "MEDIUM",
+    },
+  };
+}
 
-    expect(provider).toMatchObject({
-      id: XIAOYI_PROVIDER_ID,
-      name: "Xiaoyi Provider",
-      aliases: ["xiaoyi"],
-    });
-    expect(provider.models.baseUrl).toBe("http://127.0.0.1:8402/v1");
-    expect(provider.models.api).toBe("openai-completions");
-    expect(provider.auth).toEqual([]);
+describe("OpenClaw xiaoyi provider", () => {
+  it("exports provider identity constants", () => {
+    expect(XIAOYI_PROVIDER_ID).toBe("xiaoyiprovider");
+    expect(XIAOYI_PROVIDER_NAME).toBe("Xiaoyi Provider");
+    expect(XIAOYI_PROVIDER_API).toBe("openai-completions");
   });
 
-  it("exposes complete OpenClaw model definitions", () => {
-    expect(XIAOYI_OPENCLAW_MODELS.map((model) => model.id)).toEqual([
-      "auto",
-      "deepseek-v4-flash",
-      "deepseek-v4-pro",
-    ]);
+  it("uses router metadata and alias metadata directly when generating OpenClaw models", () => {
+    const config = createConfig();
 
-    expect(XIAOYI_OPENCLAW_MODELS).toEqual([
+    expect(generateOpenClawModels(config.publicModels, config.models)).toEqual([
       {
         id: "auto",
         name: "Xiaoyi Auto",
         api: "openai-completions",
         reasoning: true,
         input: ["text"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        cost: { input: 0.28, output: 0.42, cacheRead: 0.07, cacheWrite: 0.28 },
         contextWindow: 1_000_000,
         maxTokens: 64_000,
       },
       {
-        id: "deepseek-v4-flash",
+        id: "cheap",
         name: "DeepSeek V4 Flash",
         api: "openai-completions",
         reasoning: true,
@@ -49,14 +121,14 @@ describe("OpenClaw xiaoyi provider", () => {
         maxTokens: 64_000,
       },
       {
-        id: "deepseek-v4-pro",
-        name: "DeepSeek V4 Pro",
+        id: "pro",
+        name: "Xiaoyi Pro",
         api: "openai-completions",
         reasoning: true,
         input: ["text"],
-        cost: { input: 0.56, output: 1.68, cacheRead: 0.14, cacheWrite: 0.56 },
-        contextWindow: 1_000_000,
-        maxTokens: 64_000,
+        cost: { input: 0.61, output: 1.8, cacheRead: 0.15, cacheWrite: 0.61 },
+        contextWindow: 200_000,
+        maxTokens: 16_000,
       },
     ]);
   });
