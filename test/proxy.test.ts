@@ -193,6 +193,35 @@ function createAliasConfig(): RawConfig {
   };
 }
 
+function createConfigDrivenAliasTierConfig(): RawConfig {
+  const config = createAliasConfig();
+  return {
+    ...config,
+    publicModels: {
+      ...config.publicModels,
+      lite: {
+        kind: "alias",
+        candidates: ["deepseek-v4-flash"],
+        selection: "first",
+      },
+      think: {
+        kind: "alias",
+        candidates: ["deepseek-v4-pro"],
+        selection: "first",
+      },
+    },
+    routing: {
+      ...config.routing,
+      tiers: {
+        SIMPLE: { publicModel: "lite" },
+        MEDIUM: { publicModel: "flash", fallback: ["lite", "pro"] },
+        COMPLEX: { publicModel: "pro" },
+        REASONING: { publicModel: "think" },
+      },
+    },
+  };
+}
+
 function withProxyOverrides(
   config: RawConfig,
   overrides: Partial<RawConfig["proxy"]> = {},
@@ -707,6 +736,82 @@ describe("proxy", () => {
     expect(logged).not.toHaveProperty("agenticScore");
   });
 
+  it("uses the configured SIMPLE tier for an explicit alias request", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const logSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    const proxy = await startProxy({
+      baseUrl: upstream.baseUrl,
+      port: 0,
+      traceMode: "debug",
+      config: withProxyOverrides(createConfigDrivenAliasTierConfig(), {
+        upstreamUrl: upstream.baseUrl,
+        port: 0,
+      }),
+    });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "lite",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-xiaoyi-router-tier")).toBe("SIMPLE");
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("explicit:simple:lite:user");
+    const logged = JSON.parse(String(logSpy.mock.calls[0]?.[0])) as Record<string, unknown>;
+    expect(logged).toMatchObject({
+      trace: "explicit:simple:lite:user",
+      requestedModel: "lite",
+      routedModel: "lite",
+      actualModel: "deepseek-v4-flash",
+      tier: "SIMPLE",
+      sessionAction: "none",
+    });
+  });
+
+  it("keeps an explicit reasoning alias on the REASONING tier", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const logSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    const proxy = await startProxy({
+      baseUrl: upstream.baseUrl,
+      port: 0,
+      traceMode: "debug",
+      config: withProxyOverrides(createConfigDrivenAliasTierConfig(), {
+        upstreamUrl: upstream.baseUrl,
+        port: 0,
+      }),
+    });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "think",
+        messages: [{ role: "user", content: "reason carefully" }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-xiaoyi-router-tier")).toBe("REASONING");
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("explicit:reasoning:think:user");
+    const logged = JSON.parse(String(logSpy.mock.calls[0]?.[0])) as Record<string, unknown>;
+    expect(logged).toMatchObject({
+      trace: "explicit:reasoning:think:user",
+      requestedModel: "think",
+      routedModel: "think",
+      actualModel: "deepseek-v4-pro",
+      tier: "REASONING",
+      sessionAction: "none",
+    });
+  });
+
   it("uses console.debug for trace logging without touching console.error", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
@@ -1186,8 +1291,8 @@ describe("proxy", () => {
     expect(res.status).toBe(503);
     expect(res.headers.get(legacyRouterHeader("model"))).toBeNull();
     expect(res.headers.get("x-xiaoyi-router-model")).toBe("pro");
-    expect(res.headers.get("x-xiaoyi-router-tier")).toBe("COMPLEX");
-    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("explicit:complex:pro:user");
+    expect(res.headers.get("x-xiaoyi-router-tier")).toBe("REASONING");
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("explicit:reasoning:pro:user");
     expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("false");
     expect(upstream.requests).toHaveLength(1);
   });
@@ -1208,8 +1313,8 @@ describe("proxy", () => {
 
     expect(res.status).toBe(502);
     expect(res.headers.get("x-xiaoyi-router-model")).toBe("pro");
-    expect(res.headers.get("x-xiaoyi-router-tier")).toBe("COMPLEX");
-    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("explicit:complex:pro:user");
+    expect(res.headers.get("x-xiaoyi-router-tier")).toBe("REASONING");
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("explicit:reasoning:pro:user");
     expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("false");
     expect(await res.json()).toMatchObject({
       error: {
@@ -1236,8 +1341,8 @@ describe("proxy", () => {
 
     expect(res.status).toBe(502);
     expect(res.headers.get("x-xiaoyi-router-model")).toBe("pro");
-    expect(res.headers.get("x-xiaoyi-router-tier")).toBe("COMPLEX");
-    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("explicit:complex:pro:user");
+    expect(res.headers.get("x-xiaoyi-router-tier")).toBe("REASONING");
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("explicit:reasoning:pro:user");
     expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("false");
     expect(await res.json()).toEqual({
       error: {

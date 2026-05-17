@@ -285,9 +285,15 @@ function createProxyService(
           serviceProxy = undefined;
         }
 
+        const providerOverrides = resolveProviderRuntimeOverrides(api);
+        const startConfig: RawConfig = {
+          ...runtimeConfig,
+          proxy: resolveProxyConfig(runtimeConfig.proxy, providerOverrides),
+        };
+
         await closeActiveProxy();
         const proxy = await runtime.startProxy({
-          config: runtimeConfig,
+          config: startConfig,
           traceLogger: createTraceLogger(api),
           session: {},
         });
@@ -315,12 +321,7 @@ function createProxyService(
 
 export function registerOpenClawPlugin(api: OpenClawPluginApi, runtime: PluginRuntime = defaultRuntime): void {
   const runtimeConfig = resolvePluginRuntimeConfig(api);
-  const providerOverrides = resolveProviderRuntimeOverrides(api);
-  const startConfig: RawConfig = {
-    ...runtimeConfig,
-    proxy: resolveProxyConfig(runtimeConfig.proxy, providerOverrides),
-  };
-  const providerBaseUrl = localProviderBaseUrl(startConfig.proxy.port);
+  const providerBaseUrl = localProviderBaseUrl(runtimeConfig.proxy.port);
   const shouldRegisterRuntimeService = shouldStartRuntimeProxy(api.registrationMode);
 
   if (!shouldRegisterRuntimeService) {
@@ -331,7 +332,7 @@ export function registerOpenClawPlugin(api: OpenClawPluginApi, runtime: PluginRu
   const previousConfig = structuredClone(api.config);
   injectXiaoyiModelsConfig(api.config, providerBaseUrl);
   try {
-    api.registerService(createProxyService(api, runtime, startConfig, providerBaseUrl));
+    api.registerService(createProxyService(api, runtime, runtimeConfig, providerBaseUrl));
   } catch (error) {
     for (const key of Object.keys(api.config)) {
       delete api.config[key];

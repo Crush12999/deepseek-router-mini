@@ -382,14 +382,15 @@ function isLowerTier(nextTier: Tier, pinnedTier: Tier): boolean {
 }
 
 function getExplicitTier(publicModelId: string, entries: Record<Tier, TierEntry>): Tier {
-  if (
-    publicModelId === entries.COMPLEX.publicModel ||
-    publicModelId === entries.REASONING.publicModel
-  ) {
-    return "COMPLEX";
+  const matches = (Object.entries(entries) as Array<[Tier, TierEntry]>)
+    .filter(([, entry]) => entry.publicModel === publicModelId)
+    .map(([tier]) => tier);
+
+  if (matches.length === 0) {
+    return "MEDIUM";
   }
 
-  return "MEDIUM";
+  return matches.reduce((highest, tier) => (TIER_ORDER[tier] > TIER_ORDER[highest] ? tier : highest));
 }
 
 function getTraceReason(selected: SelectedModel, failed: boolean): TraceReason {

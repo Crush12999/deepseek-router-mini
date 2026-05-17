@@ -517,6 +517,120 @@ describe("OpenClaw plugin lifecycle", () => {
     }));
   });
 
+  it("re-reads provider runtime overrides when the host updates config before first start", async () => {
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {
+        models: {
+          providers: {
+            xiaoyiprovider: {
+              apiKey: "stale-key",
+              headers: {
+                "X-Provider": "stale",
+              },
+            },
+          },
+        },
+      },
+      registerProvider: vi.fn(),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPlugin(api, { startProxy });
+
+    api.config.models.providers.xiaoyiprovider.apiKey = "fresh-key";
+    api.config.models.providers.xiaoyiprovider.headers = {
+      "X-Provider": "fresh",
+      "X-New": "before-first-start",
+    };
+
+    await serviceCalls[0]!.start();
+
+    expectStartProxyRuntimeCall(startProxy, {
+      port: 8402,
+      upstreamUrl: "https://api.deepseek.com",
+      apiKey: "fresh-key",
+      headers: {
+        "X-Provider": "fresh",
+        "X-New": "before-first-start",
+      },
+    });
+  });
+
+  it("re-reads provider runtime overrides on every start after stop", async () => {
+    const firstClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const secondClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const startProxy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        port: 8402,
+        baseUrl: "https://api.deepseek.com",
+        close: firstClose,
+      })
+      .mockResolvedValueOnce({
+        port: 8402,
+        baseUrl: "https://api.deepseek.com",
+        close: secondClose,
+      });
+    const api = {
+      config: {
+        models: {
+          providers: {
+            xiaoyiprovider: {
+              apiKey: "initial-key",
+              headers: {
+                "X-Provider": "initial",
+              },
+            },
+          },
+        },
+      },
+      registerProvider: vi.fn(),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPlugin(api, { startProxy });
+
+    await serviceCalls[0]!.start();
+    expectStartProxyRuntimeCall(startProxy, {
+      apiKey: "initial-key",
+      headers: {
+        "X-Provider": "initial",
+      },
+    });
+
+    await serviceCalls[0]!.stop();
+
+    api.config.models.providers.xiaoyiprovider.apiKey = "next-key";
+    api.config.models.providers.xiaoyiprovider.headers = {
+      "X-Provider": "next",
+      "X-After-Stop": "yes",
+    };
+
+    await serviceCalls[0]!.start();
+
+    expect(startProxy).toHaveBeenCalledTimes(2);
+    expect(startProxy).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      config: expect.objectContaining({
+        proxy: expect.objectContaining({
+          apiKey: "next-key",
+          headers: {
+            "X-Provider": "next",
+            "X-After-Stop": "yes",
+          },
+        }),
+      }),
+      traceLogger: expect.objectContaining({
+        debug: expect.any(Function),
+        info: expect.any(Function),
+      }),
+    }));
+  });
+
   it("prefers provider apiKey over api_key for proxy runtime", async () => {
     const startProxy = vi.fn().mockResolvedValue({
       port: 8402,
