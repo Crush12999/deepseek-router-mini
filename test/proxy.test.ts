@@ -276,7 +276,15 @@ describe("proxy", () => {
       status: "ok",
       baseUrl: upstream.baseUrl,
     });
-    expect((await request(proxy.port, "/v1/models")).status).toBe(404);
+    const res = await request(proxy.port, "/v1/models");
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({
+      error: {
+        message: "Not Found",
+        type: "invalid_request_error",
+        code: null,
+      },
+    });
   });
 
   it("rejects unsupported models", async () => {
@@ -1203,7 +1211,13 @@ describe("proxy", () => {
     expect(res.headers.get("x-xiaoyi-router-tier")).toBe("COMPLEX");
     expect(res.headers.get("x-xiaoyi-router-trace")).toBe("explicit:complex:pro:user");
     expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("false");
-    expect(await res.json()).toMatchObject({ error: expect.any(String) });
+    expect(await res.json()).toMatchObject({
+      error: {
+        message: expect.any(String),
+        type: "invalid_request_error",
+        code: null,
+      },
+    });
   });
 
   it("uses a neutral fallback message for non-Error network failures", async () => {
@@ -1221,7 +1235,64 @@ describe("proxy", () => {
     });
 
     expect(res.status).toBe(502);
-    expect(await res.json()).toEqual({ error: "Upstream request failed" });
+    expect(res.headers.get("x-xiaoyi-router-model")).toBe("pro");
+    expect(res.headers.get("x-xiaoyi-router-tier")).toBe("COMPLEX");
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("explicit:complex:pro:user");
+    expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("false");
+    expect(await res.json()).toEqual({
+      error: {
+        message: "Upstream request failed",
+        type: "invalid_request_error",
+        param: null,
+        code: null,
+      },
+    });
+  });
+
+  it("returns an OpenAI-compatible 500 when a reused session points to a missing physical model", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    vi.spyOn(SessionStore.prototype, "getSession").mockReturnValue({
+      sessionId: "missing-physical-model-session",
+      physicalModelId: "missing-physical-model",
+      routedPublicModel: "pro",
+      pinnedTier: "COMPLEX",
+      createdAt: 0,
+      updatedAt: 0,
+      expiresAt: Number.MAX_SAFE_INTEGER,
+      inputTokens: 0,
+      outputTokens: 0,
+      costEstimate: 0,
+    });
+    const proxy = await startProxy({
+      config: withProxyOverrides(createAliasConfig(), {
+        upstreamUrl: upstream.baseUrl,
+        port: 0,
+      }),
+    });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-session-id": "missing-physical-model-session",
+      },
+      body: JSON.stringify({
+        model: "auto",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({
+      error: {
+        message: "Physical model not found in registry: missing-physical-model",
+        type: "invalid_request_error",
+        param: null,
+        code: null,
+      },
+    });
   });
 
   it("returns 400 on invalid JSON body", async () => {

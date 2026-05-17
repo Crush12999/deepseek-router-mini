@@ -594,9 +594,11 @@ async function proxyChat(
 
   const physicalModel = registry.get(selected.actualModel);
   if (!physicalModel) {
-    res.statusCode = 500;
-    res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify({ error: `Physical model not found in registry: ${selected.actualModel}` }));
+    writeOpenAiError(
+      res,
+      500,
+      `Physical model not found in registry: ${selected.actualModel}`,
+    );
     return;
   }
 
@@ -625,12 +627,12 @@ async function proxyChat(
       true,
     );
     const headers = buildPublicHeaders(cfg, selected, finalTier, trace);
-    writeJsonWithHeaders(
+    writeOpenAiError(
       res,
       502,
-      {
-        error: attempt.error instanceof Error ? attempt.error.message : "Upstream request failed",
-      },
+      attempt.error instanceof Error ? attempt.error.message : "Upstream request failed",
+      "invalid_request_error",
+      null,
       headers,
     );
     return;
@@ -707,14 +709,10 @@ export async function startProxy(options: ProxyOptions): Promise<ProxyHandle> {
         }
 
         // Everything else → 404
-        res.statusCode = 404;
-        res.setHeader("content-type", "application/json");
-        res.end(JSON.stringify({ error: "Not Found" }));
+        writeOpenAiError(res, 404, "Not Found");
       } catch (error) {
         if (!res.headersSent) {
-          res.statusCode = 502;
-          res.setHeader("content-type", "application/json");
-          res.end(JSON.stringify({ error: "Bad Gateway", detail: String(error) }));
+          writeOpenAiError(res, 502, String(error));
         } else {
           res.destroy();
         }
