@@ -3,19 +3,24 @@
   "proxy": { "port": 8402, "upstreamUrl": "https://api.deepseek.com" },
   "models": [],
   "publicModels": {
-    "auto": { "kind": "router" },
-    "flash": { "kind": "alias", "candidates": ["unknown"] }
+    "auto": {
+      "kind": "router",
+      "metadata": {
+        "name": "Auto",
+        "reasoning": false,
+        "contextWindow": 100000,
+        "maxTokens": 4000,
+        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+      }
+    },
+    "broken": { "kind": "alias", "candidates": ["missing-physical-model"] }
   },
   "routing": {
     "tiers": {
-      "SIMPLE": { "publicModel": "flash" },
-      "MEDIUM": { "publicModel": "flash" },
-      "COMPLEX": { "publicModel": "flash" },
-      "REASONING": { "publicModel": "flash" }
-    },
-    "tierBoundaries": { "simpleMedium": 0.0, "mediumComplex": 0.3, "complexReasoning": 0.5 },
-    "confidenceThreshold": 0.7,
-    "structuredOutputMinTier": "MEDIUM",
-    "ambiguousDefaultTier": "MEDIUM"
+      "SIMPLE": { "publicModel": "broken" },
+      "MEDIUM": { "publicModel": "broken" },
+      "COMPLEX": { "publicModel": "broken" },
+      "REASONING": { "publicModel": "broken" }
+    }
   }
 }
