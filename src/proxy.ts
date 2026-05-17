@@ -192,18 +192,6 @@ function writeJson(res: ServerResponse, status: number, body: unknown): void {
   }
 }
 
-function writeJsonWithHeaders(
-  res: ServerResponse,
-  status: number,
-  body: unknown,
-  headers: Record<string, string>,
-): void {
-  for (const [key, value] of Object.entries(headers)) {
-    res.setHeader(key, value);
-  }
-  writeJson(res, status, body);
-}
-
 function copyResponseHeaders(response: Response, extraHeaders: Record<string, string>): Record<string, string> {
   const headers: Record<string, string> = {};
   for (const [key, value] of response.headers.entries()) {

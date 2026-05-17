@@ -222,6 +222,35 @@ function createConfigDrivenAliasTierConfig(): RawConfig {
   };
 }
 
+function createSwiftThinkConfig(): RawConfig {
+  const config = createAliasConfig();
+  return {
+    ...config,
+    publicModels: {
+      auto: config.publicModels.auto,
+      swift: {
+        kind: "alias",
+        candidates: ["deepseek-v4-flash"],
+        selection: "first",
+      },
+      think: {
+        kind: "alias",
+        candidates: ["deepseek-v4-pro"],
+        selection: "first",
+      },
+    },
+    routing: {
+      ...config.routing,
+      tiers: {
+        SIMPLE: { publicModel: "swift" },
+        MEDIUM: { publicModel: "swift", fallback: ["think"] },
+        COMPLEX: { publicModel: "think" },
+        REASONING: { publicModel: "think" },
+      },
+    },
+  };
+}
+
 function withProxyOverrides(
   config: RawConfig,
   overrides: Partial<RawConfig["proxy"]> = {},
@@ -810,6 +839,47 @@ describe("proxy", () => {
       tier: "REASONING",
       sessionAction: "none",
     });
+  });
+
+  it("supports non-default swift/think aliases while keeping public and physical model semantics separate", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxy({
+      baseUrl: upstream.baseUrl,
+      port: 0,
+      config: withProxyOverrides(createSwiftThinkConfig(), {
+        upstreamUrl: upstream.baseUrl,
+        port: 0,
+      }),
+    });
+    handles.push(proxy);
+
+    const explicit = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "swift",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(explicit.status).toBe(200);
+    expect(explicit.headers.get("x-xiaoyi-router-model")).toBe("swift");
+    expect(explicit.headers.get("x-xiaoyi-router-actual-model")).toBe("deepseek-v4-flash");
+
+    const routed = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "auto",
+        messages: [{ role: "user", content: "Translate hello" }],
+      }),
+    });
+
+    expect(routed.status).toBe(200);
+    expect(routed.headers.get("x-xiaoyi-router-model")).toBe("swift");
+    expect(routed.headers.get("x-xiaoyi-router-actual-model")).toBe("deepseek-v4-flash");
+    expect(requestedModels(upstream.requests)).toEqual(["deepseek-v4-flash", "deepseek-v4-flash"]);
   });
 
   it("uses console.debug for trace logging without touching console.error", async () => {

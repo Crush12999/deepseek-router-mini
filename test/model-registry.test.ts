@@ -6,7 +6,6 @@ describe("ModelRegistry", () => {
   const models: PhysicalModel[] = [
     {
       id: "model-a",
-      upstreamModel: "upstream-a",
       name: "Model A",
       inputPrice: 0.1,
       outputPrice: 0.2,
