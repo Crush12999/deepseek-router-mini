@@ -1,12 +1,158 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import path from "node:path";
 
+import type { RawConfig } from "../src/config-schema.js";
 import { XIAOYI_OPENCLAW_MODELS } from "../src/provider.js";
 import type { OpenClawService } from "../src/plugin.js";
 import {
   injectXiaoyiModelsConfig,
   localProviderBaseUrl,
-  registerOpenClawPlugin,
+  registerOpenClawPlugin as registerOpenClawPluginImpl,
 } from "../src/plugin.js";
+
+function createPluginConfig(port = 8402, upstreamUrl = "https://api.deepseek.com") {
+  return {
+    version: 1,
+    proxy: { port, upstreamUrl, trace: "off" as const },
+    models: [
+      {
+        id: "deepseek-v4-flash",
+        name: "DeepSeek V4 Flash",
+        inputPrice: 0.28,
+        outputPrice: 0.42,
+        contextWindow: 1_000_000,
+        maxOutput: 64_000,
+        reasoning: true,
+        toolCalling: true,
+      },
+      {
+        id: "deepseek-v4-pro",
+        name: "DeepSeek V4 Pro",
+        inputPrice: 0.56,
+        outputPrice: 1.68,
+        contextWindow: 1_000_000,
+        maxOutput: 64_000,
+        reasoning: true,
+        toolCalling: true,
+      },
+    ],
+    publicModels: {
+      auto: {
+        kind: "router" as const,
+        metadata: {
+          name: "Xiaoyi Auto",
+          reasoning: true,
+          contextWindow: 1_000_000,
+          maxTokens: 64_000,
+          cost: {
+            input: 0.28,
+            output: 0.42,
+            cacheRead: 0.07,
+            cacheWrite: 0.28,
+          },
+        },
+      },
+      flash: {
+        kind: "alias" as const,
+        candidates: ["deepseek-v4-flash"],
+        selection: "first" as const,
+      },
+      pro: {
+        kind: "alias" as const,
+        candidates: ["deepseek-v4-pro"],
+        selection: "first" as const,
+      },
+    },
+    routing: {
+      tiers: {
+        SIMPLE: { publicModel: "flash" },
+        MEDIUM: { publicModel: "flash", fallback: ["pro"] },
+        COMPLEX: { publicModel: "pro" },
+        REASONING: { publicModel: "pro" },
+      },
+      structuredOutputMinTier: "MEDIUM" as const,
+      ambiguousDefaultTier: "MEDIUM" as const,
+    },
+  };
+}
+
+const fixtureConfigPath = path.resolve(__dirname, "fixtures/minimal-config.json");
+
+function normalizePluginConfig(
+  pluginConfig: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!pluginConfig) {
+    return { config: createPluginConfig() };
+  }
+
+  if ("config" in pluginConfig || "configPath" in pluginConfig) {
+    return pluginConfig;
+  }
+
+  return {
+    config: createPluginConfig(),
+    ...pluginConfig,
+  };
+}
+
+function registerOpenClawPlugin(
+  api: {
+    config: Record<string, unknown>;
+    pluginConfig?: Record<string, unknown>;
+    registrationMode?: string;
+    registerProvider?: (provider: unknown) => void;
+    registerService: (service: OpenClawService) => void;
+    logger?: {
+      debug?: (message: string) => void;
+      info?: (message: string) => void;
+      error?: (message: string) => void;
+    };
+  },
+  runtime?: Parameters<typeof registerOpenClawPluginImpl>[1],
+): void {
+  registerOpenClawPluginImpl(
+    {
+      ...api,
+      pluginConfig: normalizePluginConfig(api.pluginConfig),
+    },
+    runtime,
+  );
+}
+
+function registerOpenClawPluginWithoutDefaults(
+  api: {
+    config: Record<string, unknown>;
+    pluginConfig?: Record<string, unknown>;
+    registrationMode?: string;
+    registerProvider?: (provider: unknown) => void;
+    registerService: (service: OpenClawService) => void;
+    logger?: {
+      debug?: (message: string) => void;
+      info?: (message: string) => void;
+      error?: (message: string) => void;
+    };
+  },
+  runtime?: Parameters<typeof registerOpenClawPluginImpl>[1],
+): void {
+  registerOpenClawPluginImpl(api, runtime);
+}
+
+function expectStartProxyRuntimeCall(
+  startProxy: ReturnType<typeof vi.fn>,
+  expectedProxy: Partial<RawConfig["proxy"]>,
+): void {
+  expect(startProxy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      config: expect.objectContaining({
+        proxy: expect.objectContaining(expectedProxy),
+      }),
+      traceLogger: expect.objectContaining({
+        debug: expect.any(Function),
+        info: expect.any(Function),
+      }),
+    }),
+  );
+}
 
 describe("OpenClaw plugin config injection", () => {
   it("builds the local provider baseUrl from the configured port", () => {
@@ -128,6 +274,9 @@ describe("OpenClaw plugin lifecycle", () => {
     const providerCalls: unknown[] = [];
     const api = {
       config: {},
+      pluginConfig: {
+        config: createPluginConfig(),
+      },
       registerProvider: (provider: unknown) => providerCalls.push(provider),
       registerService: (service: OpenClawService) => serviceCalls.push(service),
       logger: {
@@ -161,8 +310,12 @@ describe("OpenClaw plugin lifecycle", () => {
 
     await serviceCalls[0]!.start();
     expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-      port: 8402,
-      baseUrl: "https://api.deepseek.com",
+      config: expect.objectContaining({
+        proxy: expect.objectContaining({
+          port: 8402,
+          upstreamUrl: "https://api.deepseek.com",
+        }),
+      }),
       traceLogger: expect.objectContaining({
         debug: expect.any(Function),
         info: expect.any(Function),
@@ -185,29 +338,7 @@ describe("OpenClaw plugin lifecycle", () => {
     const api = {
       config: {},
       pluginConfig: {
-        config: {
-          version: 1,
-          proxy: { port: 9011, upstreamUrl: "https://gateway.example.com" },
-          models: [
-            { id: "test-model", upstreamModel: "test-model", name: "Test", inputPrice: 0.1, outputPrice: 0.2, contextWindow: 100000, maxOutput: 4000, reasoning: false, toolCalling: true }
-          ],
-          publicModels: {
-            auto: { kind: "router" },
-            flash: { kind: "alias", candidates: ["test-model"] }
-          },
-          routing: {
-            tiers: {
-              SIMPLE: { publicModel: "flash" },
-              MEDIUM: { publicModel: "flash" },
-              COMPLEX: { publicModel: "flash" },
-              REASONING: { publicModel: "flash" }
-            },
-            tierBoundaries: { simpleMedium: 0.0, mediumComplex: 0.3, complexReasoning: 0.5 },
-            confidenceThreshold: 0.7,
-            structuredOutputMinTier: "MEDIUM",
-            ambiguousDefaultTier: "MEDIUM"
-          }
-        }
+        config: createPluginConfig(9011, "https://gateway.example.com"),
       },
       registerProvider: vi.fn(),
       registerService: (service: OpenClawService) => serviceCalls.push(service),
@@ -219,14 +350,10 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(startProxy).not.toHaveBeenCalled();
 
     await serviceCalls[0]!.start();
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+    expectStartProxyRuntimeCall(startProxy, {
       port: 9011,
-      baseUrl: "https://gateway.example.com",
-      traceLogger: expect.objectContaining({
-        debug: expect.any(Function),
-        info: expect.any(Function),
-      }),
-    }));
+      upstreamUrl: "https://gateway.example.com",
+    });
   });
 
   it("uses pluginConfig port and upstreamUrl for runtime and local provider config", async () => {
@@ -260,14 +387,10 @@ describe("OpenClaw plugin lifecycle", () => {
     });
 
     await serviceCalls[0]!.start();
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+    expectStartProxyRuntimeCall(startProxy, {
       port: 9999,
-      baseUrl: "https://plugin.example.com",
-      traceLogger: expect.objectContaining({
-        debug: expect.any(Function),
-        info: expect.any(Function),
-      }),
-    }));
+      upstreamUrl: "https://plugin.example.com",
+    });
   });
 
   it.each(["runtime", "full"])(
@@ -334,14 +457,10 @@ describe("OpenClaw plugin lifecycle", () => {
     });
 
     await serviceCalls[0]!.start();
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+    expectStartProxyRuntimeCall(startProxy, {
       port: 8402,
-      baseUrl: "https://gateway.example.com/v4",
-      traceLogger: expect.objectContaining({
-        debug: expect.any(Function),
-        info: expect.any(Function),
-      }),
-    }));
+      upstreamUrl: "https://gateway.example.com/v4",
+    });
   });
 
   it("passes OpenClaw provider apiKey and headers through to the proxy runtime", async () => {
@@ -379,14 +498,18 @@ describe("OpenClaw plugin lifecycle", () => {
     await serviceCalls[0]!.start();
 
     expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-      port: 8402,
-      baseUrl: "https://api.deepseek.com",
-      apiKey: "config-key",
-      headers: {
-        "X-Provider": "yes",
-        "X-Override": "request",
-        "X-Request": "yes",
-      },
+      config: expect.objectContaining({
+        proxy: expect.objectContaining({
+          port: 8402,
+          upstreamUrl: "https://api.deepseek.com",
+          apiKey: "config-key",
+          headers: {
+            "X-Provider": "yes",
+            "X-Override": "request",
+            "X-Request": "yes",
+          },
+        }),
+      }),
       traceLogger: expect.objectContaining({
         debug: expect.any(Function),
         info: expect.any(Function),
@@ -419,9 +542,13 @@ describe("OpenClaw plugin lifecycle", () => {
     await serviceCalls[0]!.start();
 
     expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-      port: 8402,
-      baseUrl: "https://api.deepseek.com",
-      apiKey: "camel-key",
+      config: expect.objectContaining({
+        proxy: expect.objectContaining({
+          port: 8402,
+          upstreamUrl: "https://api.deepseek.com",
+          apiKey: "camel-key",
+        }),
+      }),
       traceLogger: expect.objectContaining({
         debug: expect.any(Function),
         info: expect.any(Function),
@@ -464,14 +591,18 @@ describe("OpenClaw plugin lifecycle", () => {
     await serviceCalls[0]!.start();
 
     expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-      port: 8402,
-      baseUrl: "https://api.deepseek.com",
-      headers: {
-        authorization: "Bearer request-token",
-        "x-uid": "request-user",
-        "x-provider-only": "yes",
-        "x-request-only": "yes",
-      },
+      config: expect.objectContaining({
+        proxy: expect.objectContaining({
+          port: 8402,
+          upstreamUrl: "https://api.deepseek.com",
+          headers: {
+            authorization: "Bearer request-token",
+            "x-uid": "request-user",
+            "x-provider-only": "yes",
+            "x-request-only": "yes",
+          },
+        }),
+      }),
       traceLogger: expect.objectContaining({
         debug: expect.any(Function),
         info: expect.any(Function),
@@ -488,29 +619,7 @@ describe("OpenClaw plugin lifecycle", () => {
     const api = {
       config: {},
       pluginConfig: {
-        config: {
-          version: 1,
-          proxy: { port: 8402, upstreamUrl: "https://api.deepseek.com" },
-          models: [
-            { id: "test-model", upstreamModel: "test-model", name: "Test", inputPrice: 0.1, outputPrice: 0.2, contextWindow: 100000, maxOutput: 4000, reasoning: false, toolCalling: true }
-          ],
-          publicModels: {
-            auto: { kind: "router" },
-            flash: { kind: "alias", candidates: ["test-model"] }
-          },
-          routing: {
-            tiers: {
-              SIMPLE: { publicModel: "flash" },
-              MEDIUM: { publicModel: "flash" },
-              COMPLEX: { publicModel: "flash" },
-              REASONING: { publicModel: "flash" }
-            },
-            tierBoundaries: { simpleMedium: 0.0, mediumComplex: 0.3, complexReasoning: 0.5 },
-            confidenceThreshold: 0.7,
-            structuredOutputMinTier: "MEDIUM",
-            ambiguousDefaultTier: "MEDIUM"
-          }
-        },
+        config: createPluginConfig(),
         port: "9999",
         upstreamUrl: "https://plugin.example.com",
       },
@@ -531,14 +640,10 @@ describe("OpenClaw plugin lifecycle", () => {
     });
 
     await serviceCalls[0]!.start();
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+    expectStartProxyRuntimeCall(startProxy, {
       port: 9999,
-      baseUrl: "https://plugin.example.com",
-      traceLogger: expect.objectContaining({
-        debug: expect.any(Function),
-        info: expect.any(Function),
-      }),
-    }));
+      upstreamUrl: "https://plugin.example.com",
+    });
   });
 
   it("falls back to config port when pluginConfig port override is invalid", async () => {
@@ -550,29 +655,7 @@ describe("OpenClaw plugin lifecycle", () => {
     const api = {
       config: {},
       pluginConfig: {
-        config: {
-          version: 1,
-          proxy: { port: 8402, upstreamUrl: "https://api.deepseek.com" },
-          models: [
-            { id: "test-model", upstreamModel: "test-model", name: "Test", inputPrice: 0.1, outputPrice: 0.2, contextWindow: 100000, maxOutput: 4000, reasoning: false, toolCalling: true }
-          ],
-          publicModels: {
-            auto: { kind: "router" },
-            flash: { kind: "alias", candidates: ["test-model"] }
-          },
-          routing: {
-            tiers: {
-              SIMPLE: { publicModel: "flash" },
-              MEDIUM: { publicModel: "flash" },
-              COMPLEX: { publicModel: "flash" },
-              REASONING: { publicModel: "flash" }
-            },
-            tierBoundaries: { simpleMedium: 0.0, mediumComplex: 0.3, complexReasoning: 0.5 },
-            confidenceThreshold: 0.7,
-            structuredOutputMinTier: "MEDIUM",
-            ambiguousDefaultTier: "MEDIUM"
-          }
-        },
+        config: createPluginConfig(),
         port: "nope",
       },
       registerProvider: vi.fn(),
@@ -592,14 +675,10 @@ describe("OpenClaw plugin lifecycle", () => {
     });
 
     await serviceCalls[0]!.start();
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+    expectStartProxyRuntimeCall(startProxy, {
       port: 8402,
-      baseUrl: "https://api.deepseek.com",
-      traceLogger: expect.objectContaining({
-        debug: expect.any(Function),
-        info: expect.any(Function),
-      }),
-    }));
+      upstreamUrl: "https://api.deepseek.com",
+    });
   });
 
   it.each(["discovery", "cli-metadata", "setup-only", "tool-discovery"])(
@@ -922,29 +1001,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     const api = {
       config: {},
       pluginConfig: {
-        config: {
-          version: 1,
-          proxy: { port: 9000, upstreamUrl: "https://api.deepseek.com" },
-          models: [
-            { id: "test-model", upstreamModel: "test-model", name: "Test", inputPrice: 0.1, outputPrice: 0.2, contextWindow: 100000, maxOutput: 4000, reasoning: false, toolCalling: true }
-          ],
-          publicModels: {
-            auto: { kind: "router" },
-            flash: { kind: "alias", candidates: ["test-model"] }
-          },
-          routing: {
-            tiers: {
-              SIMPLE: { publicModel: "flash" },
-              MEDIUM: { publicModel: "flash" },
-              COMPLEX: { publicModel: "flash" },
-              REASONING: { publicModel: "flash" }
-            },
-            tierBoundaries: { simpleMedium: 0.0, mediumComplex: 0.3, complexReasoning: 0.5 },
-            confidenceThreshold: 0.7,
-            structuredOutputMinTier: "MEDIUM",
-            ambiguousDefaultTier: "MEDIUM"
-          }
-        }
+        config: createPluginConfig(9000, "https://api.deepseek.com"),
       },
       registerService: (service: OpenClawService) => serviceCalls.push(service),
     };
@@ -962,10 +1019,10 @@ describe("OpenClaw plugin config-driven loading", () => {
     });
 
     await serviceCalls[0]!.start();
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+    expectStartProxyRuntimeCall(startProxy, {
       port: 9000,
-      baseUrl: "https://api.deepseek.com",
-    }));
+      upstreamUrl: "https://api.deepseek.com",
+    });
   });
 
   it("loads config from pluginConfig.configPath (file)", async () => {
@@ -977,7 +1034,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     const api = {
       config: {},
       pluginConfig: {
-        configPath: "/Users/ming/Documents/Code/2026/ai_repos/deepseek-router-mini/test/fixtures/minimal-config.json"
+        configPath: fixtureConfigPath,
       },
       registerService: (service: OpenClawService) => serviceCalls.push(service),
     };
@@ -996,20 +1053,23 @@ describe("OpenClaw plugin config-driven loading", () => {
 
     await serviceCalls[0]!.start();
     expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-      port: 8402,
-      baseUrl: "https://api.deepseek.com",
+      config: expect.objectContaining({
+        proxy: expect.objectContaining({
+          port: 8402,
+          upstreamUrl: "https://api.deepseek.com",
+        }),
+      }),
     }));
   });
 
-  it("throws error when both config and configPath are missing", () => {
+  it("throws error when plugin config is missing", () => {
     const startProxy = vi.fn();
     const api = {
       config: {},
-      pluginConfig: {},
       registerService: (service: OpenClawService) => serviceCalls.push(service),
     };
 
-    expect(() => registerOpenClawPlugin(api, { startProxy })).toThrow(
+    expect(() => registerOpenClawPluginWithoutDefaults(api, { startProxy })).toThrow(
       "xiaoyi-router: missing config. Set pluginConfig.config or pluginConfig.configPath"
     );
   });
@@ -1023,7 +1083,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     const api = {
       config: {},
       pluginConfig: {
-        configPath: "/Users/ming/Documents/Code/2026/ai_repos/deepseek-router-mini/test/fixtures/minimal-config.json",
+        configPath: fixtureConfigPath,
         port: 9999
       },
       registerService: (service: OpenClawService) => serviceCalls.push(service),
@@ -1042,10 +1102,10 @@ describe("OpenClaw plugin config-driven loading", () => {
     });
 
     await serviceCalls[0]!.start();
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+    expectStartProxyRuntimeCall(startProxy, {
       port: 9999,
-      baseUrl: "https://api.deepseek.com",
-    }));
+      upstreamUrl: "https://api.deepseek.com",
+    });
   });
 
   it("allows pluginConfig.upstreamUrl to override config file upstreamUrl", async () => {
@@ -1057,7 +1117,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     const api = {
       config: {},
       pluginConfig: {
-        configPath: "/Users/ming/Documents/Code/2026/ai_repos/deepseek-router-mini/test/fixtures/minimal-config.json",
+        configPath: fixtureConfigPath,
         upstreamUrl: "https://override.example.com"
       },
       registerService: (service: OpenClawService) => serviceCalls.push(service),
@@ -1066,10 +1126,10 @@ describe("OpenClaw plugin config-driven loading", () => {
     registerOpenClawPlugin(api, { startProxy });
 
     await serviceCalls[0]!.start();
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+    expectStartProxyRuntimeCall(startProxy, {
       port: 8402,
-      baseUrl: "https://override.example.com",
-    }));
+      upstreamUrl: "https://override.example.com",
+    });
   });
 });
 
@@ -1093,6 +1153,9 @@ describe("OpenClaw plugin default export", () => {
     const services: OpenClawService[] = [];
     const api = {
       config: {},
+      pluginConfig: {
+        config: createPluginConfig(),
+      },
       registerProvider: vi.fn(),
       registerService: (service: OpenClawService) => services.push(service),
     };

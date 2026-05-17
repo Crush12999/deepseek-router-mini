@@ -1,6 +1,6 @@
-import { DEFAULT_BASE_URL, DEFAULT_PORT } from "./config.js";
 import { loadConfig } from "./config-loader.js";
 import type { RawConfig } from "./config-schema.js";
+import { resolveProxyConfig, type ProxyConfigOverrides } from "./proxy-config-resolver.js";
 import { startProxy as startProxyImpl } from "./proxy.js";
 import type { ProxyHandle, ProxyOptions } from "./proxy.js";
 import {
@@ -22,6 +22,7 @@ export type OpenClawPluginApi = {
   pluginConfig?: {
     port?: unknown;
     upstreamUrl?: unknown;
+    trace?: unknown;
     config?: RawConfig;
     configPath?: string;
   } | Record<string, unknown>;
@@ -116,10 +117,10 @@ function parsePortValue(value: unknown): number | undefined {
 /**
  * 从 pluginConfig 加载配置
  * @param api OpenClaw 插件 API
- * @returns 解析后的配置对象，或 undefined 如果未提供配置源（向后兼容）
- * @throws {Error} 如果 pluginConfig 存在但 config 和 configPath 都缺失
+ * @returns 解析后的配置对象
+ * @throws {Error} 如果缺少 config/configPath
  */
-export function resolvePluginConfig(api: OpenClawPluginApi): RawConfig | undefined {
+export function resolvePluginConfig(api: OpenClawPluginApi): RawConfig {
   const inline = api.pluginConfig?.config;
   const path = api.pluginConfig?.configPath;
 
@@ -130,39 +131,26 @@ export function resolvePluginConfig(api: OpenClawPluginApi): RawConfig | undefin
     return loadConfig({ kind: "file", path: path as string });
   }
 
-  // 向后兼容：如果只有 port/upstreamUrl，返回 undefined（由 proxy.ts legacy 模式处理）
-  const hasConfigFields = api.pluginConfig?.config || api.pluginConfig?.configPath;
-  const hasLegacyFields = api.pluginConfig?.port || api.pluginConfig?.upstreamUrl;
-
-  if (!hasConfigFields && !hasLegacyFields && api.pluginConfig) {
-    throw new Error("xiaoyi-router: missing config. Set pluginConfig.config or pluginConfig.configPath");
-  }
-
-  if (!hasConfigFields) {
-    return undefined; // 向后兼容或无 pluginConfig
-  }
-
-  return undefined;
+  throw new Error("xiaoyi-router: missing config. Set pluginConfig.config or pluginConfig.configPath");
 }
 
-function resolvePluginRuntimeConfig(api: OpenClawPluginApi): { port: number; upstreamUrl: string } {
+function normalizeTraceOverride(value: unknown): "off" | "summary" | "debug" | undefined {
+  return value === "off" || value === "summary" || value === "debug" ? value : undefined;
+}
+
+function resolvePluginRuntimeConfig(api: OpenClawPluginApi): RawConfig {
   const config = resolvePluginConfig(api);
   const portOverride = parsePortValue(api.pluginConfig?.port);
   const upstreamOverride = typeof api.pluginConfig?.upstreamUrl === "string" && api.pluginConfig.upstreamUrl.trim()
     ? api.pluginConfig.upstreamUrl
     : undefined;
-
-  if (config) {
-    return {
-      port: portOverride ?? config.proxy.port,
-      upstreamUrl: upstreamOverride ?? config.proxy.upstreamUrl,
-    };
-  }
-
-  // 向后兼容：无配置源时使用默认值
   return {
-    port: portOverride ?? DEFAULT_PORT,
-    upstreamUrl: upstreamOverride ?? DEFAULT_BASE_URL,
+    ...config,
+    proxy: resolveProxyConfig(config.proxy, {
+      port: portOverride,
+      upstreamUrl: upstreamOverride,
+      trace: normalizeTraceOverride(api.pluginConfig?.trace),
+    }),
   };
 }
 
@@ -207,7 +195,7 @@ function mergeHeaders(...records: Array<Record<string, string>>): Record<string,
   return headers;
 }
 
-function resolveProviderRuntimeOverrides(api: OpenClawPluginApi): Pick<ProxyOptions, "apiKey" | "headers"> {
+function resolveProviderRuntimeOverrides(api: OpenClawPluginApi): ProxyConfigOverrides {
   const provider = readProviderConfig(api);
   const request = provider.request && typeof provider.request === "object" && !Array.isArray(provider.request)
     ? (provider.request as JsonObject)
@@ -279,8 +267,7 @@ async function replaceActiveProxy(proxy: ProxyHandle): Promise<void> {
 function createProxyService(
   api: OpenClawPluginApi,
   runtime: PluginRuntime,
-  port: number,
-  upstreamUrl: string,
+  runtimeConfig: RawConfig,
   providerBaseUrl: string,
 ): OpenClawService {
   let serviceProxy: ProxyHandle | undefined;
@@ -300,17 +287,16 @@ function createProxyService(
 
         await closeActiveProxy();
         const proxy = await runtime.startProxy({
-          port,
-          baseUrl: upstreamUrl,
+          config: runtimeConfig,
           traceLogger: createTraceLogger(api),
-          ...resolveProviderRuntimeOverrides(api),
+          session: {},
         });
         serviceProxy = proxy;
         await replaceActiveProxy(proxy);
         api.logger?.info?.(`Xiaoyi Router listening on ${providerBaseUrl}`);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        api.logger?.error?.(`Xiaoyi Router failed to start on port ${port}: ${message}`);
+        api.logger?.error?.(`Xiaoyi Router failed to start on port ${runtimeConfig.proxy.port}: ${message}`);
         throw error;
       }
     },
@@ -328,8 +314,13 @@ function createProxyService(
 }
 
 export function registerOpenClawPlugin(api: OpenClawPluginApi, runtime: PluginRuntime = defaultRuntime): void {
-  const { port, upstreamUrl } = resolvePluginRuntimeConfig(api);
-  const providerBaseUrl = localProviderBaseUrl(port);
+  const runtimeConfig = resolvePluginRuntimeConfig(api);
+  const providerOverrides = resolveProviderRuntimeOverrides(api);
+  const startConfig: RawConfig = {
+    ...runtimeConfig,
+    proxy: resolveProxyConfig(runtimeConfig.proxy, providerOverrides),
+  };
+  const providerBaseUrl = localProviderBaseUrl(startConfig.proxy.port);
   const shouldRegisterRuntimeService = shouldStartRuntimeProxy(api.registrationMode);
 
   if (!shouldRegisterRuntimeService) {
@@ -340,7 +331,7 @@ export function registerOpenClawPlugin(api: OpenClawPluginApi, runtime: PluginRu
   const previousConfig = structuredClone(api.config);
   injectXiaoyiModelsConfig(api.config, providerBaseUrl);
   try {
-    api.registerService(createProxyService(api, runtime, port, upstreamUrl, providerBaseUrl));
+    api.registerService(createProxyService(api, runtime, startConfig, providerBaseUrl));
   } catch (error) {
     for (const key of Object.keys(api.config)) {
       delete api.config[key];

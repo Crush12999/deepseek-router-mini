@@ -127,7 +127,11 @@ describe("cli", () => {
       });
 
       expect(startProxy).toHaveBeenCalledWith(
-        expect.objectContaining({ port: 8402 }),
+        expect.objectContaining({
+          config: expect.objectContaining({
+            proxy: expect.objectContaining({ port: 8402 }),
+          }),
+        }),
       );
     });
 
@@ -147,7 +151,11 @@ describe("cli", () => {
       });
 
       expect(startProxy).toHaveBeenCalledWith(
-        expect.objectContaining({ apiKey: "sk-override" }),
+        expect.objectContaining({
+          config: expect.objectContaining({
+            proxy: expect.objectContaining({ apiKey: "sk-override" }),
+          }),
+        }),
       );
     });
 
@@ -167,7 +175,11 @@ describe("cli", () => {
       });
 
       expect(startProxy).toHaveBeenCalledWith(
-        expect.objectContaining({ port: 9999 }),
+        expect.objectContaining({
+          config: expect.objectContaining({
+            proxy: expect.objectContaining({ port: 9999 }),
+          }),
+        }),
       );
     });
   });

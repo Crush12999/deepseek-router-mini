@@ -1,4 +1,5 @@
 import type { PublicModelConfig } from "./config-schema.js";
+import type { PhysicalModel } from "./config-schema.js";
 import type { ModelRegistry } from "./model-registry.js";
 
 /**
@@ -14,6 +15,22 @@ export function resolvePublicModel(
   publicModels: Record<string, PublicModelConfig>,
   registry: ModelRegistry,
 ): string {
+  return resolvePublicModelCandidate(publicModelId, publicModels, registry).id;
+}
+
+/**
+ * 将公开模型 ID 解析为物理模型
+ * @param publicModelId 公开模型 ID（如 "flash", "pro"）
+ * @param publicModels 公开模型配置映射
+ * @param registry 物理模型注册表
+ * @returns 选中的物理模型
+ * @throws {Error} 如果公开模型不存在、kind 为 "router" 或候选模型不可用
+ */
+export function resolvePublicModelCandidate(
+  publicModelId: string,
+  publicModels: Record<string, PublicModelConfig>,
+  registry: ModelRegistry,
+): PhysicalModel {
   const pub = publicModels[publicModelId];
   if (!pub) {
     throw new Error(`Unknown public model: ${publicModelId}`);
@@ -22,39 +39,49 @@ export function resolvePublicModel(
     throw new Error("Cannot resolve router model directly");
   }
 
-  const selection = pub.selection ?? "cheapest";
-  const sorted = sortCandidates(pub.candidates, registry, selection);
-  if (sorted.length === 0) {
-    throw new Error(`No candidates available for public model: ${publicModelId}`);
+  const candidateId = selectCandidateId(pub.candidates, registry, pub.selection ?? "cheapest");
+  const candidate = registry.get(candidateId);
+  if (!candidate) {
+    throw new Error(`Candidate model not found in registry: ${candidateId}`);
   }
-  return sorted[0]!;
+  return candidate;
 }
 
-/**
- * 根据 selection 规则对候选模型排序
- * @param candidates 候选物理模型 ID 列表
- * @param registry 物理模型注册表
- * @param selection 选择规则："cheapest" 按价格升序，"first" 保持原顺序
- * @returns 排序后的候选列表
- */
-function sortCandidates(
+function selectCandidateId(
   candidates: string[],
   registry: ModelRegistry,
   selection: "cheapest" | "first",
-): string[] {
-  if (selection === "first") return candidates;
+): string {
+  if (candidates.length === 0) {
+    throw new Error("No candidates available for public model");
+  }
+  if (selection === "first") {
+    const first = candidates[0]!;
+    if (!registry.has(first)) {
+      throw new Error(`Candidate model not found in registry: ${first}`);
+    }
+    return first;
+  }
 
-  return [...candidates].sort((a, b) => {
-    const modelA = registry.get(a);
-    const modelB = registry.get(b);
-    if (!modelA) {
-      throw new Error(`Candidate model not found in registry: ${a}`);
+  let selectedId: string | undefined;
+  let selectedCost = Number.POSITIVE_INFINITY;
+
+  for (const candidateId of candidates) {
+    const model = registry.get(candidateId);
+    if (!model) {
+      throw new Error(`Candidate model not found in registry: ${candidateId}`);
     }
-    if (!modelB) {
-      throw new Error(`Candidate model not found in registry: ${b}`);
+
+    const cost = model.inputPrice + model.outputPrice;
+    if (cost < selectedCost) {
+      selectedId = candidateId;
+      selectedCost = cost;
     }
-    const costA = modelA.inputPrice + modelA.outputPrice;
-    const costB = modelB.inputPrice + modelB.outputPrice;
-    return costA - costB;
-  });
+  }
+
+  if (!selectedId) {
+    throw new Error("No candidates available for public model");
+  }
+
+  return selectedId;
 }

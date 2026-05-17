@@ -181,12 +181,14 @@ export async function runCli(rawArgs: string[], runtime: Partial<CliRuntime> = {
     upstreamUrl: args.baseUrl,
     apiKey: args.apiKey,
   });
+  const runtimeConfig = {
+    ...rawConfig,
+    proxy: proxyConfig,
+  };
 
   // Start proxy
   const handle = await rt.startProxy({
-    port: proxyConfig.port,
-    baseUrl: proxyConfig.upstreamUrl,
-    apiKey: proxyConfig.apiKey,
+    config: runtimeConfig,
   });
   rt.log(`xiaoyi-router listening on http://127.0.0.1:${handle.port}`);
 
