@@ -312,7 +312,7 @@ describe("proxy", () => {
     expect(res.headers.get(legacyRouterHeader("model"))).toBeNull();
     expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-flash");
     expect(res.headers.get("x-xiaoyi-router-tier")).toBe("SIMPLE");
-    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("auto:simple:flash:first-pass");
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("auto:simple:deepseek-v4-flash:first-pass");
     expect(res.headers.get("x-xiaoyi-router-routed")).toBe("true");
     expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
   });
@@ -358,7 +358,7 @@ describe("proxy", () => {
     expect(res.status).toBe(200);
     expect(logSpy).toHaveBeenCalledTimes(1);
     expect(logSpy).toHaveBeenCalledWith(
-      "[xiaoyi-router] auto:simple:flash:first-pass model=deepseek-v4-flash fallback=false",
+      "[xiaoyi-router] auto:simple:deepseek-v4-flash:first-pass model=deepseek-v4-flash fallback=false",
     );
   });
 
@@ -390,11 +390,12 @@ describe("proxy", () => {
     const rawLog = String(logSpy.mock.calls[0]?.[0]);
     const logged = JSON.parse(rawLog) as Record<string, unknown>;
     expect(logged).toMatchObject({
-      trace: "auto:medium:flash:first-pass",
+      trace: "auto:medium:deepseek-v4-flash:first-pass",
       requestedModel: "auto",
+      routedModel: "deepseek-v4-flash",
       actualModel: "deepseek-v4-flash",
       tier: "MEDIUM",
-      profile: "auto",
+      profile: "default",
       method: "rules",
       routed: true,
       fallback: false,
@@ -403,7 +404,7 @@ describe("proxy", () => {
     expect(logged).toHaveProperty("confidence");
     expect(logged).toHaveProperty("score");
     expect(logged).toHaveProperty("agenticScore");
-    expect(logged).toHaveProperty("attempts");
+    expect(logged).toHaveProperty("attempts", [{ model: "deepseek-v4-flash", status: "success" }]);
     expect(rawLog).not.toContain(routePrompt);
     expect(rawLog).not.toContain("Never leak this complete system prompt.");
     expect(rawLog).not.toContain("should-not-be-logged");
@@ -433,7 +434,8 @@ describe("proxy", () => {
     expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-pro");
     const logged = JSON.parse(String(logSpy.mock.calls[0]?.[0])) as Record<string, unknown>;
     expect(logged).toMatchObject({
-      trace: "auto:reasoning:pro:reasoning",
+      trace: "auto:reasoning:deepseek-v4-pro:reasoning",
+      routedModel: "deepseek-v4-pro",
       actualModel: "deepseek-v4-pro",
       sessionAction: "set",
     });
@@ -802,7 +804,7 @@ describe("proxy", () => {
     expect(res.headers.get(legacyRouterHeader("model"))).toBeNull();
     expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-flash");
     expect(res.headers.get("x-xiaoyi-router-tier")).toBe("SIMPLE");
-    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("auto:simple:flash:error");
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("auto:simple:deepseek-v4-flash:error");
     expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("false");
     expect(count).toBe(1);
     expect(requestedModels(upstream.requests)).toEqual(["deepseek-v4-flash"]);
@@ -831,7 +833,7 @@ describe("proxy", () => {
     expect(res.status).toBe(429);
     expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-flash");
     expect(res.headers.get("x-xiaoyi-router-tier")).toBe("MEDIUM");
-    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("explicit:medium:flash:user");
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("explicit:medium:deepseek-v4-flash:user");
     expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("false");
     expect(count).toBe(1);
     expect(requestedModels(upstream.requests)).toEqual(["deepseek-v4-flash"]);
@@ -919,7 +921,7 @@ describe("proxy", () => {
     expect(res.headers.get(legacyRouterHeader("model"))).toBeNull();
     expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-pro");
     expect(res.headers.get("x-xiaoyi-router-tier")).toBe("COMPLEX");
-    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("explicit:complex:pro:user");
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("explicit:complex:deepseek-v4-pro:user");
     expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("false");
     expect(upstream.requests).toHaveLength(1);
   });
@@ -941,7 +943,7 @@ describe("proxy", () => {
     expect(res.status).toBe(502);
     expect(res.headers.get("x-xiaoyi-router-model")).toBe("deepseek-v4-pro");
     expect(res.headers.get("x-xiaoyi-router-tier")).toBe("COMPLEX");
-    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("explicit:complex:pro:user");
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("explicit:complex:deepseek-v4-pro:user");
     expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("false");
     expect(await res.json()).toMatchObject({ error: expect.any(String) });
   });
@@ -1051,6 +1053,6 @@ describe("proxy", () => {
     expect(res.headers.get("x-xiaoyi-router-fallback")).toBe("false");
     expect(res.headers.get("x-xiaoyi-router-upstream")).toBe(upstream.baseUrl);
     expect(res.headers.get("x-xiaoyi-router-tier")).toBe("MEDIUM");
-    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("explicit:medium:flash:user");
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("explicit:medium:deepseek-v4-flash:user");
   });
 });

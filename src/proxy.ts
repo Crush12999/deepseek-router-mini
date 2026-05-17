@@ -275,6 +275,8 @@ async function fetchUpstream(
 
 type SelectedModel = {
   model: RealModelId;
+  routedModel: string;
+  actualModel: string;
   tier: Tier;
   decision?: RoutingDecision;
   routeText: string;
@@ -371,12 +373,12 @@ function emitProxyTrace(
 ): string {
   const writer = resolveTraceWriter(cfg.traceLogger);
   const reason = getTraceReason(selected, failed);
-  // Use selected.model (RealModelId) for trace building to maintain compatibility
   const trace = buildTraceSummary({
     requestedModel: selected.requestedModel,
-    actualModel: selected.model,
+    routedModel: selected.routedModel,
+    actualModel: selected.actualModel,
     tier: finalTier,
-    profile: selected.decision?.profile,
+    profile: selected.decision?.profile ?? "default",
     reason,
     routed: selected.routed,
     explicit: selected.explicit,
@@ -385,13 +387,16 @@ function emitProxyTrace(
   const detail: RouteTraceLog = {
     trace,
     requestedModel: selected.requestedModel,
-    actualModel: selected.model,
+    routedModel: selected.routedModel,
+    actualModel: selected.actualModel,
     tier: finalTier,
-    profile: selected.decision?.profile,
-    method: selected.decision?.method,
-    confidence: selected.decision?.confidence,
-    score: selected.decision?.score,
-    agenticScore: selected.decision?.agenticScore,
+    profile: selected.decision?.profile ?? "default",
+    reason,
+    explicit: selected.explicit,
+    method: selected.decision?.method ?? "rules",
+    confidence: selected.decision?.confidence ?? 1,
+    score: selected.decision?.score ?? 0,
+    agenticScore: selected.decision?.agenticScore ?? 0,
     routed: selected.routed,
     fallback: false,
     attempts,
@@ -423,6 +428,8 @@ function chooseModel(
     const tier = getExplicitTier(model);
     return {
       model,
+      routedModel: requestedModel,
+      actualModel: model,
       tier,
       routeText: prompt.routeText,
       requestedModel,
@@ -440,6 +447,8 @@ function chooseModel(
     sessionStore.touchSession(sessionId);
     return {
       model: existing.model,
+      routedModel: existing.model,
+      actualModel: existing.model,
       tier: existing.tier,
       routeText: prompt.routeText,
       requestedModel,
@@ -457,10 +466,13 @@ function chooseModel(
     getMaxOutputTokens(body as Record<string, unknown>),
     buildRouterOptions(hasTools),
   );
-  const model = toRealModelId(decision.model);
+  const routedModel = decision.publicModel;
+  const model = toRealModelId(routedModel);
 
   return {
     model,
+    routedModel,
+    actualModel: model,
     tier: decision.tier,
     decision,
     routeText: prompt.routeText,
@@ -550,10 +562,14 @@ async function proxyChat(
   const attempt = await fetchUpstream(cfg, req, bodyObj, upstreamModel);
   const attempts: TraceAttempt[] = [
     attempt.ok
-      ? { model: selected.model, result: "ok", status: attempt.response.status }
-      : attempt.reason === "retryable"
-        ? { model: selected.model, result: "retryable", status: attempt.response.status }
-        : { model: selected.model, result: "network_error" },
+      ? { model: selected.actualModel, status: "success" }
+      : {
+          model: selected.actualModel,
+          status: "error",
+          error: attempt.reason === "network_error"
+            ? "network_error"
+            : `upstream_http_${attempt.response.status}`,
+        },
   ];
   const finalTier = selected.tier;
   let sessionAction = selected.sessionAction;

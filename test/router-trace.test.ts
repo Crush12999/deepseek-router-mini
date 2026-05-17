@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { MODEL_ROLES } from "../src/models.js";
-import type { RealModelId } from "../src/models.js";
 import {
   buildTraceSummary,
   emitRouteTrace,
@@ -30,32 +29,36 @@ describe("router tracing helper", () => {
         requestedModel: "auto",
         profile: "agentic",
         tier: "MEDIUM",
+        routedModel: "custom-fast",
         actualModel: MODEL_ROLES.light,
         reason: "first-pass",
         routed: true,
         explicit: false,
         fallback: false,
       }),
-    ).toBe("auto:agentic:flash:first-pass");
+    ).toBe("auto:agentic:custom-fast:first-pass");
 
     expect(
       buildTraceSummary({
         requestedModel: "auto",
-        profile: "auto",
+        profile: "default",
         tier: "MEDIUM",
+        routedModel: MODEL_ROLES.light,
         actualModel: MODEL_ROLES.light,
         reason: "first-pass",
         routed: true,
         explicit: false,
         fallback: false,
       }),
-    ).toBe("auto:medium:flash:first-pass");
+    ).toBe("auto:medium:deepseek-v4-flash:first-pass");
   });
 
   it("uses explicit as the request code for non-routed traces", () => {
     expect(
       buildTraceSummary({
         requestedModel: MODEL_ROLES.strong,
+        routedModel: MODEL_ROLES.strong,
+        profile: "default",
         tier: "COMPLEX",
         actualModel: MODEL_ROLES.strong,
         reason: "user",
@@ -63,13 +66,15 @@ describe("router tracing helper", () => {
         explicit: true,
         fallback: false,
       }),
-    ).toBe("explicit:complex:pro:user");
+    ).toBe("explicit:complex:deepseek-v4-pro:user");
   });
 
   it("uses explicit as the request code when explicit is true even if routed is true", () => {
     expect(
       buildTraceSummary({
         requestedModel: MODEL_ROLES.strong,
+        routedModel: MODEL_ROLES.strong,
+        profile: "default",
         tier: "COMPLEX",
         actualModel: MODEL_ROLES.strong,
         reason: "user",
@@ -77,7 +82,7 @@ describe("router tracing helper", () => {
         explicit: true,
         fallback: false,
       }),
-    ).toBe("explicit:complex:pro:user");
+    ).toBe("explicit:complex:deepseek-v4-pro:user");
   });
 
   it("previews prompts by Unicode code point without splitting Chinese characters", () => {
@@ -102,14 +107,21 @@ describe("router tracing helper", () => {
     emitRouteTrace(
       "off",
       {
-        trace: "auto:medium:flash:first-pass",
+        trace: "auto:medium:deepseek-v4-flash:first-pass",
         requestedModel: "auto",
+        routedModel: MODEL_ROLES.light,
         actualModel: MODEL_ROLES.light,
         tier: "MEDIUM",
-        profile: "auto",
+        profile: "default",
+        reason: "first-pass",
+        explicit: false,
         method: "rules",
+        confidence: 1,
+        score: 0,
+        agenticScore: 0,
         routed: true,
         fallback: false,
+        attempts: [],
         sessionAction: "none",
       },
       writes.push.bind(writes),
@@ -121,18 +133,20 @@ describe("router tracing helper", () => {
   it("emits JSON trace logs in debug mode with planned reasons and attempt results", () => {
     const writes: string[] = [];
     const reasons: TraceReason[] = ["first-pass", "user", "reasoning", "error"];
-    const attemptModels: RealModelId[] = [MODEL_ROLES.strong];
     const attempts: TraceAttempt[] = [
-      { model: attemptModels[0]!, result: "retryable", status: 429 },
-      { model: attemptModels[0]!, result: "network_error" },
-      { model: attemptModels[0]!, result: "ok" },
+      { model: MODEL_ROLES.strong, status: "error", error: "upstream_http_429" },
+      { model: MODEL_ROLES.strong, status: "error", error: "network_error" },
+      { model: MODEL_ROLES.strong, status: "success" },
     ];
     const detail: RouteTraceLog = {
-      trace: "auto:complex:pro:reasoning",
+      trace: "auto:complex:deepseek-v4-pro:reasoning",
       requestedModel: "auto",
+      routedModel: MODEL_ROLES.strong,
       actualModel: MODEL_ROLES.strong,
       tier: "COMPLEX",
-      profile: "auto",
+      profile: "default",
+      reason: "reasoning",
+      explicit: false,
       method: "rules",
       confidence: 0.75,
       score: 2.5,
@@ -149,7 +163,8 @@ describe("router tracing helper", () => {
     expect(writes).toHaveLength(1);
     const logged = JSON.parse(writes[0]!) as RouteTraceLog;
     expect(logged).toMatchObject({
-      trace: "auto:complex:pro:reasoning",
+      trace: "auto:complex:deepseek-v4-pro:reasoning",
+      routedModel: MODEL_ROLES.strong,
       actualModel: MODEL_ROLES.strong,
       attempts,
       promptPreview: "Summarize Redis briefly.",
@@ -163,21 +178,28 @@ describe("router tracing helper", () => {
     emitRouteTrace(
       "summary",
       {
-        trace: "auto:medium:flash:first-pass",
+        trace: "auto:medium:deepseek-v4-flash:first-pass",
         requestedModel: "auto",
+        routedModel: MODEL_ROLES.light,
         actualModel: MODEL_ROLES.light,
         tier: "MEDIUM",
-        profile: "auto",
+        profile: "default",
+        reason: "first-pass",
+        explicit: false,
         method: "rules",
+        confidence: 1,
+        score: 0,
+        agenticScore: 0,
         routed: true,
         fallback: false,
+        attempts: [],
         sessionAction: "none",
       },
       writes.push.bind(writes),
     );
 
     expect(writes).toEqual([
-      "[xiaoyi-router] auto:medium:flash:first-pass model=deepseek-v4-flash fallback=false",
+      "[xiaoyi-router] auto:medium:deepseek-v4-flash:first-pass model=deepseek-v4-flash fallback=false",
     ]);
   });
 
@@ -186,14 +208,21 @@ describe("router tracing helper", () => {
       throw new Error("log sink failed");
     };
     const detail: RouteTraceLog = {
-      trace: "auto:medium:flash:first-pass",
+      trace: "auto:medium:deepseek-v4-flash:first-pass",
       requestedModel: "auto",
+      routedModel: MODEL_ROLES.light,
       actualModel: MODEL_ROLES.light,
       tier: "MEDIUM",
-      profile: "auto",
+      profile: "default",
+      reason: "first-pass",
+      explicit: false,
       method: "rules",
+      confidence: 1,
+      score: 0,
+      agenticScore: 0,
       routed: true,
       fallback: false,
+      attempts: [],
       sessionAction: "none",
     };
 
@@ -217,21 +246,28 @@ describe("router tracing helper", () => {
     const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const detail: RouteTraceLog = {
-      trace: "auto:medium:flash:first-pass",
+      trace: "auto:medium:deepseek-v4-flash:first-pass",
       requestedModel: "auto",
+      routedModel: MODEL_ROLES.light,
       actualModel: MODEL_ROLES.light,
       tier: "MEDIUM",
-      profile: "auto",
+      profile: "default",
+      reason: "first-pass",
+      explicit: false,
       method: "rules",
+      confidence: 1,
+      score: 0,
+      agenticScore: 0,
       routed: true,
       fallback: false,
+      attempts: [],
       sessionAction: "none",
     };
 
     emitRouteTrace("summary", detail);
 
     expect(debugSpy).toHaveBeenCalledWith(
-      "[xiaoyi-router] auto:medium:flash:first-pass model=deepseek-v4-flash fallback=false",
+      "[xiaoyi-router] auto:medium:deepseek-v4-flash:first-pass model=deepseek-v4-flash fallback=false",
     );
     expect(errorSpy).not.toHaveBeenCalled();
   });

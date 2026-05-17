@@ -1,6 +1,4 @@
-import { MODEL_ROLES } from "../models.js";
-import type { RealModelId } from "../models.js";
-import type { RoutingDecision, Tier } from "./types.js";
+import type { Tier } from "./types.js";
 
 export type TraceMode = "off" | "summary" | "debug";
 export type TraceReason =
@@ -14,35 +12,30 @@ export type TraceSessionAction =
   | "reuse";
 
 export type TraceAttempt = {
-  model: RealModelId;
-  result: "ok" | "retryable" | "network_error";
-  status?: number;
+  model: string;
+  status: "success" | "error";
+  error?: string;
 };
 
 export type TraceSummaryInput = {
   requestedModel: string;
-  actualModel: RealModelId;
+  routedModel: string;
+  actualModel: string;
   tier: Tier;
-  profile?: RoutingDecision["profile"];
+  profile: string;
   reason: TraceReason;
   routed: boolean;
   explicit: boolean;
   fallback: boolean;
 };
 
-export type RouteTraceLog = {
+export type RouteTraceLog = TraceSummaryInput & {
   trace: string;
-  requestedModel: string;
-  actualModel: RealModelId;
-  tier: Tier;
-  profile?: RoutingDecision["profile"];
-  method?: RoutingDecision["method"];
-  confidence?: number;
-  score?: number;
-  agenticScore?: number;
-  routed: boolean;
-  fallback: boolean;
-  attempts?: TraceAttempt[];
+  method: string;
+  confidence: number;
+  score: number;
+  agenticScore: number;
+  attempts: TraceAttempt[];
   sessionAction: TraceSessionAction;
   promptPreview?: string;
 };
@@ -77,10 +70,12 @@ export function getPromptPreview(prompt: string): string {
 }
 
 export function buildTraceSummary(input: TraceSummaryInput): string {
+  const requestCode = getRequestCode(input);
+  const profileCode = getProfileOrTierCode(input.profile, input.tier);
   return [
-    getRequestCode(input),
-    getProfileOrTierCode(input),
-    input.actualModel === MODEL_ROLES.light ? "flash" : "pro",
+    requestCode,
+    profileCode,
+    input.routedModel,
     input.reason,
   ].join(":");
 }
@@ -124,10 +119,10 @@ function getRequestCode(input: TraceSummaryInput): string {
   return "auto";
 }
 
-function getProfileOrTierCode(input: TraceSummaryInput): string {
-  if (input.profile === "agentic") {
+function getProfileOrTierCode(profile: string, tier: Tier): string {
+  if (profile === "agentic") {
     return "agentic";
   }
 
-  return input.tier.toLowerCase();
+  return tier.toLowerCase();
 }
