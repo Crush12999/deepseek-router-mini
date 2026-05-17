@@ -48,7 +48,7 @@ export function selectModel(
   );
 
   return {
-    model,
+    publicModel: model,
     tier,
     confidence,
     method,
@@ -88,43 +88,8 @@ export function calculateModelCost(
   return { costEstimate, baselineCost, savings };
 }
 
-export function filterByToolCalling(
-  models: string[],
-  hasTools: boolean,
-  supportsToolCalling: (modelId: string) => boolean,
-): string[] {
-  if (!hasTools) return models;
-  const filtered = models.filter(supportsToolCalling);
-  return filtered.length > 0 ? filtered : models;
-}
-
-export function filterByVision(
-  models: string[],
-  hasVision: boolean,
-  supportsVision: (modelId: string) => boolean,
-): string[] {
-  if (!hasVision) return models;
-  const filtered = models.filter(supportsVision);
-  return filtered.length > 0 ? filtered : models;
-}
-
 export function filterByExcludeList(models: string[], excludeList: Set<string>): string[] {
   if (excludeList.size === 0) return models;
   const filtered = models.filter((model) => !excludeList.has(model));
   return filtered.length > 0 ? filtered : models;
-}
-
-export function getFallbackChainFiltered(
-  tier: Tier,
-  tierConfigs: Record<Tier, TierConfig>,
-  estimatedTotalTokens: number,
-  getContextWindow: (modelId: string) => number | undefined,
-): string[] {
-  const fullChain = getFallbackChain(tier, tierConfigs);
-  const filtered = fullChain.filter((modelId) => {
-    const contextWindow = getContextWindow(modelId);
-    return contextWindow === undefined || contextWindow >= estimatedTotalTokens * 1.1;
-  });
-
-  return filtered.length > 0 ? filtered : fullChain;
 }

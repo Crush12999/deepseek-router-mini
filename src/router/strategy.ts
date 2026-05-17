@@ -12,11 +12,17 @@ export class RulesStrategy implements RouterStrategy {
     options: RouterOptions,
   ): RoutingDecision {
     const { config, modelPricing } = options;
+    if (!config) {
+      throw new Error("Routing config is required at runtime");
+    }
+    if (!modelPricing) {
+      throw new Error("Model pricing is required at runtime");
+    }
     const fullText = `${systemPrompt ?? ""} ${prompt}`;
     const estimatedTokens = Math.ceil(fullText.length / 4);
     const ruleResult = classifyByRules(prompt, systemPrompt, estimatedTokens, config.scoring);
 
-    const { tierConfigs, profile, profileSuffix } = chooseTierConfigs(ruleResult.agenticScore ?? 0, options);
+    const { tierConfigs, profile, profileSuffix } = chooseTierConfigs(options);
 
     const hasStructuredOutput = systemPrompt ? /json|structured|schema/i.test(systemPrompt) : false;
     let tier: Tier;
@@ -27,14 +33,14 @@ export class RulesStrategy implements RouterStrategy {
       tier = ruleResult.tier;
       confidence = ruleResult.confidence;
     } else {
-      tier = config.overrides.ambiguousDefaultTier;
+      tier = config.overrides?.ambiguousDefaultTier ?? "MEDIUM";
       confidence = 0.5;
       reasoning += ` | ambiguous -> default: ${tier}`;
     }
 
     if (hasStructuredOutput) {
       const tierRank: Record<Tier, number> = { SIMPLE: 0, MEDIUM: 1, COMPLEX: 2, REASONING: 3 };
-      const minTier = config.overrides.structuredOutputMinTier;
+      const minTier = config.overrides?.structuredOutputMinTier ?? "MEDIUM";
       if (tierRank[tier] < tierRank[minTier]) {
         reasoning += ` | upgraded to ${minTier} (structured output)`;
         tier = minTier;
@@ -62,37 +68,21 @@ export class RulesStrategy implements RouterStrategy {
 }
 
 function chooseTierConfigs(
-  agenticScore: number,
-  options: RouterOptions,
+  options: RouterOptions | undefined,
 ): {
   tierConfigs: Record<Tier, TierConfig>;
   profile: RoutingDecision["profile"];
   profileSuffix: string;
 } {
-  const { config } = options;
-
-  const agenticMode = config.overrides.agenticMode;
-  const hasTools = options.hasTools ?? false;
-  const isAutoAgentic = agenticScore >= 0.5;
-  let useAgenticTiers: boolean;
-
-  if (agenticMode === false) {
-    useAgenticTiers = false;
-  } else if (agenticMode === true) {
-    useAgenticTiers = config.agenticTiers != null;
-  } else {
-    useAgenticTiers = (hasTools || isAutoAgentic) && config.agenticTiers != null;
-  }
-
-  const tierConfigs = useAgenticTiers ? config.agenticTiers! : config.tiers;
-  if (!tierConfigs) {
-    throw new Error("RoutingConfig.tiers is required but not provided");
+  const config = options?.config;
+  if (!config?.tiers) {
+    throw new Error("Routing tiers are required at runtime");
   }
 
   return {
-    tierConfigs,
-    profile: useAgenticTiers ? "agentic" : "auto",
-    profileSuffix: useAgenticTiers ? ` | agentic${hasTools ? " (tools)" : ""}` : "",
+    tierConfigs: config.tiers,
+    profile: "default",
+    profileSuffix: "",
   };
 }
 

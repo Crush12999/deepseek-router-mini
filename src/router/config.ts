@@ -1,16 +1,7 @@
-import { MODEL_ROLES } from "../models.js";
 import type { RoutingConfig } from "./types.js";
 
-export const DEFAULT_ROUTING_CONFIG: RoutingConfig = {
+export const DEFAULT_ROUTING_CONFIG = {
   version: "2.0",
-
-  classifier: {
-    llmModel: MODEL_ROLES.light,
-    llmMaxTokens: 10,
-    llmTemperature: 0,
-    promptTruncationChars: 500,
-    cacheTtlMs: 3_600_000,
-  },
 
   scoring: {
     tokenCountThresholds: { simple: 50, complex: 500 },
@@ -1030,4 +1021,4 @@ export const DEFAULT_ROUTING_CONFIG: RoutingConfig = {
     structuredOutputMinTier: "MEDIUM",
     ambiguousDefaultTier: "MEDIUM",
   },
-};
+} satisfies RoutingConfig;

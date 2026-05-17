@@ -20,10 +20,7 @@ export { getStrategy, registerStrategy, RulesStrategy } from "./strategy.js";
 export {
   calculateModelCost,
   filterByExcludeList,
-  filterByToolCalling,
-  filterByVision,
   getFallbackChain,
-  getFallbackChainFiltered,
   selectModel,
 } from "./selector.js";
 export {
@@ -34,7 +31,6 @@ export {
   resolveTraceWriter,
 } from "./trace.js";
 export type {
-  ClassifierConfig,
   OverridesConfig,
   RouterOptions,
   RouterStrategy,

@@ -1,6 +1,7 @@
+import type { Tier } from "../config-schema.js";
 import type { ModelPricing } from "./selector.js";
 
-export type Tier = "SIMPLE" | "MEDIUM" | "COMPLEX" | "REASONING";
+export type { Tier } from "../config-schema.js";
 
 export type ScoringResult = {
   score: number;
@@ -12,7 +13,7 @@ export type ScoringResult = {
 };
 
 export type RoutingDecision = {
-  model: string;
+  publicModel: string;
   tier: Tier;
   confidence: number;
   method: "rules" | "llm";
@@ -23,7 +24,7 @@ export type RoutingDecision = {
   savings: number;
   agenticScore?: number;
   tierConfigs?: Record<Tier, TierConfig>;
-  profile?: "auto" | "agentic";
+  profile?: "default";
 };
 
 export interface RouterStrategy {
@@ -37,9 +38,9 @@ export interface RouterStrategy {
 }
 
 export type RouterOptions = {
-  config: RoutingConfig;
-  modelPricing: Map<string, ModelPricing>;
-  hasTools?: boolean;
+  strategy?: string;
+  config?: RoutingConfig;
+  modelPricing?: Map<string, ModelPricing>;
 };
 
 export type TierConfig = {
@@ -71,25 +72,14 @@ export type ScoringConfig = {
   confidenceThreshold: number;
 };
 
-export type ClassifierConfig = {
-  llmModel: string;
-  llmMaxTokens: number;
-  llmTemperature: number;
-  promptTruncationChars: number;
-  cacheTtlMs: number;
-};
-
 export type OverridesConfig = {
-  structuredOutputMinTier: Tier;
-  ambiguousDefaultTier: Tier;
-  agenticMode?: boolean;
+  structuredOutputMinTier?: Tier;
+  ambiguousDefaultTier?: Tier;
 };
 
 export type RoutingConfig = {
   version: string;
-  classifier: ClassifierConfig;
   scoring: ScoringConfig;
   tiers?: Record<Tier, TierConfig>;
-  agenticTiers?: Record<Tier, TierConfig> | null;
-  overrides: OverridesConfig;
+  overrides?: OverridesConfig;
 };

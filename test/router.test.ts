@@ -1,41 +1,29 @@
 import { describe, expect, it } from "vitest";
 
-import { MODEL_ROLES } from "../src/models.js";
 import {
   DEFAULT_ROUTING_CONFIG,
   calculateModelCost,
   filterByExcludeList,
-  filterByToolCalling,
-  filterByVision,
   getFallbackChain,
-  getFallbackChainFiltered,
   route,
 } from "../src/router/index.js";
 import type { ModelPricing, RouterOptions, RoutingConfig, Tier, TierConfig } from "../src/router/index.js";
 
 const pricing: Map<string, ModelPricing> = new Map([
-  [MODEL_ROLES.light, { inputPrice: 0.28, outputPrice: 0.42 }],
-  [MODEL_ROLES.strong, { inputPrice: 0.56, outputPrice: 1.68 }],
+  ["flash", { inputPrice: 0.28, outputPrice: 0.42 }],
+  ["pro", { inputPrice: 0.56, outputPrice: 1.68 }],
 ]);
 
 const TEST_TIERS: Record<Tier, TierConfig> = {
-  SIMPLE: { primary: MODEL_ROLES.light, fallback: [] },
-  MEDIUM: { primary: MODEL_ROLES.light, fallback: [MODEL_ROLES.strong] },
-  COMPLEX: { primary: MODEL_ROLES.strong, fallback: [] },
-  REASONING: { primary: MODEL_ROLES.strong, fallback: [] },
-};
-
-const TEST_AGENTIC_TIERS: Record<Tier, TierConfig> = {
-  SIMPLE: { primary: MODEL_ROLES.light, fallback: [] },
-  MEDIUM: { primary: MODEL_ROLES.light, fallback: [MODEL_ROLES.strong] },
-  COMPLEX: { primary: MODEL_ROLES.strong, fallback: [] },
-  REASONING: { primary: MODEL_ROLES.strong, fallback: [] },
+  SIMPLE: { primary: "flash", fallback: [] },
+  MEDIUM: { primary: "flash", fallback: ["pro"] },
+  COMPLEX: { primary: "pro", fallback: [] },
+  REASONING: { primary: "pro", fallback: [] },
 };
 
 const TEST_CONFIG: RoutingConfig = {
   ...DEFAULT_ROUTING_CONFIG,
   tiers: TEST_TIERS,
-  agenticTiers: TEST_AGENTIC_TIERS,
 };
 
 function options(overrides: Partial<RouterOptions> = {}): RouterOptions {
@@ -47,6 +35,8 @@ function options(overrides: Partial<RouterOptions> = {}): RouterOptions {
 }
 
 const expectedRemovedRoutingFields = [
+  "agenticTiers",
+  "classifier",
   "ecoTiers",
   "premiumTiers",
 ] as const;
@@ -69,16 +59,16 @@ const representativeScoringKeywords = [
 const deprecatedCodeKeywords = ["debug", "fix", "refactor"] as const;
 
 describe("smart router", () => {
-  it("routes simple prompts to the light model", () => {
+  it("routes simple prompts to the flash public model", () => {
     const decision = route("Summarize Redis in one paragraph.", undefined, 512, options());
 
-    expect(decision.model).toBe(MODEL_ROLES.light);
+    expect(decision.publicModel).toBe("flash");
     expect(decision.tier).toBe("SIMPLE");
-    expect(decision.profile).toBe("auto");
+    expect(decision.profile).toBe("default");
     expect(decision.tierConfigs).toBe(TEST_TIERS);
   });
 
-  it("routes reasoning prompts to the strong model", () => {
+  it("routes reasoning prompts to the pro public model", () => {
     const decision = route(
       "Prove this theorem step by step and derive the result formally.",
       undefined,
@@ -86,22 +76,22 @@ describe("smart router", () => {
       options(),
     );
 
-    expect(decision.model).toBe(MODEL_ROLES.strong);
+    expect(decision.publicModel).toBe("pro");
     expect(["COMPLEX", "REASONING"]).toContain(decision.tier);
     expect(decision.reasoning).toContain("reasoning");
   });
 
-  it("routes tool and lightweight agentic requests through agentic tiers without forcing pro", () => {
+  it("keeps agentic signals without switching tier profiles", () => {
     const decision = route(
       "Read the file and summarize the config.",
       undefined,
       2048,
-      options({ hasTools: true }),
+      options(),
     );
 
-    expect(decision.model).toBe(MODEL_ROLES.light);
-    expect(decision.profile).toBe("agentic");
-    expect(decision.tierConfigs).toBe(TEST_AGENTIC_TIERS);
+    expect(decision.publicModel).toBe("flash");
+    expect(decision.profile).toBe("default");
+    expect(decision.tierConfigs).toBe(TEST_TIERS);
     expect(decision.agenticScore).toBeGreaterThan(0);
     expect(decision.score).toEqual(expect.any(Number));
   });
@@ -114,7 +104,7 @@ describe("smart router", () => {
       options(),
     );
 
-    expect(decision.model).toBe(MODEL_ROLES.light);
+    expect(decision.publicModel).toBe("flash");
     expect(decision.tier).toBe("MEDIUM");
     expect(decision.reasoning).toContain("structured output");
   });
@@ -123,7 +113,7 @@ describe("smart router", () => {
     const longPrompt = "Summarize this long transcript.\n" + "a".repeat(128_001 * 4);
     const decision = route(longPrompt, undefined, 512, options());
 
-    expect(decision.model).toBe(MODEL_ROLES.light);
+    expect(decision.publicModel).toBe("flash");
     expect(decision.tier).toBe("MEDIUM");
     expect(decision.reasoning).not.toContain("128000 tokens");
   });
@@ -138,38 +128,22 @@ describe("smart router", () => {
 
     expect(decision.agenticScore).toBeGreaterThan(0);
     expect(decision.reasoning).toMatch(/agentic/i);
-    expect(decision.profile).toBe("agentic");
+    expect(decision.profile).toBe("default");
   });
 
-  it("exposes fallback chain helpers", () => {
-    expect(getFallbackChain("MEDIUM", TEST_TIERS)).toEqual([
-      MODEL_ROLES.light,
-      MODEL_ROLES.strong,
-    ]);
-
-    expect(
-      getFallbackChainFiltered("MEDIUM", TEST_TIERS, 950_000, (model) =>
-        model === MODEL_ROLES.light ? 1_000_000 : 2_000_000,
-      ),
-    ).toEqual([MODEL_ROLES.strong]);
+  it("exposes fallback chain helpers using public model ids", () => {
+    expect(getFallbackChain("MEDIUM", TEST_TIERS)).toEqual(["flash", "pro"]);
   });
 
-  it("exposes filter helpers with safe fallback behavior", () => {
-    const chain = [MODEL_ROLES.light, MODEL_ROLES.strong];
+  it("exposes exclude-list filtering with safe fallback behavior", () => {
+    const chain = ["flash", "pro"];
 
-    expect(filterByToolCalling(chain, true, (model) => model === MODEL_ROLES.strong)).toEqual([
-      MODEL_ROLES.strong,
-    ]);
-    expect(filterByToolCalling(chain, false, () => false)).toEqual(chain);
-    expect(filterByVision(chain, true, () => false)).toEqual(chain);
-    expect(filterByExcludeList(chain, new Set([MODEL_ROLES.light]))).toEqual([
-      MODEL_ROLES.strong,
-    ]);
+    expect(filterByExcludeList(chain, new Set(["flash"]))).toEqual(["pro"]);
     expect(filterByExcludeList(chain, new Set(chain))).toEqual(chain);
   });
 
-  it("calculates cost relative to the strong baseline", () => {
-    const cost = calculateModelCost(MODEL_ROLES.light, pricing, 1_000_000, 1_000_000, MODEL_ROLES.strong);
+  it("calculates cost relative to the pro baseline", () => {
+    const cost = calculateModelCost("flash", pricing, 1_000_000, 1_000_000, "pro");
 
     expect(cost.costEstimate).toBeCloseTo(0.7);
     expect(cost.baselineCost).toBeCloseTo(2.24);
@@ -185,6 +159,10 @@ describe("smart router", () => {
         field,
       );
     }
+    expect(DEFAULT_ROUTING_CONFIG.overrides).toEqual({
+      structuredOutputMinTier: "MEDIUM",
+      ambiguousDefaultTier: "MEDIUM",
+    });
   });
 
   it("keeps representative 15-dimension scoring keywords and thresholds aligned", () => {
@@ -200,6 +178,10 @@ describe("smart router", () => {
         `expected codeKeywords to drop deprecated token ${keyword}`,
       ).not.toContain(keyword);
     }
+    expect(DEFAULT_ROUTING_CONFIG.scoring.tokenCountThresholds).toEqual({
+      simple: 50,
+      complex: 500,
+    });
     expect(DEFAULT_ROUTING_CONFIG.scoring.tierBoundaries).toMatchObject({
       simpleMedium: 0,
       mediumComplex: 0.3,

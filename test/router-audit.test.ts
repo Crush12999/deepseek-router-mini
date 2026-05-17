@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { MODEL_ROLES } from "../src/models.js";
 import type { RealModelId } from "../src/models.js";
+import { MODEL_ROLES } from "../src/models.js";
 import {
   DEFAULT_ROUTING_CONFIG,
   buildTraceSummary,
@@ -18,28 +18,20 @@ import type {
 } from "../src/router/index.js";
 
 const pricing: Map<string, ModelPricing> = new Map([
-  [MODEL_ROLES.light, { inputPrice: 0.28, outputPrice: 0.42 }],
-  [MODEL_ROLES.strong, { inputPrice: 0.56, outputPrice: 1.68 }],
+  ["flash", { inputPrice: 0.28, outputPrice: 0.42 }],
+  ["pro", { inputPrice: 0.56, outputPrice: 1.68 }],
 ]);
 
 const TEST_TIERS: Record<Tier, TierConfig> = {
-  SIMPLE: { primary: MODEL_ROLES.light, fallback: [] },
-  MEDIUM: { primary: MODEL_ROLES.light, fallback: [MODEL_ROLES.strong] },
-  COMPLEX: { primary: MODEL_ROLES.strong, fallback: [] },
-  REASONING: { primary: MODEL_ROLES.strong, fallback: [] },
-};
-
-const TEST_AGENTIC_TIERS: Record<Tier, TierConfig> = {
-  SIMPLE: { primary: MODEL_ROLES.light, fallback: [] },
-  MEDIUM: { primary: MODEL_ROLES.light, fallback: [MODEL_ROLES.strong] },
-  COMPLEX: { primary: MODEL_ROLES.strong, fallback: [] },
-  REASONING: { primary: MODEL_ROLES.strong, fallback: [] },
+  SIMPLE: { primary: "flash", fallback: [] },
+  MEDIUM: { primary: "flash", fallback: ["pro"] },
+  COMPLEX: { primary: "pro", fallback: [] },
+  REASONING: { primary: "pro", fallback: [] },
 };
 
 const TEST_CONFIG: RoutingConfig = {
   ...DEFAULT_ROUTING_CONFIG,
   tiers: TEST_TIERS,
-  agenticTiers: TEST_AGENTIC_TIERS,
 };
 
 type AuditSample = {
@@ -47,12 +39,11 @@ type AuditSample = {
   prompt: string;
   systemPrompt?: string;
   maxOutputTokens?: number;
-  hasTools?: boolean;
 };
 
 type AuditResult = {
   name: string;
-  model: RealModelId;
+  publicModel: "flash" | "pro";
   tier: RoutingDecision["tier"];
   profile: RoutingDecision["profile"];
   score: number | undefined;
@@ -68,18 +59,15 @@ function options(overrides: Partial<RouterOptions> = {}): RouterOptions {
   };
 }
 
-function expectRealModel(
+function expectPublicModel(
   sampleName: string,
   decision: RoutingDecision,
-): RealModelId {
-  if (
-    decision.model !== MODEL_ROLES.light &&
-    decision.model !== MODEL_ROLES.strong
-  ) {
+): "flash" | "pro" {
+  if (decision.publicModel !== "flash" && decision.publicModel !== "pro") {
     throw new Error(
-      `Unexpected routed model in audit: ${JSON.stringify({
+      `Unexpected routed public model in audit: ${JSON.stringify({
         name: sampleName,
-        model: decision.model,
+        publicModel: decision.publicModel,
         tier: decision.tier,
         profile: decision.profile,
         score: decision.score,
@@ -88,7 +76,11 @@ function expectRealModel(
     );
   }
 
-  return decision.model;
+  return decision.publicModel;
+}
+
+function toActualModel(publicModel: "flash" | "pro"): RealModelId {
+  return publicModel === "flash" ? MODEL_ROLES.light : MODEL_ROLES.strong;
 }
 
 function audit(sample: AuditSample): AuditResult {
@@ -96,15 +88,16 @@ function audit(sample: AuditSample): AuditResult {
     sample.prompt,
     sample.systemPrompt,
     sample.maxOutputTokens ?? 1024,
-    options({ hasTools: sample.hasTools }),
+    options(),
   );
-  const actualModel = expectRealModel(sample.name, decision);
+  const publicModel = expectPublicModel(sample.name, decision);
+  const actualModel = toActualModel(publicModel);
   const reason: TraceReason =
     decision.tier === "REASONING" ? "reasoning" : "first-pass";
 
   return {
     name: sample.name,
-    model: actualModel,
+    publicModel,
     tier: decision.tier,
     profile: decision.profile,
     score: decision.score,
@@ -123,7 +116,7 @@ function audit(sample: AuditSample): AuditResult {
 }
 
 describe("OpenClaw route audit", () => {
-  it("keeps the non-explicit sample distribution calibrated to 80-90% flash", () => {
+  it("keeps the non-explicit sample distribution calibrated to 80-96% flash", () => {
     const samples: AuditSample[] = [
       {
         name: "summary",
@@ -152,12 +145,10 @@ describe("OpenClaw route audit", () => {
       {
         name: "tools request",
         prompt: "Read the file and summarize the config.",
-        hasTools: true,
       },
       {
         name: "simple agentic",
         prompt: "Open the README, update the typo, and verify the sentence reads naturally.",
-        hasTools: true,
       },
       {
         name: "structured output",
@@ -200,7 +191,6 @@ describe("OpenClaw route audit", () => {
         name: "multi-file debugging",
         prompt:
           "Debug failing tests across multiple files, identify the root cause, refactor the architecture, and verify the fix.",
-        hasTools: true,
       },
       {
         name: "long context boundary",
@@ -218,7 +208,7 @@ describe("OpenClaw route audit", () => {
 
     const results = samples.map(audit);
     const flashCount = results.filter(
-      (result) => result.model === MODEL_ROLES.light,
+      (result) => result.publicModel === "flash",
     ).length;
     const flashShare = flashCount / results.length;
     const failureMessage = JSON.stringify(results, null, 2);
@@ -237,35 +227,34 @@ describe("OpenClaw route audit", () => {
     );
 
     expect(longContext, failureMessage).toMatchObject({
-      model: MODEL_ROLES.light,
+      publicModel: "flash",
       tier: "MEDIUM",
     });
     expect(longContextBoundary, failureMessage).toMatchObject({
-      model: MODEL_ROLES.light,
+      publicModel: "flash",
       tier: "MEDIUM",
     });
     expect(formalReasoning, failureMessage).toMatchObject({
-      model: MODEL_ROLES.strong,
+      publicModel: "pro",
       tier: "REASONING",
     });
     expect(multiFileDebugging, failureMessage).toMatchObject({
-      profile: "agentic",
+      profile: "default",
     });
     expect(multiFileDebugging?.tier, failureMessage).not.toBe("REASONING");
     expect(simpleAgentic, failureMessage).toMatchObject({
-      model: MODEL_ROLES.light,
-      profile: "agentic",
+      publicModel: "flash",
+      profile: "default",
     });
     expect(flashShare, failureMessage).toBeGreaterThanOrEqual(0.8);
     expect(flashShare, failureMessage).toBeLessThanOrEqual(0.96);
   });
 
-  it("keeps debugging probes out of reasoning unless they need complex agentic routing", () => {
+  it("keeps debugging probes out of reasoning unless they need complex routing", () => {
     const probes: AuditSample[] = [
       {
         name: "short debug diagnosis",
         prompt: "Debug the failing tests and identify the root cause.",
-        hasTools: true,
       },
       {
         name: "brief root cause explanation",
@@ -290,12 +279,10 @@ describe("OpenClaw route audit", () => {
         name: "summarize multi-file debug phrase",
         prompt:
           "Summarize the failing tests across files and verify the fix in one bullet.",
-        hasTools: true,
       },
       {
         name: "list referenced files",
         prompt: "List the files referenced by the failing tests.",
-        hasTools: true,
       },
       {
         name: "polish multi-file debug phrase",
@@ -306,37 +293,30 @@ describe("OpenClaw route audit", () => {
         name: "describe repo regression phrase",
         prompt:
           "Describe this note: investigate the failing tests across the repo and identify what broke.",
-        hasTools: true,
       },
       {
         name: "chinese explain related modules",
         prompt: "解释这句话：检查相关模块，找出为什么测试套件开始失败，并修复后验证全部通过。",
-        hasTools: true,
       },
       {
         name: "chinese rewrite related modules",
         prompt: "改写这句话：检查相关模块，找出为什么测试套件开始失败，并修复后验证全部通过。",
-        hasTools: true,
       },
       {
         name: "chinese summarize related modules",
         prompt: "总结这句话：检查相关模块，找出为什么测试套件开始失败，并修复后验证全部通过。",
-        hasTools: true,
       },
       {
         name: "chinese list related modules",
         prompt: "列出这句话里提到的文件范围：检查相关模块，找出为什么测试套件开始失败，并修复后验证全部通过。",
-        hasTools: true,
       },
       {
         name: "chinese describe related modules",
         prompt: "描述这句话：检查相关模块，找出为什么测试套件开始失败，并修复后验证全部通过。",
-        hasTools: true,
       },
       {
         name: "chinese explain-note related modules",
         prompt: "说明这句话：检查相关模块，找出为什么测试套件开始失败，并修复后验证全部通过。",
-        hasTools: true,
       },
       {
         name: "chinese ordinary qa",
@@ -345,12 +325,10 @@ describe("OpenClaw route audit", () => {
       {
         name: "chinese simple agentic",
         prompt: "打开 README，修正一个错别字，并确认句子读起来自然。",
-        hasTools: true,
       },
       {
         name: "chinese short debug diagnosis",
         prompt: "调试失败测试并找出根因。",
-        hasTools: true,
       },
       {
         name: "chinese formal reasoning",
@@ -363,92 +341,76 @@ describe("OpenClaw route audit", () => {
       {
         name: "debug tests across files",
         prompt: "Debug tests across files and verify the fix.",
-        hasTools: true,
       },
       {
         name: "inspect auth session files",
         prompt:
           "Inspect the auth and session files to find why the integration suite started failing.",
-        hasTools: true,
       },
       {
         name: "look through router proxy modules",
         prompt:
           "Look through the router and proxy modules and figure out why the test suite started failing.",
-        hasTools: true,
       },
       {
         name: "open related files after config refactor",
         prompt:
           "Open the related files and investigate why the tests started failing after the config refactor.",
-        hasTools: true,
       },
       {
         name: "inspect auth session regression",
         prompt:
           "Inspect the auth and session files, trace the regression, and tell me why the integration suite is failing.",
-        hasTools: true,
       },
       {
         name: "inspect auth session explain why",
         prompt:
           "Inspect the auth and session files, explain why the integration suite started failing, patch it, and verify the fix.",
-        hasTools: true,
       },
       {
         name: "inspect auth session describe why",
         prompt:
           "Inspect the auth and session files, describe why the integration suite started failing, patch it, and verify the fix.",
-        hasTools: true,
       },
       {
         name: "check router proxy suite failing",
         prompt:
           "Check the router and proxy modules and work out why the suite is failing after yesterday's refactor.",
-        hasTools: true,
       },
       {
         name: "investigate failing tests across repo",
         prompt:
           "Investigate the failing tests across the repo and identify what broke.",
-        hasTools: true,
       },
       {
         name: "chinese related modules regression",
         prompt: "检查相关模块，找出为什么测试套件开始失败，并修复后验证全部通过。",
-        hasTools: true,
       },
       {
         name: "chinese explain why related modules",
         prompt: "检查相关模块，说明为什么测试套件开始失败，并修复后验证全部通过。",
-        hasTools: true,
       },
       {
         name: "chinese describe why related modules",
         prompt: "检查相关模块，描述为什么测试套件开始失败，并修复后验证全部通过。",
-        hasTools: true,
       },
       {
         name: "inspect relevant modules",
         prompt:
           "Inspect the relevant modules, find why the suite breaks, patch it, and make sure the tests are green.",
-        hasTools: true,
       },
       {
         name: "investigate broken tests across codebase",
         prompt:
           "Investigate the broken tests across the codebase, determine what changed, repair it, and rerun the suite.",
-        hasTools: true,
       },
       {
         name: "fix failing tests in multiple files",
         prompt: "Fix the failing tests in multiple files and verify everything passes.",
-        hasTools: true,
       },
       {
         name: "open related files debug failures",
         prompt: "Open several related files, debug the test failures, and confirm the fix.",
-        hasTools: true,
       },
       {
         name: "real e2e debug this failing test across multiple files",
@@ -480,7 +442,7 @@ describe("OpenClaw route audit", () => {
         result.name === "chinese describe related modules" ||
         result.name === "chinese explain-note related modules",
     );
-    const complexAgenticResults = results.filter(
+    const complexRoutingResults = results.filter(
       (result) =>
         result.name === "debug tests across files" ||
         result.name === "inspect auth session files" ||
@@ -504,18 +466,21 @@ describe("OpenClaw route audit", () => {
     );
 
     expect(shortDebugDiagnosis, failureMessage).toMatchObject({
-      model: MODEL_ROLES.light,
+      publicModel: "flash",
+      profile: "default",
     });
     expect(shortDebugDiagnosis?.tier, failureMessage).not.toBe("REASONING");
     expect(briefRootCauseExplanation, failureMessage).toMatchObject({
-      model: MODEL_ROLES.light,
+      publicModel: "flash",
+      profile: "default",
     });
     expect(briefRootCauseExplanation?.tier, failureMessage).not.toBe(
       "REASONING",
     );
     for (const result of negativeControlResults) {
       expect(result, failureMessage).toMatchObject({
-        model: MODEL_ROLES.light,
+        publicModel: "flash",
+        profile: "default",
       });
       expect(["COMPLEX", "REASONING"], failureMessage).not.toContain(
         result.tier,
@@ -524,9 +489,9 @@ describe("OpenClaw route audit", () => {
         "codebase-debugging",
       );
     }
-    for (const result of complexAgenticResults) {
+    for (const result of complexRoutingResults) {
       expect(result, failureMessage).toMatchObject({
-        profile: "agentic",
+        profile: "default",
       });
       expect(result.tier, failureMessage).not.toBe("REASONING");
       expect(result.reasoning, failureMessage).not.toContain(
@@ -534,7 +499,8 @@ describe("OpenClaw route audit", () => {
       );
     }
     expect(directMultiFileDiagnosis, failureMessage).toMatchObject({
-      profile: "auto",
+      publicModel: "flash",
+      profile: "default",
     });
     expect(directMultiFileDiagnosis?.tier, failureMessage).not.toBe("REASONING");
     expect(directMultiFileDiagnosis?.reasoning, failureMessage).not.toContain(
@@ -544,20 +510,20 @@ describe("OpenClaw route audit", () => {
       results.find((result) => result.name === "chinese ordinary qa"),
       failureMessage,
     ).toMatchObject({
-      model: MODEL_ROLES.light,
+      publicModel: "flash",
     });
     expect(
       results.find((result) => result.name === "chinese simple agentic"),
       failureMessage,
     ).toMatchObject({
-      model: MODEL_ROLES.light,
-      profile: "agentic",
+      publicModel: "flash",
+      profile: "default",
     });
     expect(
       results.find((result) => result.name === "chinese short debug diagnosis"),
       failureMessage,
     ).toMatchObject({
-      model: MODEL_ROLES.light,
+      publicModel: "flash",
     });
     expect(
       results.find((result) => result.name === "chinese short debug diagnosis")?.tier,
@@ -567,14 +533,14 @@ describe("OpenClaw route audit", () => {
       results.find((result) => result.name === "chinese formal reasoning"),
       failureMessage,
     ).toMatchObject({
-      model: MODEL_ROLES.strong,
+      publicModel: "pro",
       tier: "REASONING",
     });
     expect(
       results.find((result) => result.name === "chinese long context boundary"),
       failureMessage,
     ).toMatchObject({
-      model: MODEL_ROLES.light,
+      publicModel: "flash",
       tier: "MEDIUM",
     });
   });
