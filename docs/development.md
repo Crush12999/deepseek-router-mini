@@ -1,7 +1,7 @@
-# Xiaoyi Router 开发文档
+# LLM Router 开发文档
 
-本文说明 v0.2.0 当前实现的配置驱动架构、模块职责和维护约束。重点是统一下
-面 3 件事：
+本文说明 v0.2.0 当前实现的配置驱动架构、模块职责和维护约束。重点是统一下面
+3 件事：
 
 - HTTP / OpenClaw 请求边界固定只接受 `auto`。
 - `route()` 只负责返回内部 alias 级别的路由决策。
@@ -9,16 +9,16 @@
 
 ## 1. 项目定位
 
-`xiaoyi-router` 是一个面向 OpenAI-compatible Chat Completions API 的本地
-路由代理，也可以作为 OpenClaw 插件加载。
+`llm-router` 是一个面向 OpenAI-compatible Chat Completions API 的本地路由
+代理，也可以作为 OpenClaw 插件加载。
 
 v0.2.0 当前的模型语义是：
 
 - `auto` 是唯一固定保留、也是唯一对外可请求的 model。
 - 除 `auto` 外，`config.publicModels` 里的条目全部是内部 alias。
 - `models[].id` 直接表示真实上游模型 ID。
-- `flash` / `pro` 只是 `config.example.json` 里的示例 alias，不是固定公共
-  请求协议。
+- `flash` / `pro` 只是 `config.example.json` 里的示例 alias，不是固定公共请
+  求协议。
 
 当前版本只实现：
 
@@ -43,13 +43,32 @@ POST /v1/chat/completions
 - `publicModels.auto` 必须存在，且必须是 `kind: "router"`。
 - alias `candidates[]` 必须引用 `models[].id` 中存在的真实模型。
 - `routing.tiers.*.publicModel` / `fallback[]` 只能引用 alias public model。
-- v0.2.0 不接受 `upstreamModel` 这类旧字段。
+
+### 2.1 Routing thresholds
+
+`routing.tierBoundaries` 和 `routing.confidenceThreshold` 是当前唯一对外开放的
+scoring knobs：
+
+- `routing.tierBoundaries`：定义 `SIMPLE` / `MEDIUM` / `COMPLEX` /
+  `REASONING` 的分界线。
+- `routing.confidenceThreshold`：定义分类器何时把结果视为 ambiguous。
+
+以下参数不属于公开配置合同：
+
+- dimension weights
+- keyword lists
+- token thresholds
+- confidence steepness
+
+这些实现常量保留在 `src/router/config.ts` 中，不提供 `RawConfig` 级别的覆写口。
 
 因此，当前项目的稳定外部合同应理解为：
 
 - **对外请求入口固定为 `auto`**。
 - **内部路由 alias 由配置驱动**。
 - **真实上游 physical model 也由配置驱动**。
+- **公开可调的评分参数只有 `routing.tierBoundaries` 和
+  `routing.confidenceThreshold`**。
 
 ## 3. 请求链路
 
@@ -63,7 +82,7 @@ POST /v1/chat/completions
   -> proxy.ts 将 alias 解析为 physical model
   -> proxy.ts 改写上游请求体 model
   -> 上游 /chat/completions
-  -> proxy.ts 追加 x-xiaoyi-router-* 响应头
+  -> proxy.ts 追加 x-xy-router-* 响应头
 ```
 
 这里最重要的职责边界是：
@@ -89,8 +108,8 @@ POST /v1/chat/completions
 - 把发往上游请求体中的 `model` 改写成真实模型名。
 - 管理 session pinning、上游请求、失败返回和响应头。
 
-换句话说，`route()` 决定“语义层该走哪个 alias”，`proxy.ts` 决定“实际上游该
-发哪个 physical model”。
+换句话说，`route()` 决定「语义层该走哪个 alias」，`proxy.ts` 决定「实际上游该
+发哪个 physical model」。
 
 ## 4. 关键模块职责
 
@@ -112,30 +131,29 @@ POST /v1/chat/completions
 
 ### 5.1 provider 注入
 
-插件不会注册 `xiaoyiprovider` provider，也不会声明 providers。当前策略是：
+插件不会注册 provider，也不会声明 providers。当前策略是：
 
 - 加载 `pluginConfig.config` 或 `pluginConfig.configPath`。
 - 计算本地 provider `baseUrl`，例如 `http://127.0.0.1:8402/v1`。
 - 调用 `generateOpenClawModels(runtimeConfig.publicModels, runtimeConfig.models)`
   生成完整的路由语义元数据。
-- 写回 `models.providers.xiaoyiprovider` 时，再把 `models` 过滤为只暴露
+- 写回 `models.providers.llmrouterprovider` 时，再把 `models` 过滤为只暴露
   `auto`。
 
 这样做的原因是：OpenClaw 始终只需要一个稳定入口 `auto`，具体落到哪个
 alias / physical model 应由 Router 内部决定，而不是把 alias 暴露给
 OpenClaw 去选。
 
-### 5.2 已删除的旧 API
+### 5.2 已删除的旧公开口径
 
 以下旧口径在 v0.2.0 中都应视为已删除：
 
-- `XIAOYI_OPENCLAW_MODELS`
-- `createXiaoyiProvider`
-- 固定 `deepseek-v4-flash` / `deepseek-v4-pro` public request contract
+- 公开请求 `flash` / `pro` 的协议
 - 无配置启动
-- 旧 provider object API
+- 旧 provider helper / object API
+- 基于环境变量的启动路径
 
-如果文档、脚本或外部集成仍依赖这些名字，应改为：
+如果文档、脚本或外部集成仍依赖这些口径，应改为：
 
 - 配置文件中的 `publicModels` / `routing`
 - `generateOpenClawModels()`
@@ -148,22 +166,22 @@ OpenClaw 去选。
 
 `proxy.ts` 会在上游响应基础上追加：
 
-| Header                         | 含义                          |
-| ------------------------------ | ----------------------------- |
-| `x-xiaoyi-router-model`        | Router 内部最终选中的 alias。 |
-| `x-xiaoyi-router-actual-model` | physical / upstream model。   |
-| `x-xiaoyi-router-tier`         | 最终 tier。                   |
-| `x-xiaoyi-router-trace`        | 紧凑 trace。                  |
-| `x-xiaoyi-router-routed`       | 是否经过 `auto` 路由。        |
-| `x-xiaoyi-router-fallback`     | 当前实现固定为 `false`。      |
-| `x-xiaoyi-router-upstream`     | 当前代理配置的上游 API base。 |
+| Header                     | 含义                          |
+| -------------------------- | ----------------------------- |
+| `x-xy-router-model`        | Router 内部最终选中的 alias。 |
+| `x-xy-router-actual-model` | physical / upstream model。   |
+| `x-xy-router-tier`         | 最终 tier。                   |
+| `x-xy-router-trace`        | 紧凑 trace。                  |
+| `x-xy-router-routed`       | 是否经过 `auto` 路由。        |
+| `x-xy-router-fallback`     | 当前实现固定为 `false`。      |
+| `x-xy-router-upstream`     | 当前代理配置的上游 API base。 |
 
 示例：
 
 ```text
-x-xiaoyi-router-model: flash
-x-xiaoyi-router-actual-model: deepseek-v4-flash
-x-xiaoyi-router-tier: MEDIUM
+x-xy-router-model: flash
+x-xy-router-actual-model: deepseek-v4-flash
+x-xy-router-tier: MEDIUM
 ```
 
 这 3 个头应一起理解：
@@ -192,7 +210,7 @@ x-xiaoyi-router-tier: MEDIUM
 ```json
 {
   "error": {
-    "message": "Unknown model "foo". Supported models: auto",
+    "message": "Unknown model \"foo\". Supported models: auto",
     "type": "invalid_request_error",
     "param": null,
     "code": "model_not_found"
@@ -207,10 +225,10 @@ v0.2.0 相关版本示例：
 - `package.json` 版本号：`0.2.0`
 - `src/proxy.ts` 的 `VERSION`：`0.2.0`
 - `/health` 返回的 `version`：`0.2.0`
-- `npm pack` 产物示例：`xiaoyi-router-0.2.0.tgz`
+- `npm pack` 产物示例：`llm-router-0.2.0.tgz`
 
-OpenClaw 侧真正能请求哪些模型，不取决于静态常量，而取决于当前请求边界与
-运行时注入逻辑。当前结果是固定只暴露 `auto`。
+OpenClaw 侧真正能请求哪些模型，不取决于静态常量，而取决于当前请求边界与运
+行时注入逻辑。当前结果是固定只暴露 `auto`。
 
 ## 8. 本地开发与验证
 
@@ -232,14 +250,14 @@ node dist/cli.js --config config.json
 ```bash
 npm test -- test/package-metadata.test.ts
 npm run lint
-npx tsc --noEmit --pretty false
+npm run typecheck
 ```
 
 手工验证时，至少检查：
 
 1. `auto` 请求是否返回 alias 头和 actual model 头。
 2. 显式 alias 请求是否被 `400` 拒绝，并提示 `Supported models: auto`。
-3. OpenClaw `models.providers.xiaoyiprovider.models` 是否只包含 `auto`。
+3. OpenClaw `models.providers.llmrouterprovider.models` 是否只包含 `auto`。
 
 ## 9. 维护提示
 

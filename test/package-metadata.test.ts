@@ -5,6 +5,16 @@ import { describe, expect, it } from "vitest";
 const root = path.resolve(import.meta.dirname, "..");
 const legacyPackageName = ["deepseek", "router", "mini"].join("-");
 const legacyEnv = (name: string) => ["DEEPSEEK", name].join("_");
+const publicSurfaceFiles = [
+  "package.json",
+  "openclaw.plugin.json",
+  "README.md",
+  "docs/usage.md",
+  "docs/development.md",
+  "docs/design.md",
+  "docs/migration-guide.md",
+] as const;
+const forbiddenLegacyPublicNames = ["xiaoyi-router", "Xiaoyi Router", "x-xiaoyi-router"] as const;
 
 describe("package metadata", () => {
   it("declares llm-router package metadata", () => {
@@ -61,5 +71,15 @@ describe("package metadata", () => {
     expect(pluginJson).not.toContain(legacyEnv("ROUTER_PORT"));
     expect(pluginJson).not.toContain(legacyEnv("ROUTER_HEADERS"));
     expect(pluginJson).not.toContain("DEEPSEEK_");
+  });
+
+  it("keeps package and docs free of legacy public names", () => {
+    for (const relativePath of publicSurfaceFiles) {
+      const content = fs.readFileSync(path.join(root, relativePath), "utf8");
+
+      for (const legacyName of forbiddenLegacyPublicNames) {
+        expect(content, `${relativePath} should not contain ${legacyName}`).not.toContain(legacyName);
+      }
+    }
   });
 });
