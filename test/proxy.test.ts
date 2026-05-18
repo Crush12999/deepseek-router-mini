@@ -587,6 +587,40 @@ describe("proxy", () => {
     expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
   });
 
+  it("uses routing threshold overrides from config", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const config = createAliasConfig();
+    config.routing.tierBoundaries = {
+      simpleMedium: -1,
+      mediumComplex: -0.5,
+      complexReasoning: -0.1,
+    };
+    config.routing.confidenceThreshold = 0;
+    const proxy = await startProxy({
+      config: withProxyOverrides(config, {
+        upstreamUrl: upstream.baseUrl,
+        port: 0,
+      }),
+    });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "auto",
+        messages: [{ role: "user", content: "Translate hello" }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-xiaoyi-router-model")).toBe("pro");
+    expect(res.headers.get("x-xiaoyi-router-tier")).toBe("REASONING");
+    expect(res.headers.get("x-xiaoyi-router-trace")).toBe("auto:reasoning:pro:reasoning");
+    expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-pro" });
+  });
+
   it("does not write trace logs by default", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
