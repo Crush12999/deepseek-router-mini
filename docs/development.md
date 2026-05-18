@@ -242,7 +242,7 @@ npm run build
 CLI 启动：
 
 ```bash
-node dist/cli.js --config config.json
+llm-router --config config.json
 ```
 
 建议的最小验证集合：

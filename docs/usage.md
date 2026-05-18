@@ -141,7 +141,7 @@ CLI 必须使用 `--config`，OpenClaw 插件必须提供 `pluginConfig.config` 
 cd /path/to/llm-router
 npm install
 npm run build
-node dist/cli.js --config config.json
+llm-router --config config.json
 ```
 
 健康检查：
