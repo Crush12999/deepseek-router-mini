@@ -16,7 +16,7 @@ import {
 type JsonObject = Record<string, unknown>;
 
 export type OpenClawService = {
-  id: "xiaoyi-router-proxy";
+  id: "llm-router-proxy";
   start: (ctx?: unknown) => Promise<void>;
   stop: (ctx?: unknown) => Promise<void>;
 };
@@ -171,7 +171,7 @@ export function resolvePluginConfig(api: OpenClawPluginApi): RawConfig {
   }
 
   throw new Error(
-    "xiaoyi-router: missing config. Set pluginConfig.config or pluginConfig.configPath",
+    "llm-router: missing config. Set pluginConfig.config or pluginConfig.configPath",
   );
 }
 
@@ -381,7 +381,7 @@ function createProxyService(
   let serviceProxy: ProxyHandle | undefined;
 
   return {
-    id: "xiaoyi-router-proxy",
+    id: "llm-router-proxy",
     async start() {
       try {
         if (serviceProxy && activeProxy === serviceProxy) {
@@ -408,11 +408,11 @@ function createProxyService(
         });
         serviceProxy = proxy;
         await replaceActiveProxy(proxy);
-        api.logger?.info?.(`Xiaoyi Router listening on ${providerBaseUrl}`);
+        api.logger?.info?.(`LLM Router listening on ${providerBaseUrl}`);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         api.logger?.error?.(
-          `Xiaoyi Router failed to start on port ${runtimeConfig.proxy.port}: ${message}`,
+          `LLM Router failed to start on port ${runtimeConfig.proxy.port}: ${message}`,
         );
         throw error;
       }

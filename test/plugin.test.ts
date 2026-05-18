@@ -400,7 +400,7 @@ describe("OpenClaw plugin lifecycle", () => {
     });
     expect(serviceCalls).toHaveLength(1);
     expect(serviceCalls[0]).toMatchObject({
-      id: "xiaoyi-router-proxy",
+      id: "llm-router-proxy",
       start: expect.any(Function),
       stop: expect.any(Function),
     });
@@ -419,7 +419,7 @@ describe("OpenClaw plugin lifecycle", () => {
       }),
     }));
     expect(api.logger.info).toHaveBeenCalledWith(
-      "Xiaoyi Router listening on http://127.0.0.1:8402/v1",
+      "LLM Router listening on http://127.0.0.1:8402/v1",
     );
 
     await serviceCalls[0]!.stop();
@@ -520,7 +520,7 @@ describe("OpenClaw plugin lifecycle", () => {
       });
       expect(serviceCalls).toHaveLength(1);
       expect(serviceCalls[0]).toMatchObject({
-        id: "xiaoyi-router-proxy",
+        id: "llm-router-proxy",
         start: expect.any(Function),
         stop: expect.any(Function),
       });
@@ -1171,7 +1171,7 @@ describe("OpenClaw plugin lifecycle", () => {
       },
     });
     expect(api.logger.error).toHaveBeenCalledWith(
-      "Xiaoyi Router failed to start on port 8402: listen EADDRINUSE: address already in use 127.0.0.1:8402",
+      "LLM Router failed to start on port 8402: listen EADDRINUSE: address already in use 127.0.0.1:8402",
     );
   });
 
@@ -1296,7 +1296,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     };
 
     expect(() => registerOpenClawPluginWithoutDefaults(api, { startProxy })).toThrow(
-      "xiaoyi-router: missing config. Set pluginConfig.config or pluginConfig.configPath"
+      "llm-router: missing config. Set pluginConfig.config or pluginConfig.configPath"
     );
   });
 
@@ -1364,9 +1364,9 @@ describe("OpenClaw plugin default export", () => {
     const mod = await import("../src/index.js");
 
     expect(mod.default).toMatchObject({
-      id: "xiaoyi-router",
-      name: "Xiaoyi Router",
-      description: "Xiaoyi local routing proxy for OpenClaw",
+      id: "llm-router",
+      name: "LLM Router",
+      description: "LLM Router local routing proxy for OpenClaw",
     });
     expect(mod.default.version).toBe(mod.VERSION);
     expect(typeof mod.default.register).toBe("function");
@@ -1400,7 +1400,7 @@ describe("OpenClaw plugin default export", () => {
     });
     expect(services).toHaveLength(1);
     expect(services[0]).toMatchObject({
-      id: "xiaoyi-router-proxy",
+      id: "llm-router-proxy",
       start: expect.any(Function),
       stop: expect.any(Function),
     });
