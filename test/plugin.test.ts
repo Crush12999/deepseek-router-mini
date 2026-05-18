@@ -5,7 +5,7 @@ import type { RawConfig } from "../src/config-schema.js";
 import { generateOpenClawModels } from "../src/provider.js";
 import type { OpenClawService } from "../src/plugin.js";
 import {
-  injectXiaoyiModelsConfig,
+  injectLlmRouterModelsConfig,
   localProviderBaseUrl,
   registerOpenClawPlugin as registerOpenClawPluginImpl,
 } from "../src/plugin.js";
@@ -40,7 +40,7 @@ function createPluginConfig(port = 8402, upstreamUrl = "https://api.deepseek.com
       auto: {
         kind: "router" as const,
         metadata: {
-          name: "Xiaoyi Auto",
+          name: "LLM Router Auto",
           reasoning: true,
           contextWindow: 1_000_000,
           maxTokens: 64_000,
@@ -167,18 +167,18 @@ describe("OpenClaw plugin config injection", () => {
     expect(localProviderBaseUrl(8402)).toBe("http://127.0.0.1:8402/v1");
   });
 
-  it("creates missing models.providers.xiaoyiprovider without inventing an apiKey", () => {
+  it("creates missing models.providers.llmrouterprovider without inventing an apiKey", () => {
     const config: Record<string, unknown> = {};
     const runtimeConfig = createPluginConfig();
     const models = createInjectedModels(runtimeConfig);
     const injectedModels = onlyAutoModel(models);
 
-    injectXiaoyiModelsConfig(config, "http://127.0.0.1:8402/v1", models);
+    injectLlmRouterModelsConfig(config, "http://127.0.0.1:8402/v1", models);
 
     expect(config).toEqual({
       models: {
         providers: {
-          xiaoyiprovider: {
+          llmrouterprovider: {
             baseUrl: "http://127.0.0.1:8402/v1",
             api: "openai-completions",
             models: injectedModels,
@@ -186,7 +186,7 @@ describe("OpenClaw plugin config injection", () => {
         },
       },
     });
-    const provider = (config.models as { providers: Record<string, Record<string, unknown>> }).providers.xiaoyiprovider;
+    const provider = (config.models as { providers: Record<string, Record<string, unknown>> }).providers.llmrouterprovider;
     expect(provider).not.toHaveProperty("apiKey");
   });
 
@@ -197,7 +197,7 @@ describe("OpenClaw plugin config injection", () => {
     const config = {
       models: {
         providers: {
-          xiaoyiprovider: {
+          llmrouterprovider: {
             baseUrl: "https://api.deepseek.com/v1",
             api: "wrong-api",
             apiKey: "sk-user",
@@ -215,9 +215,9 @@ describe("OpenClaw plugin config injection", () => {
       },
     };
 
-    injectXiaoyiModelsConfig(config, "http://127.0.0.1:9000/v1", models);
+    injectLlmRouterModelsConfig(config, "http://127.0.0.1:9000/v1", models);
 
-    expect(config.models.providers.xiaoyiprovider).toEqual({
+    expect(config.models.providers.llmrouterprovider).toEqual({
       baseUrl: "http://127.0.0.1:9000/v1",
       api: "openai-completions",
       apiKey: "sk-user",
@@ -237,21 +237,21 @@ describe("OpenClaw plugin config injection", () => {
     ["string", "broken"],
     ["null", null],
     ["array", ["broken"]],
-  ])("replaces non-object xiaoyiprovider config (%s) with managed provider config", (_caseName, value) => {
+  ])("replaces non-object llmrouterprovider config (%s) with managed provider config", (_caseName, value) => {
     const runtimeConfig = createPluginConfig();
     const models = createInjectedModels(runtimeConfig);
     const injectedModels = onlyAutoModel(models);
     const config = {
       models: {
         providers: {
-          xiaoyiprovider: value,
+          llmrouterprovider: value,
         },
       },
     };
 
-    injectXiaoyiModelsConfig(config, "http://127.0.0.1:8402/v1", models);
+    injectLlmRouterModelsConfig(config, "http://127.0.0.1:8402/v1", models);
 
-    expect(config.models.providers.xiaoyiprovider).toEqual({
+    expect(config.models.providers.llmrouterprovider).toEqual({
       baseUrl: "http://127.0.0.1:8402/v1",
       api: "openai-completions",
       models: injectedModels,
@@ -289,9 +289,9 @@ describe("OpenClaw plugin config injection", () => {
     const injectedModels = onlyAutoModel(models);
     const config: Record<string, unknown> = {};
 
-    injectXiaoyiModelsConfig(config, "http://127.0.0.1:8402/v1", models);
+    injectLlmRouterModelsConfig(config, "http://127.0.0.1:8402/v1", models);
 
-    expect((config.models as { providers: Record<string, { models: unknown }> }).providers.xiaoyiprovider.models).toEqual(
+    expect((config.models as { providers: Record<string, { models: unknown }> }).providers.llmrouterprovider.models).toEqual(
       injectedModels,
     );
     expect(models).toEqual(
@@ -341,12 +341,12 @@ describe("OpenClaw plugin config injection", () => {
     const models = createInjectedModels(runtimeConfig);
     const injectedModels = onlyAutoModel(models);
 
-    injectXiaoyiModelsConfig(config, "http://127.0.0.1:8402/v1", models);
-    injectXiaoyiModelsConfig(config, "http://127.0.0.1:8402/v1", models);
+    injectLlmRouterModelsConfig(config, "http://127.0.0.1:8402/v1", models);
+    injectLlmRouterModelsConfig(config, "http://127.0.0.1:8402/v1", models);
 
     const providers = (config.models as { providers: Record<string, unknown> }).providers;
-    expect(Object.keys(providers)).toEqual(["xiaoyiprovider"]);
-    expect(((providers.xiaoyiprovider) as { models: unknown[] }).models).toEqual(injectedModels);
+    expect(Object.keys(providers)).toEqual(["llmrouterprovider"]);
+    expect(((providers.llmrouterprovider) as { models: unknown[] }).models).toEqual(injectedModels);
   });
 });
 
@@ -391,7 +391,7 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(api.config).toMatchObject({
       models: {
         providers: {
-          xiaoyiprovider: {
+          llmrouterprovider: {
             baseUrl: "http://127.0.0.1:8402/v1",
             api: "openai-completions",
           },
@@ -475,7 +475,7 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(api.config).toMatchObject({
       models: {
         providers: {
-          xiaoyiprovider: {
+          llmrouterprovider: {
             baseUrl: "http://127.0.0.1:9999/v1",
             api: "openai-completions",
           },
@@ -510,7 +510,7 @@ describe("OpenClaw plugin lifecycle", () => {
       expect(api.config).toMatchObject({
         models: {
           providers: {
-            xiaoyiprovider: {
+            llmrouterprovider: {
               baseUrl: "http://127.0.0.1:8402/v1",
               api: "openai-completions",
               models: injectedModels,
@@ -548,7 +548,7 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(api.config).toMatchObject({
       models: {
         providers: {
-          xiaoyiprovider: {
+          llmrouterprovider: {
             baseUrl: "http://127.0.0.1:8402/v1",
             api: "openai-completions",
           },
@@ -573,7 +573,7 @@ describe("OpenClaw plugin lifecycle", () => {
       config: {
         models: {
           providers: {
-            xiaoyiprovider: {
+            llmrouterprovider: {
               api_key: "config-key",
               headers: {
                 "X-Provider": "yes",
@@ -627,7 +627,7 @@ describe("OpenClaw plugin lifecycle", () => {
       config: {
         models: {
           providers: {
-            xiaoyiprovider: {
+            llmrouterprovider: {
               apiKey: "stale-key",
               headers: {
                 "X-Provider": "stale",
@@ -642,13 +642,13 @@ describe("OpenClaw plugin lifecycle", () => {
 
     registerOpenClawPlugin(api, { startProxy });
 
-    api.config.models.providers.xiaoyiprovider.apiKey = "fresh-key";
+    api.config.models.providers.llmrouterprovider.apiKey = "fresh-key";
     const freshHeaders: Record<string, string> = {
       "X-Provider": "fresh",
       "X-New": "before-first-start",
     };
     (
-      api.config.models.providers.xiaoyiprovider as {
+      api.config.models.providers.llmrouterprovider as {
         apiKey?: string;
         headers?: Record<string, string>;
       }
@@ -686,7 +686,7 @@ describe("OpenClaw plugin lifecycle", () => {
       config: {
         models: {
           providers: {
-            xiaoyiprovider: {
+            llmrouterprovider: {
               apiKey: "initial-key",
               headers: {
                 "X-Provider": "initial",
@@ -711,13 +711,13 @@ describe("OpenClaw plugin lifecycle", () => {
 
     await serviceCalls[0]!.stop();
 
-    api.config.models.providers.xiaoyiprovider.apiKey = "next-key";
+    api.config.models.providers.llmrouterprovider.apiKey = "next-key";
     const nextHeaders: Record<string, string> = {
       "X-Provider": "next",
       "X-After-Stop": "yes",
     };
     (
-      api.config.models.providers.xiaoyiprovider as {
+      api.config.models.providers.llmrouterprovider as {
         apiKey?: string;
         headers?: Record<string, string>;
       }
@@ -753,7 +753,7 @@ describe("OpenClaw plugin lifecycle", () => {
       config: {
         models: {
           providers: {
-            xiaoyiprovider: {
+            llmrouterprovider: {
               apiKey: "camel-key",
               api_key: "snake-key",
             },
@@ -792,7 +792,7 @@ describe("OpenClaw plugin lifecycle", () => {
       config: {
         models: {
           providers: {
-            xiaoyiprovider: {
+            llmrouterprovider: {
               headers: {
                 Authorization: "Bearer provider-token",
                 "x-uid": "provider-user",
@@ -858,7 +858,7 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(api.config).toMatchObject({
       models: {
         providers: {
-          xiaoyiprovider: {
+          llmrouterprovider: {
             baseUrl: "http://127.0.0.1:9999/v1",
           },
         },
@@ -893,7 +893,7 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(api.config).toMatchObject({
       models: {
         providers: {
-          xiaoyiprovider: {
+          llmrouterprovider: {
             baseUrl: "http://127.0.0.1:8402/v1",
           },
         },
@@ -930,7 +930,7 @@ describe("OpenClaw plugin lifecycle", () => {
       expect(api.config).toMatchObject({
         models: {
           providers: {
-            xiaoyiprovider: {
+            llmrouterprovider: {
               baseUrl: "http://127.0.0.1:9999/v1",
               api: "openai-completions",
             },
@@ -1164,7 +1164,7 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(api.config).toMatchObject({
       models: {
         providers: {
-          xiaoyiprovider: {
+          llmrouterprovider: {
             baseUrl: "http://127.0.0.1:8402/v1",
           },
         },
@@ -1237,7 +1237,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     expect(api.config).toMatchObject({
       models: {
         providers: {
-          xiaoyiprovider: {
+          llmrouterprovider: {
             baseUrl: "http://127.0.0.1:9000/v1",
           },
         },
@@ -1270,7 +1270,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     expect(api.config).toMatchObject({
       models: {
         providers: {
-          xiaoyiprovider: {
+          llmrouterprovider: {
             baseUrl: "http://127.0.0.1:8402/v1",
           },
         },
@@ -1320,7 +1320,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     expect(api.config).toMatchObject({
       models: {
         providers: {
-          xiaoyiprovider: {
+          llmrouterprovider: {
             baseUrl: "http://127.0.0.1:9999/v1",
           },
         },
@@ -1392,7 +1392,7 @@ describe("OpenClaw plugin default export", () => {
     expect(api.config).toMatchObject({
       models: {
         providers: {
-          xiaoyiprovider: {
+          llmrouterprovider: {
             baseUrl: "http://127.0.0.1:8402/v1",
           },
         },

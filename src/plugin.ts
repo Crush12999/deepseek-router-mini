@@ -9,8 +9,8 @@ import type { ProxyHandle, ProxyOptions } from "./proxy.js";
 import {
   generateOpenClawModels,
   type OpenClawModelDefinition,
-  XIAOYI_PROVIDER_API,
-  XIAOYI_PROVIDER_ID,
+  LLM_ROUTER_PROVIDER_API,
+  LLM_ROUTER_PROVIDER_ID,
 } from "./provider.js";
 
 type JsonObject = Record<string, unknown>;
@@ -116,23 +116,23 @@ export function localProviderBaseUrl(port: number): string {
  * 关键策略：虽然 `provider.ts` 会生成完整 alias 元数据，但真正写回 OpenClaw
  * 时只暴露 `auto`，从而把 alias 选择权完全留在 Router 内部。
  */
-export function injectXiaoyiModelsConfig(
+export function injectLlmRouterModelsConfig(
   config: JsonObject,
   providerBaseUrl: string,
   modelDefinitions: OpenClawModelDefinition[],
 ): void {
   const modelsConfig = ensureObject(config, "models");
   const providers = ensureObject(modelsConfig, "providers");
-  const current = providers[XIAOYI_PROVIDER_ID];
+  const current = providers[LLM_ROUTER_PROVIDER_ID];
   const existing =
     current && typeof current === "object" && !Array.isArray(current)
       ? (current as JsonObject)
       : {};
 
-  providers[XIAOYI_PROVIDER_ID] = {
+  providers[LLM_ROUTER_PROVIDER_ID] = {
     ...existing,
     baseUrl: providerBaseUrl,
-    api: XIAOYI_PROVIDER_API,
+    api: LLM_ROUTER_PROVIDER_API,
     models: modelDefinitions.filter((model) => model.id === "auto"),
   };
 }
@@ -220,7 +220,7 @@ function readProviderConfig(api: OpenClawPluginApi): JsonObject {
   if (!providers || typeof providers !== "object" || Array.isArray(providers))
     return {};
 
-  const provider = (providers as JsonObject)[XIAOYI_PROVIDER_ID];
+  const provider = (providers as JsonObject)[LLM_ROUTER_PROVIDER_ID];
   if (!provider || typeof provider !== "object" || Array.isArray(provider))
     return {};
 
@@ -454,12 +454,12 @@ export function registerOpenClawPlugin(
   );
 
   if (!shouldRegisterRuntimeService) {
-    injectXiaoyiModelsConfig(api.config, providerBaseUrl, models);
+    injectLlmRouterModelsConfig(api.config, providerBaseUrl, models);
     return;
   }
 
   const previousConfig = structuredClone(api.config);
-  injectXiaoyiModelsConfig(api.config, providerBaseUrl, models);
+  injectLlmRouterModelsConfig(api.config, providerBaseUrl, models);
   try {
     api.registerService(
       createProxyService(api, runtime, runtimeConfig, providerBaseUrl),

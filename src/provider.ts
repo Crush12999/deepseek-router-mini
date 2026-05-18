@@ -10,13 +10,13 @@ import { resolvePublicModelCandidate } from "./public-model-resolver.js";
  * OpenClaw 侧约定的 provider 标识。
  *
  * Router 本身并不注册 provider 实现，但会持续修复
- * `models.providers.xiaoyiprovider` 这段配置。
+ * `models.providers.llmrouterprovider` 这段配置。
  */
-export const XIAOYI_PROVIDER_ID = "xiaoyiprovider";
-export const XIAOYI_PROVIDER_NAME = "Xiaoyi Provider";
-export const XIAOYI_PROVIDER_DESCRIPTION =
-  "Xiaoyi local routing provider for DeepSeek-compatible models";
-export const XIAOYI_PROVIDER_API = "openai-completions";
+export const LLM_ROUTER_PROVIDER_ID = "llmrouterprovider";
+export const LLM_ROUTER_PROVIDER_NAME = "LLM Router Provider";
+export const LLM_ROUTER_PROVIDER_DESCRIPTION =
+  "LLM Router local routing provider for OpenAI-compatible models";
+export const LLM_ROUTER_PROVIDER_API = "openai-completions";
 
 /**
  * 写入 OpenClaw `models.providers.*.models[]` 时使用的模型元数据结构。
@@ -27,7 +27,7 @@ export const XIAOYI_PROVIDER_API = "openai-completions";
 export type OpenClawModelDefinition = {
   id: string;
   name: string;
-  api: typeof XIAOYI_PROVIDER_API;
+  api: typeof LLM_ROUTER_PROVIDER_API;
   reasoning: boolean;
   input: ["text"];
   cost: {
@@ -61,7 +61,7 @@ function fromMetadata(
   return {
     id,
     name: metadata.name,
-    api: XIAOYI_PROVIDER_API,
+    api: LLM_ROUTER_PROVIDER_API,
     reasoning: metadata.reasoning,
     input: ["text"],
     cost: metadata.cost,
@@ -80,7 +80,7 @@ function fromPhysicalModel(
   return {
     id,
     name: physicalModel.name,
-    api: XIAOYI_PROVIDER_API,
+    api: LLM_ROUTER_PROVIDER_API,
     reasoning: physicalModel.reasoning,
     input: ["text"],
     cost: {

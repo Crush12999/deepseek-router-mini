@@ -63,15 +63,15 @@ export type { SessionConfig, SessionEntry, SessionStats } from "./session.js";
 export { startProxy } from "./proxy.js";
 export type { ProxyHandle, ProxyOptions } from "./proxy.js";
 export {
-  XIAOYI_PROVIDER_API,
-  XIAOYI_PROVIDER_DESCRIPTION,
-  XIAOYI_PROVIDER_ID,
-  XIAOYI_PROVIDER_NAME,
+  LLM_ROUTER_PROVIDER_API,
+  LLM_ROUTER_PROVIDER_DESCRIPTION,
+  LLM_ROUTER_PROVIDER_ID,
+  LLM_ROUTER_PROVIDER_NAME,
   generateOpenClawModels,
 } from "./provider.js";
 export type { OpenClawModelDefinition } from "./provider.js";
 export {
-  injectXiaoyiModelsConfig,
+  injectLlmRouterModelsConfig,
   localProviderBaseUrl,
   registerOpenClawPlugin,
 } from "./plugin.js";
