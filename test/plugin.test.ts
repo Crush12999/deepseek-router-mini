@@ -80,6 +80,10 @@ function createInjectedModels(config: RawConfig) {
   return generateOpenClawModels(config.publicModels, config.models);
 }
 
+function onlyAutoModel(models: ReturnType<typeof createInjectedModels>) {
+  return models.filter((model) => model.id === "auto");
+}
+
 const fixtureConfigPath = path.resolve(__dirname, "fixtures/minimal-config.json");
 
 function normalizePluginConfig(
@@ -167,6 +171,7 @@ describe("OpenClaw plugin config injection", () => {
     const config: Record<string, unknown> = {};
     const runtimeConfig = createPluginConfig();
     const models = createInjectedModels(runtimeConfig);
+    const injectedModels = onlyAutoModel(models);
 
     injectXiaoyiModelsConfig(config, "http://127.0.0.1:8402/v1", models);
 
@@ -176,7 +181,7 @@ describe("OpenClaw plugin config injection", () => {
           xiaoyiprovider: {
             baseUrl: "http://127.0.0.1:8402/v1",
             api: "openai-completions",
-            models,
+            models: injectedModels,
           },
         },
       },
@@ -188,6 +193,7 @@ describe("OpenClaw plugin config injection", () => {
   it("preserves user provider fields while repairing managed fields", () => {
     const runtimeConfig = createPluginConfig();
     const models = createInjectedModels(runtimeConfig);
+    const injectedModels = onlyAutoModel(models);
     const config = {
       models: {
         providers: {
@@ -223,7 +229,7 @@ describe("OpenClaw plugin config injection", () => {
       },
       metadata: { owner: "user" },
       extra: ["keep", "me"],
-      models,
+      models: injectedModels,
     });
   });
 
@@ -234,6 +240,7 @@ describe("OpenClaw plugin config injection", () => {
   ])("replaces non-object xiaoyiprovider config (%s) with managed provider config", (_caseName, value) => {
     const runtimeConfig = createPluginConfig();
     const models = createInjectedModels(runtimeConfig);
+    const injectedModels = onlyAutoModel(models);
     const config = {
       models: {
         providers: {
@@ -247,7 +254,7 @@ describe("OpenClaw plugin config injection", () => {
     expect(config.models.providers.xiaoyiprovider).toEqual({
       baseUrl: "http://127.0.0.1:8402/v1",
       api: "openai-completions",
-      models,
+      models: injectedModels,
     });
   });
 
@@ -279,12 +286,13 @@ describe("OpenClaw plugin config injection", () => {
       },
     };
     const models = createInjectedModels(runtimeConfig);
+    const injectedModels = onlyAutoModel(models);
     const config: Record<string, unknown> = {};
 
     injectXiaoyiModelsConfig(config, "http://127.0.0.1:8402/v1", models);
 
     expect((config.models as { providers: Record<string, { models: unknown }> }).providers.xiaoyiprovider.models).toEqual(
-      models,
+      injectedModels,
     );
     expect(models).toEqual(
       expect.arrayContaining([
@@ -313,19 +321,32 @@ describe("OpenClaw plugin config injection", () => {
         }),
       ]),
     );
+    expect(injectedModels).toEqual([
+      expect.objectContaining({
+        id: "auto",
+        cost: {
+          input: 1.23,
+          output: 4.56,
+          cacheRead: 0.31,
+          cacheWrite: 1.23,
+        },
+        maxTokens: 12_345,
+      }),
+    ]);
   });
 
   it("is idempotent across repeated injection", () => {
     const config: Record<string, unknown> = {};
     const runtimeConfig = createPluginConfig();
     const models = createInjectedModels(runtimeConfig);
+    const injectedModels = onlyAutoModel(models);
 
     injectXiaoyiModelsConfig(config, "http://127.0.0.1:8402/v1", models);
     injectXiaoyiModelsConfig(config, "http://127.0.0.1:8402/v1", models);
 
     const providers = (config.models as { providers: Record<string, unknown> }).providers;
     expect(Object.keys(providers)).toEqual(["xiaoyiprovider"]);
-    expect(((providers.xiaoyiprovider) as { models: unknown[] }).models).toEqual(models);
+    expect(((providers.xiaoyiprovider) as { models: unknown[] }).models).toEqual(injectedModels);
   });
 });
 
@@ -475,6 +496,7 @@ describe("OpenClaw plugin lifecycle", () => {
       const startProxy = vi.fn();
       const runtimeConfig = createPluginConfig();
       const models = createInjectedModels(runtimeConfig);
+      const injectedModels = onlyAutoModel(models);
       const api = {
         config: {},
         registrationMode,
@@ -491,7 +513,7 @@ describe("OpenClaw plugin lifecycle", () => {
             xiaoyiprovider: {
               baseUrl: "http://127.0.0.1:8402/v1",
               api: "openai-completions",
-              models,
+              models: injectedModels,
             },
           },
         },

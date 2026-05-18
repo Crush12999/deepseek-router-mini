@@ -48,6 +48,7 @@ const HOP_BY_HOP = new Set([
 ]);
 
 const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+const REQUESTABLE_PUBLIC_MODELS = new Set(["auto"]);
 const PUBLIC_HEADER_PREFIXES = [
   "x-xiaoyi-router-",
   ["x", "deepseek", "router"].join("-") + "-",
@@ -554,10 +555,16 @@ async function proxyChat(
 
   const bodyObj = body as Record<string, unknown>;
 
-  // Validate model - check if it exists in publicModels
   const requestedModelId = bodyObj.model;
-  if (typeof requestedModelId !== "string" || !publicModels[requestedModelId]) {
-    const supportedModels = Object.keys(publicModels).sort().join(", ");
+  const supportedModels = [...REQUESTABLE_PUBLIC_MODELS]
+    .filter((modelId) => publicModels[modelId])
+    .sort()
+    .join(", ");
+  if (
+    typeof requestedModelId !== "string" ||
+    !publicModels[requestedModelId] ||
+    !REQUESTABLE_PUBLIC_MODELS.has(requestedModelId)
+  ) {
     writeOpenAiError(
       res,
       400,

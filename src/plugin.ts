@@ -102,7 +102,7 @@ export function injectXiaoyiModelsConfig(
     ...existing,
     baseUrl: providerBaseUrl,
     api: XIAOYI_PROVIDER_API,
-    models: modelDefinitions,
+    models: modelDefinitions.filter((model) => model.id === "auto"),
   };
 }
 
