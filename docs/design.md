@@ -90,7 +90,7 @@ client
 - 从 `pluginConfig.config` 或 `pluginConfig.configPath` 加载 `RawConfig`
 - 允许 `port` / `upstreamUrl` / `trace` 覆盖 `config.proxy.*`
 - 根据 `publicModels` 与 `models` 生成 provider 元数据
-- 写入或修复 `models.providers.llmrouterprovider`
+- 写入或修复 `models.providers.xiaoyiprovider`
 - 在运行态注册 `llm-router-proxy` 服务并管理代理生命周期
 - 对 OpenClaw 只暴露 `auto` 这个稳定请求入口
 

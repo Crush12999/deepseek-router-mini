@@ -63,7 +63,7 @@ if (typeof mod.calculateModelCost !== "function") {
   throw new Error("missing calculateModelCost export");
 }
 if (mod.createXiaoyiProvider !== undefined) throw new Error("legacy createXiaoyiProvider export should be removed");
-if (mod.LLM_ROUTER_PROVIDER_ID !== "llmrouterprovider") {
+if (mod.LLM_ROUTER_PROVIDER_ID !== "xiaoyiprovider") {
   throw new Error("missing LLM_ROUTER_PROVIDER_ID export");
 }
 if (mod.LLM_ROUTER_PROVIDER_NAME !== "LLM Router Provider") {
@@ -109,11 +109,11 @@ if (result && typeof result.then === "function") throw new Error("plugin registe
 if (result !== undefined) throw new Error("plugin register must return undefined");
 if (providers.length !== 0) throw new Error("plugin register must not register provider");
 if (services.length !== 0) throw new Error("discovery register should not register runtime service");
-if (config?.models?.providers?.llmrouterprovider?.baseUrl !== "http://127.0.0.1:8402/v1") {
-  throw new Error("plugin register did not inject llmrouterprovider baseUrl");
+if (config?.models?.providers?.xiaoyiprovider?.baseUrl !== "http://127.0.0.1:8402/v1") {
+  throw new Error("plugin register did not inject xiaoyiprovider baseUrl");
 }
-if (config?.models?.providers?.llmrouterprovider?.api !== "openai-completions") {
-  throw new Error("plugin register did not inject llmrouterprovider api");
+if (config?.models?.providers?.xiaoyiprovider?.api !== "openai-completions") {
+  throw new Error("plugin register did not inject xiaoyiprovider api");
 }
 
 const secondConfig = {};
@@ -130,11 +130,11 @@ const secondResult = mod.default.register({
 });
 if (secondResult && typeof secondResult.then === "function") throw new Error("second plugin register returned a thenable");
 if (secondResult !== undefined) throw new Error("second plugin register must return undefined");
-if (secondConfig?.models?.providers?.llmrouterprovider?.baseUrl !== "http://127.0.0.1:8402/v1") {
-  throw new Error("second plugin register did not inject llmrouterprovider baseUrl");
+if (secondConfig?.models?.providers?.xiaoyiprovider?.baseUrl !== "http://127.0.0.1:8402/v1") {
+  throw new Error("second plugin register did not inject xiaoyiprovider baseUrl");
 }
-if (secondConfig?.models?.providers?.llmrouterprovider?.api !== "openai-completions") {
-  throw new Error("second plugin register did not inject llmrouterprovider api");
+if (secondConfig?.models?.providers?.xiaoyiprovider?.api !== "openai-completions") {
+  throw new Error("second plugin register did not inject xiaoyiprovider api");
 }
 
 console.log(JSON.stringify({

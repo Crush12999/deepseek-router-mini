@@ -137,7 +137,7 @@ scoring knobs：
 - 计算本地 provider `baseUrl`，例如 `http://127.0.0.1:8402/v1`。
 - 调用 `generateOpenClawModels(runtimeConfig.publicModels, runtimeConfig.models)`
   生成完整的路由语义元数据。
-- 写回 `models.providers.llmrouterprovider` 时，再把 `models` 过滤为只暴露
+- 写回 `models.providers.xiaoyiprovider` 时，再把 `models` 过滤为只暴露
   `auto`。
 
 这样做的原因是：OpenClaw 始终只需要一个稳定入口 `auto`，具体落到哪个
@@ -257,7 +257,7 @@ npm run typecheck
 
 1. `auto` 请求是否返回 alias 头和 actual model 头。
 2. 显式 alias 请求是否被 `400` 拒绝，并提示 `Supported models: auto`。
-3. OpenClaw `models.providers.llmrouterprovider.models` 是否只包含 `auto`。
+3. OpenClaw `models.providers.xiaoyiprovider.models` 是否只包含 `auto`。
 
 ## 9. 维护提示
 

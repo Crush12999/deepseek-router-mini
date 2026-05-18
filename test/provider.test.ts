@@ -91,7 +91,7 @@ function createConfig(): RawConfig {
 
 describe("OpenClaw LLM Router provider", () => {
   it("exports provider identity constants", () => {
-    expect(LLM_ROUTER_PROVIDER_ID).toBe("llmrouterprovider");
+    expect(LLM_ROUTER_PROVIDER_ID).toBe("xiaoyiprovider");
     expect(LLM_ROUTER_PROVIDER_NAME).toBe("LLM Router Provider");
     expect(LLM_ROUTER_PROVIDER_API).toBe("openai-completions");
   });

@@ -13,7 +13,7 @@
    之类条目仍然来自 `config.publicModels`，但只作为内部路由 alias 使用。
 4. **OpenClaw provider 暴露的模型列表收敛为 `auto`**：即使路由配置里仍
    有 `flash` / `pro` / `lite` / `think`，写入
-   `models.providers.llmrouterprovider.models` 时也只保留 `auto`。
+   `models.providers.xiaoyiprovider.models` 时也只保留 `auto`。
 5. **路由评分的公开可调参数只有两项**：`routing.tierBoundaries` 和
    `routing.confidenceThreshold` 是唯一开放的 scoring knobs。dimension
    weights、keyword lists、token thresholds、confidence steepness 仍然属
@@ -33,7 +33,7 @@
    alias。客户端 / OpenClaw 侧统一只请求 `auto`。
 4. CLI、脚本和自动化命令统一改用 `llm-router --config config.json`。
 5. OpenClaw 插件配置统一改到 `plugins.entries.llm-router`，并通过
-   `models.providers.llmrouterprovider` 观察 Router 注入的 provider 状态。
+   `models.providers.xiaoyiprovider` 观察 Router 注入的 provider 状态。
 6. 如果你的旧客户端、脚本或测试显式请求 `flash` / `pro`，请全部改为
    `auto`，并通过 `x-xy-router-model` /
    `x-xy-router-actual-model` 读取最终 alias / physical model。

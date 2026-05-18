@@ -67,7 +67,7 @@ For OpenClaw v2026.4.11 and v2026.3.24, LLM Router does not register a provider
 and does not declare providers in `openclaw.plugin.json`.
 
 When loaded by OpenClaw, the router still writes or repairs
-`models.providers.llmrouterprovider` so that:
+`models.providers.xiaoyiprovider` so that:
 
 - `baseUrl` points to the local router API, for example
   `http://127.0.0.1:8402/v1`
@@ -105,7 +105,7 @@ openclaw config set plugins.entries.llm-router.config.config '{"version":1,...}'
 openclaw config set plugins.entries.llm-router.config.configPath "/path/to/config.json"
 
 # 查看 Router 注入的 provider 配置
-openclaw config get models.providers.llmrouterprovider
+openclaw config get models.providers.xiaoyiprovider
 ```
 
 OpenClaw 应始终向本地 Router 请求 `auto`，再由 Router 在内部决定最终落到哪

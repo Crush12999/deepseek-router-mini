@@ -177,7 +177,7 @@ openclaw gateway restart
 ```
 
 插件不会注册 provider，也不会在 manifest 中声明 providers。它只负责写入或
-修复 `models.providers.llmrouterprovider`，并把 OpenClaw 对外可见的模型列
+修复 `models.providers.xiaoyiprovider`，并把 OpenClaw 对外可见的模型列
 表收敛为 `auto`。
 
 ## 4. HTTP API
@@ -280,7 +280,7 @@ OpenClaw provider 的元数据仍然来自运行时配置：
 - `config.publicModels`
 - `config.models`
 
-但真正写入 `models.providers.llmrouterprovider.models` 时，当前只暴露一个对外可
+但真正写入 `models.providers.xiaoyiprovider.models` 时，当前只暴露一个对外可
 请求条目：
 
 ```text
@@ -325,7 +325,7 @@ auto
 
 ```bash
 openclaw plugins inspect llm-router --json
-openclaw config get models.providers.llmrouterprovider
+openclaw config get models.providers.xiaoyiprovider
 ```
 
 关键字段应包含：
@@ -354,13 +354,13 @@ alias / physical model，优先直接请求本地代理并查看：
 
 - 请求 Header 中的 `Authorization`
 - `config.proxy.apiKey`
-- `models.providers.llmrouterprovider.apiKey`
-- `models.providers.llmrouterprovider.api_key`
+- `models.providers.xiaoyiprovider.apiKey`
+- `models.providers.xiaoyiprovider.api_key`
 
 OpenClaw provider 还可以透传：
 
-- `models.providers.llmrouterprovider.headers`
-- `models.providers.llmrouterprovider.request.headers`
+- `models.providers.xiaoyiprovider.headers`
+- `models.providers.xiaoyiprovider.request.headers`
 
 其中 `request.headers` 会覆盖同名 provider header。
 
@@ -380,4 +380,4 @@ npm run typecheck
    `x-xy-router-actual-model`。
 2. 显式请求 `flash` / `pro` 等 alias 时是否返回 `400`，并提示
    `Supported models: auto`。
-3. OpenClaw `models.providers.llmrouterprovider.models` 是否只暴露 `auto`。
+3. OpenClaw `models.providers.xiaoyiprovider.models` 是否只暴露 `auto`。
