@@ -371,6 +371,11 @@ describe("OpenClaw plugin lifecycle", () => {
     const providerCalls: unknown[] = [];
     const api = {
       config: {},
+      runtime: {
+        config: {
+          mutateConfigFile: vi.fn(),
+        },
+      },
       pluginConfig: {
         config: createPluginConfig(),
       },
@@ -406,6 +411,10 @@ describe("OpenClaw plugin lifecycle", () => {
     });
 
     await serviceCalls[0]!.start();
+    expect(api.runtime.config.mutateConfigFile).toHaveBeenCalledWith({
+      afterWrite: { mode: "auto" },
+      mutate: expect.any(Function),
+    });
     expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
       config: expect.objectContaining({
         proxy: expect.objectContaining({
@@ -424,6 +433,85 @@ describe("OpenClaw plugin lifecycle", () => {
 
     await serviceCalls[0]!.stop();
     expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("persists provider config through the OpenClaw runtime config mutation API on service start", async () => {
+    const runtimeConfig = createPluginConfig(9123, "https://api.deepseek.com");
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 9123,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const persistedConfig = {
+      models: {
+        providers: {
+          xiaoyiprovider: {
+            baseUrl: "http://stale.invalid/v1",
+            api: "wrong-api",
+            apiKey: "keep-key",
+            headers: { "X-Keep": "yes" },
+            request: {
+              headers: { "X-Request-Keep": "yes" },
+            },
+            models: [{ id: "stale" }],
+          },
+        },
+      },
+    };
+    const mutateConfigFile = vi.fn(async (params: {
+      mutate: (draft: typeof persistedConfig) => void;
+    }) => {
+      params.mutate(persistedConfig);
+    });
+    const api = {
+      config: {},
+      runtime: {
+        config: {
+          mutateConfigFile,
+        },
+      },
+      pluginConfig: {
+        config: runtimeConfig,
+      },
+      registerProvider: vi.fn(),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPlugin(api, { startProxy });
+    await serviceCalls[0]!.start();
+
+    expect(mutateConfigFile).toHaveBeenCalledWith({
+      afterWrite: { mode: "auto" },
+      mutate: expect.any(Function),
+    });
+    expect(persistedConfig.models.providers.xiaoyiprovider).toEqual({
+      baseUrl: "http://127.0.0.1:9123/v1",
+      api: "openai-completions",
+      apiKey: "keep-key",
+      headers: { "X-Keep": "yes" },
+      request: {
+        headers: { "X-Request-Keep": "yes" },
+      },
+      models: onlyAutoModel(createInjectedModels(runtimeConfig)),
+    });
+  });
+
+  it("still starts when the OpenClaw runtime config mutation API is unavailable", async () => {
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {},
+      registerProvider: vi.fn(),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPlugin(api, { startProxy });
+    await serviceCalls[0]!.start();
+
+    expect(startProxy).toHaveBeenCalledTimes(1);
   });
 
   it("uses config from pluginConfig when no port/upstreamUrl overrides", async () => {
