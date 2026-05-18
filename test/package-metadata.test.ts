@@ -7,12 +7,12 @@ const legacyPackageName = ["deepseek", "router", "mini"].join("-");
 const legacyEnv = (name: string) => ["DEEPSEEK", name].join("_");
 
 describe("package metadata", () => {
-  it("declares xiaoyi-router package metadata", () => {
+  it("declares llm-router package metadata", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-    expect(pkg.name).toBe("xiaoyi-router");
-    expect(pkg.bin).toEqual({ "xiaoyi-router": "./dist/cli.js" });
+    expect(pkg.name).toBe("llm-router");
+    expect(pkg.bin).toEqual({ "llm-router": "./dist/cli.js" });
     expect(pkg.description).toBe(
-      "xiaoyi local routing proxy for DeepSeek V4 Flash and DeepSeek V4 Pro.",
+      "LLM Router local routing proxy for OpenAI-compatible Chat Completions APIs.",
     );
     expect(JSON.stringify(pkg)).not.toContain(legacyPackageName);
   });
@@ -30,27 +30,27 @@ describe("package metadata", () => {
     });
   });
 
-  it("declares xiaoyi OpenClaw plugin metadata", () => {
+  it("declares llm-router OpenClaw plugin metadata", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
     const plugin = JSON.parse(fs.readFileSync(path.join(root, "openclaw.plugin.json"), "utf8"));
     const pluginJson = JSON.stringify(plugin);
 
     expect(plugin).toMatchObject({
-      id: "xiaoyi-router",
-      name: "Xiaoyi Router",
+      id: "llm-router",
+      name: "LLM Router",
       version: pkg.version,
     });
     expect(plugin).not.toHaveProperty("providers");
-    expect(plugin.description).toBe("Xiaoyi local routing proxy for OpenClaw");
-    expect(plugin.configSchema.description).toContain("Provide either config or configPath");
+    expect(plugin.description).toBe("LLM Router local routing proxy for OpenClaw");
+    expect(plugin.configSchema.description).toContain("llm-router");
     expect(plugin.configSchema.properties.config).toMatchObject({
       type: "object",
     });
-    expect(plugin.configSchema.properties.config.description).toContain("Inline RawConfig");
+    expect(plugin.configSchema.properties.config.description).toContain("llm-router");
     expect(plugin.configSchema.properties.configPath).toMatchObject({
       type: "string",
     });
-    expect(plugin.configSchema.properties.configPath.description).toContain("Path to a RawConfig JSON file");
+    expect(plugin.configSchema.properties.configPath.description).toContain("llm-router");
     expect(plugin.configSchema.properties.port.description).toContain("override config.proxy.port");
     expect(plugin.configSchema.properties.upstreamUrl.description).toContain("override config.proxy.upstreamUrl");
     expect(plugin.configSchema.properties.trace.description).toContain("override config.proxy.trace");

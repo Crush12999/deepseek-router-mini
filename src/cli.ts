@@ -107,11 +107,11 @@ export function parseArgs(rawArgs: string[]): ParsedArgs {
 // ---------------------------------------------------------------------------
 
 function helpText(): string {
-  return `xiaoyi-router v${VERSION}
+  return `llm-router v${VERSION}
 
 Usage:
-  xiaoyi-router --config <path>          Start the local proxy with config
-  xiaoyi-router --config <path> --port 9000  Listen on a custom port
+  llm-router --config <path>          Start the local proxy with config
+  llm-router --config <path> --port 9000  Listen on a custom port
 
 Options:
   --help, -h                            Show help
@@ -190,7 +190,7 @@ export async function runCli(rawArgs: string[], runtime: Partial<CliRuntime> = {
   const handle = await rt.startProxy({
     config: runtimeConfig,
   });
-  rt.log(`xiaoyi-router listening on http://127.0.0.1:${handle.port}`);
+  rt.log(`llm-router listening on http://127.0.0.1:${handle.port}`);
 
   // Graceful shutdown
   const shutdown = async () => {

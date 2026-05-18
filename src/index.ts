@@ -83,9 +83,9 @@ export type {
 } from "./plugin.js";
 
 const plugin: OpenClawPlugin = {
-  id: "xiaoyi-router",
-  name: "Xiaoyi Router",
-  description: "Xiaoyi local routing proxy for OpenClaw",
+  id: "llm-router",
+  name: "LLM Router",
+  description: "LLM Router local routing proxy for OpenClaw",
   version: VERSION,
   register: registerOpenClawPlugin,
 };

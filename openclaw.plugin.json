@@ -1,7 +1,7 @@
 {
-  "id": "xiaoyi-router",
-  "name": "Xiaoyi Router",
-  "description": "Xiaoyi local routing proxy for OpenClaw",
+  "id": "llm-router",
+  "name": "LLM Router",
+  "description": "LLM Router local routing proxy for OpenClaw",
   "version": "0.2.0",
   "main": "./dist/index.js",
   "activation": {
@@ -9,15 +9,15 @@
   },
   "configSchema": {
     "type": "object",
-    "description": "Provide either config or configPath. port, upstreamUrl, and trace override config.proxy.* at runtime.",
+    "description": "Provide either llm-router config or llm-router configPath. port, upstreamUrl, and trace override config.proxy.* at runtime.",
     "properties": {
       "config": {
         "type": "object",
-        "description": "Inline RawConfig passed directly to xiaoyi-router."
+        "description": "Inline RawConfig passed directly to llm-router."
       },
       "configPath": {
         "type": "string",
-        "description": "Path to a RawConfig JSON file for xiaoyi-router."
+        "description": "Path to a RawConfig JSON file for llm-router."
       },
       "port": {
         "type": "number",

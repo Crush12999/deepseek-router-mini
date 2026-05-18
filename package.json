@@ -1,12 +1,12 @@
 {
-  "name": "xiaoyi-router",
+  "name": "llm-router",
   "version": "0.2.0",
-  "description": "xiaoyi local routing proxy for DeepSeek V4 Flash and DeepSeek V4 Pro.",
+  "description": "LLM Router local routing proxy for OpenAI-compatible Chat Completions APIs.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "xiaoyi-router": "./dist/cli.js"
+    "llm-router": "./dist/cli.js"
   },
   "exports": {
     ".": {

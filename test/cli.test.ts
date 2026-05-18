@@ -44,7 +44,7 @@ describe("cli", () => {
     });
 
     const help = log.mock.calls[0]?.[0] as string;
-    expect(help).toContain("xiaoyi-router");
+    expect(help).toContain("llm-router");
     expect(help).toMatch(/--config <path>\s+Configuration file path/);
     expect(help).toMatch(/--api-key <key>\s+Override API key/);
     expect(help).toMatch(/--port <number>/);
@@ -133,6 +133,7 @@ describe("cli", () => {
           }),
         }),
       );
+      expect(log).toHaveBeenCalledWith("llm-router listening on http://127.0.0.1:8402");
     });
 
     it("--api-key overrides config file apiKey", async () => {
