@@ -1,10 +1,18 @@
 import { readFileSync } from "node:fs";
 import type { ConfigSource, RawConfig } from "./config-schema.js";
 
-const REMOVED_ROUTING_FIELDS = ["tierBoundaries", "confidenceThreshold"] as const;
-
 function hasOwn(value: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function assertFiniteNumber(value: unknown, path: string): asserts value is number {
+  if (!isFiniteNumber(value)) {
+    throw new Error(`${path} must be a finite number`);
+  }
 }
 
 function assertPublicModelMetadata(value: unknown, path: string): void {
@@ -90,7 +98,6 @@ export function loadConfig(source: ConfigSource): RawConfig {
  * - publicModels[*].candidates[] 引用必须在 models 中存在
  * - publicModels[*].candidates[] 非空（仅 alias）
  * - routing.tiers[*].publicModel / fallback[] 只能引用 alias publicModel
- * - 移除的 routing scoring 字段不能再出现在配置中
  * - 四个 tier 必须完整声明
  * - proxy.port 是 1-65535 整数
  * - proxy.headers 值都是字符串
@@ -139,14 +146,6 @@ function validateConfig(config: RawConfig): void {
     }
   }
 
-  for (const field of REMOVED_ROUTING_FIELDS) {
-    if (hasOwn(config.routing as object, field)) {
-      throw new Error(
-        `routing.${field} has moved to DEFAULT_ROUTING_CONFIG.scoring and is no longer configurable`
-      );
-    }
-  }
-
   for (const tier of ["SIMPLE", "MEDIUM", "COMPLEX", "REASONING"] as const) {
     if (!config.routing.tiers[tier]) {
       throw new Error(`routing.tiers.${tier} is required`);
@@ -158,6 +157,28 @@ function validateConfig(config: RawConfig): void {
 
     for (const fallbackId of tierConfig.fallback ?? []) {
       assertAliasPublicModel(config.publicModels, fallbackId, `routing.tiers.${tier}.fallback`);
+    }
+  }
+
+  if (config.routing.tierBoundaries) {
+    const { simpleMedium, mediumComplex, complexReasoning } = config.routing.tierBoundaries;
+
+    assertFiniteNumber(simpleMedium, "routing.tierBoundaries.simpleMedium");
+    assertFiniteNumber(mediumComplex, "routing.tierBoundaries.mediumComplex");
+    assertFiniteNumber(complexReasoning, "routing.tierBoundaries.complexReasoning");
+
+    if (!(simpleMedium <= mediumComplex && mediumComplex <= complexReasoning)) {
+      throw new Error(
+        "routing.tierBoundaries must satisfy simpleMedium <= mediumComplex <= complexReasoning"
+      );
+    }
+  }
+
+  if (config.routing.confidenceThreshold != null) {
+    assertFiniteNumber(config.routing.confidenceThreshold, "routing.confidenceThreshold");
+
+    if (config.routing.confidenceThreshold < 0 || config.routing.confidenceThreshold > 1) {
+      throw new Error("routing.confidenceThreshold must be between 0 and 1");
     }
   }
 

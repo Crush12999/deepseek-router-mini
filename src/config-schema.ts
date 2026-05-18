@@ -51,10 +51,18 @@ export interface TierEntry {
   fallback?: string[];
 }
 
+export interface RoutingTierBoundaries {
+  simpleMedium: number;
+  mediumComplex: number;
+  complexReasoning: number;
+}
+
 export interface RoutingSpec {
   tiers: Record<Tier, TierEntry>;
   structuredOutputMinTier?: Tier;
   ambiguousDefaultTier?: Tier;
+  tierBoundaries?: RoutingTierBoundaries;
+  confidenceThreshold?: number;
 }
 
 export interface RawConfig {
