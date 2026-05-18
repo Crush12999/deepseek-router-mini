@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { RawConfig } from "../src/config-schema.js";
 import {
   generateOpenClawModels,
-  XIAOYI_PROVIDER_API,
-  XIAOYI_PROVIDER_ID,
-  XIAOYI_PROVIDER_NAME,
+  LLM_ROUTER_PROVIDER_API,
+  LLM_ROUTER_PROVIDER_ID,
+  LLM_ROUTER_PROVIDER_NAME,
 } from "../src/provider.js";
 
 function createConfig(): RawConfig {
@@ -42,7 +42,7 @@ function createConfig(): RawConfig {
       auto: {
         kind: "router",
         metadata: {
-          name: "Xiaoyi Auto",
+          name: "LLM Router Auto",
           reasoning: true,
           contextWindow: 1_000_000,
           maxTokens: 64_000,
@@ -63,7 +63,7 @@ function createConfig(): RawConfig {
         candidates: ["deepseek-v4-pro"],
         selection: "first",
         metadata: {
-          name: "Xiaoyi Pro",
+          name: "LLM Router Pro",
           reasoning: true,
           contextWindow: 200_000,
           maxTokens: 16_000,
@@ -89,11 +89,11 @@ function createConfig(): RawConfig {
   };
 }
 
-describe("OpenClaw xiaoyi provider", () => {
+describe("OpenClaw LLM Router provider", () => {
   it("exports provider identity constants", () => {
-    expect(XIAOYI_PROVIDER_ID).toBe("xiaoyiprovider");
-    expect(XIAOYI_PROVIDER_NAME).toBe("Xiaoyi Provider");
-    expect(XIAOYI_PROVIDER_API).toBe("openai-completions");
+    expect(LLM_ROUTER_PROVIDER_ID).toBe("llmrouterprovider");
+    expect(LLM_ROUTER_PROVIDER_NAME).toBe("LLM Router Provider");
+    expect(LLM_ROUTER_PROVIDER_API).toBe("openai-completions");
   });
 
   it("uses router metadata and alias metadata directly when generating OpenClaw models", () => {
@@ -102,7 +102,7 @@ describe("OpenClaw xiaoyi provider", () => {
     expect(generateOpenClawModels(config.publicModels, config.models)).toEqual([
       {
         id: "auto",
-        name: "Xiaoyi Auto",
+        name: "LLM Router Auto",
         api: "openai-completions",
         reasoning: true,
         input: ["text"],
@@ -122,7 +122,7 @@ describe("OpenClaw xiaoyi provider", () => {
       },
       {
         id: "pro",
-        name: "Xiaoyi Pro",
+        name: "LLM Router Pro",
         api: "openai-completions",
         reasoning: true,
         input: ["text"],
