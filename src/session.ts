@@ -2,6 +2,12 @@ import { createHash } from "node:crypto";
 
 import type { Tier } from "./router/types.js";
 
+/**
+ * 自动路由请求的 session pinning 状态。
+ *
+ * 这里缓存的是最近一次稳定命中的 alias / physical model 组合，用来减少同一
+ * 会话内的 tier 抖动。
+ */
 export type SessionEntry = {
   sessionId: string;
   physicalModelId: string;
@@ -35,6 +41,11 @@ export type SessionStats = {
   totalCostEstimate: number;
 };
 
+/**
+ * 仅服务于 `auto` 路由的轻量内存 session store。
+ *
+ * 它不是通用会话数据库；这里只关心 pinning、TTL 和少量成本统计。
+ */
 export class SessionStore {
   private readonly config: SessionConfig;
   private readonly sessions = new Map<string, SessionEntry>();
@@ -43,6 +54,7 @@ export class SessionStore {
   constructor(config: Partial<SessionConfig> = {}) {
     this.config = { ...DEFAULT_SESSION_CONFIG, ...config };
 
+    // 后台被动清理过期 session，避免长期运行时内存无限增长。
     if (this.config.enabled && this.config.cleanupIntervalMs > 0) {
       this.cleanupTimer = setInterval(() => {
         this.cleanupExpired();
@@ -51,6 +63,9 @@ export class SessionStore {
     }
   }
 
+  /**
+   * 读取一个未过期 session；如果已经过期，会顺手删除并返回 undefined。
+   */
   getSession(sessionId: string | undefined): SessionEntry | undefined {
     if (!this.config.enabled || !sessionId) return undefined;
 
@@ -64,6 +79,9 @@ export class SessionStore {
     return entry;
   }
 
+  /**
+   * 创建或更新某个 session 的 pinning 结果，同时保留历史用量累计值。
+   */
   setSession(
     sessionId: string | undefined,
     input: {
@@ -93,6 +111,9 @@ export class SessionStore {
     return entry;
   }
 
+  /**
+   * 只刷新 TTL，不改动当前 alias / physical model 选择结果。
+   */
   touchSession(sessionId: string | undefined): boolean {
     const entry = this.getSession(sessionId);
     if (!entry) return false;
@@ -112,6 +133,9 @@ export class SessionStore {
     this.sessions.clear();
   }
 
+  /**
+   * 返回清理过期项后的聚合统计。
+   */
   getStats(): SessionStats {
     this.cleanupExpired();
 
@@ -134,9 +158,16 @@ export class SessionStore {
     };
   }
 
+  /**
+   * 把一次上游调用的 token / cost 增量累计到 session 上。
+   */
   recordUsage(
     sessionId: string | undefined,
-    usage: { inputTokens?: number; outputTokens?: number; costEstimate?: number },
+    usage: {
+      inputTokens?: number;
+      outputTokens?: number;
+      costEstimate?: number;
+    },
   ): void {
     const entry = this.getSession(sessionId);
     if (!entry) return;
@@ -147,6 +178,9 @@ export class SessionStore {
     entry.updatedAt = Date.now();
   }
 
+  /**
+   * 停止后台清理定时器。
+   */
   close(): void {
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer);
@@ -168,12 +202,25 @@ export class SessionStore {
   }
 }
 
-export function hashRequestContent(content: string, toolNames: string[] = []): string {
+/**
+ * 把请求文本和工具集合归一化后压缩成稳定短哈希，作为隐式 session key。
+ */
+export function hashRequestContent(
+  content: string,
+  toolNames: string[] = [],
+): string {
   const normalizedContent = content.trim().replace(/\s+/g, " ");
-  const normalizedTools = [...toolNames].map((tool) => tool.trim()).filter(Boolean).sort().join(",");
+  const normalizedTools = [...toolNames]
+    .map((tool) => tool.trim())
+    .filter(Boolean)
+    .sort()
+    .join(",");
   return hashHex(`${normalizedContent}\n${normalizedTools}`, 8);
 }
 
+/**
+ * 优先读取显式 `x-session-id`，否则退化为首条 user 消息内容哈希。
+ */
 export function deriveSessionId(
   headers: Record<string, string | string[] | undefined>,
   messages: unknown[],
@@ -188,7 +235,9 @@ export function deriveSessionId(
   return hashRequestContent(firstUserContent);
 }
 
-function pickHeaderValue(value: string | string[] | undefined): string | undefined {
+function pickHeaderValue(
+  value: string | string[] | undefined,
+): string | undefined {
   if (typeof value === "string") {
     const trimmed = value.trim();
     return trimmed || undefined;
@@ -204,6 +253,9 @@ function pickHeaderValue(value: string | string[] | undefined): string | undefin
   return undefined;
 }
 
+/**
+ * 提取第一条 user 消息文本，用作默认 session key 来源。
+ */
 function findFirstUserContent(messages: unknown[]): string | undefined {
   for (const message of messages) {
     if (!message || typeof message !== "object") continue;
@@ -218,6 +270,9 @@ function findFirstUserContent(messages: unknown[]): string | undefined {
   return undefined;
 }
 
+/**
+ * 同时兼容 `content: string` 和 OpenAI 风格的多 part 文本数组。
+ */
 function contentToText(content: unknown): string {
   if (typeof content === "string") return content;
 
@@ -226,7 +281,9 @@ function contentToText(content: unknown): string {
       .map((part) => {
         if (!part || typeof part !== "object") return "";
         const record = part as Record<string, unknown>;
-        return record.type === "text" && typeof record.text === "string" ? record.text : "";
+        return record.type === "text" && typeof record.text === "string"
+          ? record.text
+          : "";
       })
       .filter(Boolean)
       .join(" ");

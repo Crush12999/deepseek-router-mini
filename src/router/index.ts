@@ -1,6 +1,12 @@
 import { getStrategy } from "./strategy.js";
 import type { RouterOptions, RoutingDecision } from "./types.js";
 
+/**
+ * Router 统一入口。
+ *
+ * 当前总是走规则路由（`rules` strategy），并返回 alias / tier 级别的决策；
+ * 它不会解析 physical model，也不会直接接触 HTTP 请求。
+ */
 export function route(
   prompt: string,
   systemPrompt: string | undefined,
