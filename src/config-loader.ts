@@ -160,8 +160,14 @@ function validateConfig(config: RawConfig): void {
     }
   }
 
-  if (config.routing.tierBoundaries) {
-    const { simpleMedium, mediumComplex, complexReasoning } = config.routing.tierBoundaries;
+  if (hasOwn(config.routing as object, "tierBoundaries")) {
+    const tierBoundaries = config.routing.tierBoundaries;
+
+    if (!tierBoundaries || typeof tierBoundaries !== "object" || Array.isArray(tierBoundaries)) {
+      throw new Error("routing.tierBoundaries must be an object");
+    }
+
+    const { simpleMedium, mediumComplex, complexReasoning } = tierBoundaries;
 
     assertFiniteNumber(simpleMedium, "routing.tierBoundaries.simpleMedium");
     assertFiniteNumber(mediumComplex, "routing.tierBoundaries.mediumComplex");
@@ -174,7 +180,7 @@ function validateConfig(config: RawConfig): void {
     }
   }
 
-  if (config.routing.confidenceThreshold != null) {
+  if (hasOwn(config.routing as object, "confidenceThreshold")) {
     assertFiniteNumber(config.routing.confidenceThreshold, "routing.confidenceThreshold");
 
     if (config.routing.confidenceThreshold < 0 || config.routing.confidenceThreshold > 1) {

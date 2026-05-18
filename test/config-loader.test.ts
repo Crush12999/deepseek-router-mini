@@ -237,6 +237,15 @@ describe("loadConfig", () => {
     expect(loadConfig({ kind: "inline", config: raw })).toEqual(raw);
   });
 
+  it("rejects null routing.tierBoundaries", () => {
+    const raw = cloneConfig();
+    raw.routing.tierBoundaries = null as never;
+
+    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
+      /routing\.tierBoundaries.*object/i,
+    );
+  });
+
   it.each([
     ["simpleMedium", Number.NaN],
     ["simpleMedium", "0.1"],
@@ -287,6 +296,15 @@ describe("loadConfig", () => {
     raw.routing.confidenceThreshold = value as never;
 
     expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(error);
+  });
+
+  it("rejects null confidenceThreshold", () => {
+    const raw = cloneConfig();
+    raw.routing.confidenceThreshold = null as never;
+
+    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
+      /routing\.confidenceThreshold.*finite number/i,
+    );
   });
 
   it("should reject invalid port number", () => {
