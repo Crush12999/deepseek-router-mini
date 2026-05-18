@@ -92,7 +92,7 @@ export function emitRouteTrace(
   if (mode === "summary") {
     try {
       writer(
-        `[xiaoyi-router] ${detail.trace} model=${detail.actualModel} fallback=${detail.fallback}`,
+        `[llm-router] ${detail.trace} model=${detail.actualModel} fallback=${detail.fallback}`,
       );
     } catch {
       // Tracing is diagnostic only; logging failures must not affect routing.

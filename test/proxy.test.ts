@@ -660,7 +660,7 @@ describe("proxy", () => {
     expect(res.status).toBe(200);
     expect(logSpy).toHaveBeenCalledTimes(1);
     expect(logSpy).toHaveBeenCalledWith(
-      "[xiaoyi-router] auto:simple:flash:first-pass model=deepseek-v4-flash fallback=false",
+      "[llm-router] auto:simple:flash:first-pass model=deepseek-v4-flash fallback=false",
     );
   });
 

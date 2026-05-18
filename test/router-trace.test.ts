@@ -198,7 +198,7 @@ describe("router tracing helper", () => {
     );
 
     expect(writes).toEqual([
-      "[xiaoyi-router] auto:medium:deepseek-v4-flash:first-pass model=deepseek-v4-flash fallback=false",
+      "[llm-router] auto:medium:deepseek-v4-flash:first-pass model=deepseek-v4-flash fallback=false",
     ]);
   });
 
@@ -266,7 +266,7 @@ describe("router tracing helper", () => {
     emitRouteTrace("summary", detail);
 
     expect(debugSpy).toHaveBeenCalledWith(
-      "[xiaoyi-router] auto:medium:deepseek-v4-flash:first-pass model=deepseek-v4-flash fallback=false",
+      "[llm-router] auto:medium:deepseek-v4-flash:first-pass model=deepseek-v4-flash fallback=false",
     );
     expect(errorSpy).not.toHaveBeenCalled();
   });
