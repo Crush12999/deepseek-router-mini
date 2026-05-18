@@ -55,10 +55,7 @@ const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
  * 但它们只作为 Router 内部语义输出，不接受客户端显式请求。
  */
 const REQUESTABLE_PUBLIC_MODELS = new Set(["auto"]);
-const PUBLIC_HEADER_PREFIXES = [
-  "x-xiaoyi-router-",
-  ["x", "deepseek", "router"].join("-") + "-",
-] as const;
+const PUBLIC_HEADER_PREFIXES = ["x-xy-router-"] as const;
 
 /**
  * 启动本地 HTTP proxy 所需的全部输入。
@@ -246,8 +243,8 @@ function writeJson(res: ServerResponse, status: number, body: unknown): void {
 /**
  * 复制上游响应头，并剔除不应继续透传到客户端的 header。
  *
- * 这里会主动移除任何上游已带的 `x-xiaoyi-router-*` 前缀，确保最终对外头部完
- * 全由当前 Router 实例生成。
+ * 这里会主动移除任何上游已带的公开路由头，确保最终对外头部完全由当前
+ * Router 实例生成。
  */
 function copyResponseHeaders(
   response: Response,
@@ -544,13 +541,13 @@ function buildPublicHeaders(
   trace: string,
 ): Record<string, string> {
   return {
-    "x-xiaoyi-router-model": selected.routedModel,
-    "x-xiaoyi-router-actual-model": selected.actualModel,
-    "x-xiaoyi-router-tier": finalTier,
-    "x-xiaoyi-router-trace": trace,
-    "x-xiaoyi-router-routed": String(selected.routed),
-    "x-xiaoyi-router-fallback": "false",
-    "x-xiaoyi-router-upstream": cfg.baseUrl,
+    "x-xy-router-model": selected.routedModel,
+    "x-xy-router-actual-model": selected.actualModel,
+    "x-xy-router-tier": finalTier,
+    "x-xy-router-trace": trace,
+    "x-xy-router-routed": String(selected.routed),
+    "x-xy-router-fallback": "false",
+    "x-xy-router-upstream": cfg.baseUrl,
   };
 }
 
