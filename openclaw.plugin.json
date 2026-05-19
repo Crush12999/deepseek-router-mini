@@ -21,13 +21,11 @@
       },
       "port": {
         "type": "number",
-        "default": 8402,
-        "description": "Runtime override config.proxy.port."
+        "description": "Runtime override config.proxy.port. Optional; if omitted, use the value from pluginConfig.config / configPath."
       },
       "upstreamUrl": {
         "type": "string",
-        "default": "https://api.deepseek.com",
-        "description": "Runtime override config.proxy.upstreamUrl."
+        "description": "Runtime override config.proxy.upstreamUrl. Optional; if omitted, use the value from pluginConfig.config / configPath."
       },
       "trace": {
         "type": "string",

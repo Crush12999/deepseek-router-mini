@@ -180,6 +180,8 @@ openclaw gateway restart
 修复 `models.providers.xiaoyiprovider`，并把 OpenClaw 对外可见的模型列
 表收敛为 `auto`。
 
+补充说明：`plugins.entries.llm-router.config.port` 与 `upstreamUrl` 是可选运行时覆写项；若未显式配置，则沿用 `pluginConfig.config` / `configPath` 指向配置文件中的 `proxy.port` 与 `proxy.upstreamUrl`。
+
 ## 4. HTTP API
 
 已实现：

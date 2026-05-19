@@ -62,7 +62,9 @@ describe("package metadata", () => {
     });
     expect(plugin.configSchema.properties.configPath.description).toContain("llm-router");
     expect(plugin.configSchema.properties.port.description).toContain("override config.proxy.port");
+    expect(plugin.configSchema.properties.port).not.toHaveProperty("default");
     expect(plugin.configSchema.properties.upstreamUrl.description).toContain("override config.proxy.upstreamUrl");
+    expect(plugin.configSchema.properties.upstreamUrl).not.toHaveProperty("default");
     expect(plugin.configSchema.properties.trace.description).toContain("override config.proxy.trace");
     expect(pluginJson).not.toContain("XIAOYI_BASE_URL");
     expect(pluginJson).not.toContain("XIAOYI_ROUTER_PORT");
