@@ -19,8 +19,8 @@ const forbiddenLegacyPublicNames = ["xiaoyi-router", "Xiaoyi Router", "x-xiaoyi-
 describe("package metadata", () => {
   it("declares llm-router package metadata", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-    expect(pkg.name).toBe("llm-router");
-    expect(pkg.bin).toEqual({ "llm-router": "./dist/cli.js" });
+    expect(pkg.name).toBe("@yzj01/llm-router");
+    expect(pkg.bin).toEqual({ "llm-router": "dist/cli.js" });
     expect(pkg.description).toBe(
       "LLM Router local routing proxy for OpenAI-compatible Chat Completions APIs.",
     );
