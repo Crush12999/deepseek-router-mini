@@ -113,6 +113,8 @@ async function withCleanAuthEnv<T>(callback: () => Promise<T>): Promise<T> {
   }
 }
 
+type ProxyRuntimeLimitTestOptions = NonNullable<ProxyOptions["runtimeLimits"]>;
+
 function createAliasConfig(): RawConfig {
   return {
     version: 1,
@@ -273,6 +275,7 @@ async function startProxy(
     traceMode?: "off" | "summary" | "debug";
     traceLogger?: ProxyOptions["traceLogger"];
     session?: ProxyOptions["session"];
+    runtimeLimits?: ProxyRuntimeLimitTestOptions;
     config?: RawConfig;
   },
 ) {
@@ -285,14 +288,17 @@ async function startProxy(
       trace: options.traceMode ?? options.config.proxy.trace,
     });
 
-    return startProxyImpl({
+    const proxyOptions: ProxyOptions = {
       config,
       traceLogger: options.traceLogger,
       session: options.session,
-    });
+      runtimeLimits: options.runtimeLimits,
+    };
+
+    return startProxyImpl(proxyOptions);
   }
 
-  return startProxyImpl({
+  const proxyOptions: ProxyOptions = {
     config: withProxyOverrides(createAliasConfig(), {
       upstreamUrl: options.baseUrl,
       port: options.port,
@@ -302,7 +308,10 @@ async function startProxy(
     }),
     traceLogger: options.traceLogger,
     session: options.session,
-  });
+    runtimeLimits: options.runtimeLimits,
+  };
+
+  return startProxyImpl(proxyOptions);
 }
 
 afterEach(async () => {
@@ -1330,6 +1339,232 @@ describe("proxy", () => {
         message: "Invalid JSON body",
         type: "invalid_request_error",
         code: null,
+      },
+    });
+  });
+
+  it("rejects chat request bodies larger than the configured runtime limit", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxy({
+      baseUrl: upstream.baseUrl,
+      port: 0,
+      runtimeLimits: { maxBodyBytes: 32 },
+    });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "auto",
+        messages: [{ role: "user", content: "x".repeat(80) }],
+      }),
+    });
+
+    expect(res.status).toBe(413);
+    expect(await res.json()).toMatchObject({
+      error: {
+        message: "Payload Too Large",
+        type: "invalid_request_error",
+      },
+    });
+    expect(upstream.requests).toHaveLength(0);
+  });
+
+  it("returns 408 when reading the chat request body times out", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxy({
+      baseUrl: upstream.baseUrl,
+      port: 0,
+      runtimeLimits: { bodyReadTimeoutMs: 30 },
+    });
+    handles.push(proxy);
+    const keepAliveAgent = new http.Agent({ keepAlive: true });
+
+    const result = await new Promise<{
+      statusCode?: number;
+      body: string;
+      connectionHeader?: string;
+      socketClosed: boolean;
+    }>(
+      (resolve, reject) => {
+        let settled = false;
+        let responseEnded = false;
+        let sawResponse = false;
+        let socketClosed = false;
+        let statusCode: number | undefined;
+        let connectionHeader: string | undefined;
+        let responseBody = "";
+
+        const cleanup = (): void => {
+          clearTimeout(safetyTimeout);
+          keepAliveAgent.destroy();
+        };
+
+        const rejectOnce = (error: Error): void => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(error);
+        };
+
+        const maybeResolve = (): void => {
+          if (!responseEnded || !socketClosed) return;
+          if (settled) return;
+          settled = true;
+          cleanup();
+          resolve({
+            statusCode,
+            body: responseBody,
+            connectionHeader,
+            socketClosed,
+          });
+        };
+
+        const safetyTimeout = setTimeout(() => {
+          rejectOnce(
+            new Error("Timed out waiting for proxy body-read timeout response"),
+          );
+        }, 1_000);
+
+        const clientReq = http.request(
+          {
+            hostname: "127.0.0.1",
+            port: proxy.port,
+            path: "/v1/chat/completions",
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            agent: keepAliveAgent,
+          },
+          (clientRes) => {
+            sawResponse = true;
+            statusCode = clientRes.statusCode;
+            connectionHeader =
+              typeof clientRes.headers.connection === "string"
+                ? clientRes.headers.connection
+                : undefined;
+
+            clientRes.setEncoding("utf8");
+            clientRes.on("data", (chunk) => {
+              responseBody += chunk;
+            });
+            clientRes.on("end", () => {
+              responseEnded = true;
+              maybeResolve();
+            });
+            clientRes.on("error", rejectOnce);
+          },
+        );
+
+        clientReq.on("socket", (socket) => {
+          socket.on("close", () => {
+            socketClosed = true;
+            maybeResolve();
+          });
+        });
+
+        clientReq.on("error", (error) => {
+          if (sawResponse) return;
+          rejectOnce(error);
+        });
+        clientReq.write('{"model":"auto","messages":[');
+      },
+    );
+
+    expect(result.statusCode).toBe(408);
+    expect(result.connectionHeader).toBe("close");
+    expect(result.socketClosed).toBe(true);
+    expect(JSON.parse(result.body)).toMatchObject({
+      error: { message: "Request body read timeout" },
+    });
+    expect(upstream.requests).toHaveLength(0);
+  });
+
+  it("aborts the upstream chat request when the client disconnects", async () => {
+    let resolveUpstreamClosed!: () => void;
+    const upstreamClosed = new Promise<void>((resolve) => {
+      resolveUpstreamClosed = resolve;
+    });
+    const upstream = await startUpstream((_upstreamReq, upstreamRes) => {
+      let settled = false;
+      const onClose = (): void => {
+        if (settled) return;
+        settled = true;
+        upstreamRes.off("close", onClose);
+        resolveUpstreamClosed();
+      };
+
+      upstreamRes.on("close", onClose);
+    });
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const clientReq = http.request({
+      hostname: "127.0.0.1",
+      port: proxy.port,
+      path: "/v1/chat/completions",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+    });
+    clientReq.on("error", () => {});
+    clientReq.end(
+      JSON.stringify({
+        model: "auto",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(upstream.requests).toHaveLength(1);
+    });
+
+    clientReq.destroy();
+
+    await expect(
+      Promise.race([
+        upstreamClosed,
+        new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(
+              new Error(
+                "Timed out waiting for upstream close after client disconnect",
+              ),
+            );
+          }, 1_000);
+        }),
+      ]),
+    ).resolves.toBeUndefined();
+  });
+
+  it("returns 504 when the upstream chat request times out", async () => {
+    const upstream = await startUpstream(() => {
+      // Intentionally keep the response open until proxy aborts.
+    });
+    handles.push(upstream);
+    const proxy = await startProxy({
+      baseUrl: upstream.baseUrl,
+      port: 0,
+      runtimeLimits: { upstreamRequestTimeoutMs: 30 },
+    });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "auto",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(res.status).toBe(504);
+    expect(await res.json()).toMatchObject({
+      error: {
+        message: "Upstream request timed out",
+        type: "invalid_request_error",
       },
     });
   });

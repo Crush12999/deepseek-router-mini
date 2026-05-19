@@ -130,6 +130,20 @@ Unsupported model IDs return HTTP 400. Supported request IDs are currently only
 `auto`. Configured aliases remain internal routing outputs and are surfaced via
 response headers, not accepted in request bodies.
 
+## Runtime Protections
+
+The local proxy applies conservative runtime limits by default. These limits are
+internal defaults rather than public config fields:
+
+| Limit | Default | Behavior |
+| --- | ---: | --- |
+| Request body size | 10 MB | Returns `413 Payload Too Large` before forwarding upstream. |
+| Request body read time | 30 s | Returns `408 Request Timeout` if the client does not finish sending the body. |
+| Upstream request time | 300 s | Aborts the upstream request and returns `504 Gateway Timeout`. |
+
+If the client disconnects before the upstream call completes, the proxy aborts
+the upstream request to avoid keeping stale work running.
+
 ## Response Headers
 
 The proxy adds routing headers:

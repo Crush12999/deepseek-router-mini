@@ -32,7 +32,7 @@ import type { RouterOptions } from "./router/types.js";
 import type { SessionConfig } from "./session.js";
 import { deriveSessionId, SessionStore } from "./session.js";
 
-export const VERSION = "1.0.0";
+export const VERSION = "1.0.1";
 
 const HOP_BY_HOP = new Set([
   "connection",
@@ -49,6 +49,67 @@ const HOP_BY_HOP = new Set([
 
 const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
 /**
+ * 运行时韧性保护默认值。
+ *
+ * 这里统一集中定义，方便 CLI / 测试 / 未来配置入口共享同一组基线。
+ */
+const DEFAULT_MAX_BODY_BYTES = 10 * 1024 * 1024;
+const DEFAULT_BODY_READ_TIMEOUT_MS = 30_000;
+const DEFAULT_UPSTREAM_REQUEST_TIMEOUT_MS = 300_000;
+
+/**
+ * `startProxy()` 实际运行时使用的完整限制集合。
+ *
+ * 这里把每个限制都解析成必填字段，避免请求处理路径再去分支判断默认值。
+ */
+export type ProxyRuntimeLimits = {
+  /**
+   * 允许单个客户端请求体占用的最大 UTF-8 字节数。
+   */
+  maxBodyBytes: number;
+  /**
+   * 允许客户端在请求体读取阶段占用连接的最长时间。
+   */
+  bodyReadTimeoutMs: number;
+  /**
+   * 单次上游请求允许占用的最长时间。
+   *
+   * 超时后 proxy 会主动 abort 当前 fetch，并把它转换成面向客户端的 504。
+   */
+  upstreamRequestTimeoutMs: number;
+};
+
+/**
+ * 调用方可按需覆盖的运行时限制输入。
+ */
+export type ProxyRuntimeLimitInput = Partial<ProxyRuntimeLimits>;
+
+/**
+ * Proxy 在未显式传参时采用的默认运行时限制。
+ */
+export const DEFAULT_RUNTIME_LIMITS: ProxyRuntimeLimits = {
+  maxBodyBytes: DEFAULT_MAX_BODY_BYTES,
+  bodyReadTimeoutMs: DEFAULT_BODY_READ_TIMEOUT_MS,
+  upstreamRequestTimeoutMs: DEFAULT_UPSTREAM_REQUEST_TIMEOUT_MS,
+};
+
+/**
+ * 归一化运行时限制输入，确保请求处理路径拿到的是完整、稳定的配置对象。
+ */
+export function resolveRuntimeLimits(
+  input?: ProxyRuntimeLimitInput,
+): ProxyRuntimeLimits {
+  return {
+    maxBodyBytes: input?.maxBodyBytes ?? DEFAULT_RUNTIME_LIMITS.maxBodyBytes,
+    bodyReadTimeoutMs:
+      input?.bodyReadTimeoutMs ?? DEFAULT_RUNTIME_LIMITS.bodyReadTimeoutMs,
+    upstreamRequestTimeoutMs:
+      input?.upstreamRequestTimeoutMs ??
+      DEFAULT_RUNTIME_LIMITS.upstreamRequestTimeoutMs,
+  };
+}
+
+/**
  * 当前版本对外暴露的可请求 model 白名单。
  *
  * `publicModels` 仍然可以包含 `flash` / `pro` / `lite` / `think` 等 alias，
@@ -64,6 +125,7 @@ export type ProxyOptions = {
   config: RawConfig;
   traceLogger?: TraceLogger;
   session?: Partial<SessionConfig>;
+  runtimeLimits?: ProxyRuntimeLimitInput;
 };
 
 /**
@@ -80,17 +142,114 @@ export type ProxyHandle = {
 // ---------------------------------------------------------------------------
 
 /**
- * 读取完整请求体文本。
+ * 请求体读取阶段使用的结构化错误。
+ *
+ * 它把“HTTP 应返回什么状态码”与“内部异常控制流”绑定在一起，方便边界层统一
+ * 转换成 OpenAI-compatible 错误响应。
  */
-function readBody(req: IncomingMessage): Promise<string> {
+class BodyReadError extends Error {
+  readonly statusCode: number;
+
+  constructor(statusCode: number, message: string) {
+    super(message);
+    this.name = "BodyReadError";
+    this.statusCode = statusCode;
+  }
+}
+
+/**
+ * 判断未知异常是否来自请求体读取阶段，避免把 413 一类客户端错误误报成 502。
+ */
+function isBodyReadError(error: unknown): error is BodyReadError {
+  return error instanceof BodyReadError;
+}
+
+/**
+ * 对请求体读取失败返回结构化客户端错误，并在响应刷出后关闭当前连接。
+ *
+ * 这里不能在 `readBody()` 的超时/超限分支里立刻 `req.destroy()`，否则客户端往往只会
+ * 看到底层 `ECONNRESET`，拿不到 OpenAI-compatible JSON 错误。正确顺序是：
+ * 1. 先把 408/413 之类的结构化错误写回客户端；
+ * 2. 再把这个“请求体尚未完整消费”的连接标记为不可复用；
+ * 3. 等响应完成后销毁 request/socket，避免半读状态的连接进入 keep-alive 池。
+ */
+function writeBodyReadErrorAndCloseRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  error: BodyReadError,
+): void {
+  res.shouldKeepAlive = false;
+  res.setHeader("connection", "close");
+  res.once("finish", () => {
+    if (!req.destroyed) {
+      req.destroy();
+    }
+  });
+  writeOpenAiError(res, error.statusCode, error.message);
+}
+
+/**
+ * 读取完整请求体文本。
+ *
+ * 同时负责：
+ * - `maxBodyBytes`：限制单个请求可读入的总字节数；
+ * - `bodyReadTimeoutMs`：限制客户端在“持续占着连接但迟迟不发完 body”时可占用的时间。
+ *
+ * 超时分支只 reject，不在这里直接 `req.destroy()`。这样外层 `proxyChat()` 仍有机会
+ * 返回结构化 408 JSON，而不是让客户端只看到 `ECONNRESET`。
+ */
+function readBody(
+  req: IncomingMessage,
+  limits: ProxyRuntimeLimits,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     let body = "";
+    let bodyBytes = 0;
+    let settled = false;
     req.setEncoding("utf8");
-    req.on("data", (chunk) => {
+    const timeout = setTimeout(() => {
+      rejectOnce(new BodyReadError(408, "Request body read timeout"));
+    }, limits.bodyReadTimeoutMs);
+
+    const cleanup = (): void => {
+      clearTimeout(timeout);
+      req.off("data", onData);
+      req.off("end", onEnd);
+      req.off("error", onError);
+    };
+
+    const rejectOnce = (error: unknown): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+
+    const resolveOnce = (value: string): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+
+    const onData = (chunk: string): void => {
+      if (settled) return;
+
+      bodyBytes += Buffer.byteLength(chunk, "utf8");
+      if (bodyBytes > limits.maxBodyBytes) {
+        rejectOnce(new BodyReadError(413, "Payload Too Large"));
+        return;
+      }
+
       body += chunk;
-    });
-    req.on("end", () => resolve(body));
-    req.on("error", reject);
+    };
+
+    const onEnd = (): void => resolveOnce(body);
+    const onError = (error: Error): void => rejectOnce(error);
+
+    req.on("data", onData);
+    req.on("end", onEnd);
+    req.on("error", onError);
   });
 }
 
@@ -308,41 +467,127 @@ function writeOpenAiError(
 // Upstream fetch with retryable detection
 // ---------------------------------------------------------------------------
 
+type LinkedAbortSignal = {
+  signal: AbortSignal;
+  cleanup: () => void;
+};
+
+/**
+ * 把多个 abort signal 聚合成一个 signal，供单个 `fetch()` 统一消费。
+ *
+ * 这里显式返回 `cleanup()`，因为上游流式响应在 `fetch()` resolve 之后仍可能继续
+ * 读取 body；只有在 proxy 完全结束这次转发后，才能安全移除监听器，避免：
+ * 1. 客户端中途断开后无法继续取消上游；
+ * 2. 长连接场景中事件监听器残留造成泄漏。
+ */
+function anySignal(signals: AbortSignal[]): LinkedAbortSignal {
+  const controller = new AbortController();
+  const listeners: Array<{ signal: AbortSignal; listener: () => void }> = [];
+  let cleaned = false;
+
+  const cleanup = (): void => {
+    if (cleaned) return;
+    cleaned = true;
+    for (const { signal, listener } of listeners) {
+      signal.removeEventListener("abort", listener);
+    }
+  };
+
+  const abortFrom = (signal: AbortSignal): void => {
+    if (!controller.signal.aborted) {
+      controller.abort(signal.reason);
+    }
+    cleanup();
+  };
+
+  for (const signal of signals) {
+    if (signal.aborted) {
+      abortFrom(signal);
+      return { signal: controller.signal, cleanup };
+    }
+  }
+
+  for (const signal of signals) {
+    const listener = (): void => {
+      abortFrom(signal);
+    };
+    listeners.push({ signal, listener });
+    signal.addEventListener("abort", listener, { once: true });
+  }
+
+  return { signal: controller.signal, cleanup };
+}
+
 /**
  * 上游请求结果：
  * - `ok: true`：拿到可直接返回的响应
  * - `retryable`：拿到了响应，但状态码属于可重试类
+ * - `timeout`：请求已发出，但在限定时间内没等到可用响应
+ * - `aborted`：客户端已断开，本次 proxy 不应再继续消耗上游资源或写回响应
  * - `network_error`：压根没拿到 HTTP 响应
  */
-type AttemptResult =
+type AttemptResult = {
+  cleanup: () => void;
+} & (
   | { ok: true; response: Response }
   | { ok: false; reason: "retryable"; response: Response }
-  | { ok: false; reason: "network_error"; error: unknown };
+  | { ok: false; reason: "timeout"; error: unknown }
+  | { ok: false; reason: "aborted"; error: unknown }
+  | { ok: false; reason: "network_error"; error: unknown }
+);
 
 /**
  * 执行一次上游 Chat Completions 调用，并把 public alias 改写成真实 physical
  * model。
+ *
+ * 这里把“客户端断连”和“上游首包超时”合并到同一个 `fetch()` signal：
+ * - 客户端断开：立刻取消上游，避免继续计费/占用流式连接；
+ * - 超时：只覆盖等待上游响应头这一段，首包到达后即清除计时器。
  */
 async function fetchUpstream(
   cfg: ReturnType<typeof resolveConfig>,
   req: IncomingMessage,
   body: Record<string, unknown>,
   actualModel: string,
+  runtimeLimits: ProxyRuntimeLimits,
+  requestSignal: AbortSignal,
 ): Promise<AttemptResult> {
+  const timeoutController = new AbortController();
+  const timeout = setTimeout(() => {
+    timeoutController.abort();
+  }, runtimeLimits.upstreamRequestTimeoutMs);
+  const linkedSignal = anySignal([requestSignal, timeoutController.signal]);
+  const cleanup = (): void => {
+    clearTimeout(timeout);
+    linkedSignal.cleanup();
+  };
+
   try {
     const response = await fetch(`${cfg.baseUrl}/chat/completions`, {
       method: "POST",
       headers: buildUpstreamHeaders(req, cfg),
       body: JSON.stringify({ ...body, model: actualModel }),
+      signal: linkedSignal.signal,
     });
+    clearTimeout(timeout);
 
     if (RETRYABLE_STATUS.has(response.status)) {
-      return { ok: false, reason: "retryable", response };
+      return { ok: false, reason: "retryable", response, cleanup };
     }
 
-    return { ok: true, response };
+    return { ok: true, response, cleanup };
   } catch (error) {
-    return { ok: false, reason: "network_error", error };
+    // 若客户端断连与超时几乎同时发生，优先保留 timeout，避免把真实的上游慢响应
+    // 误归类成客户端主动取消。
+    if (timeoutController.signal.aborted) {
+      return { ok: false, reason: "timeout", error, cleanup };
+    }
+
+    if (requestSignal.aborted) {
+      return { ok: false, reason: "aborted", error, cleanup };
+    }
+
+    return { ok: false, reason: "network_error", error, cleanup };
   }
 }
 
@@ -707,6 +952,7 @@ async function proxyChat(
   req: IncomingMessage,
   res: ServerResponse,
   cfg: RouterConfig,
+  runtimeLimits: ProxyRuntimeLimits,
   sessionStore: SessionStore,
   tierEntries: Record<Tier, TierEntry>,
   publicModels: Record<string, PublicModelConfig>,
@@ -714,7 +960,16 @@ async function proxyChat(
   routerOptions: RouterOptions,
 ): Promise<void> {
   // Read body
-  const rawBody = await readBody(req);
+  let rawBody: string;
+  try {
+    rawBody = await readBody(req, runtimeLimits);
+  } catch (error) {
+    if (isBodyReadError(error)) {
+      writeBodyReadErrorAndCloseRequest(req, res, error);
+      return;
+    }
+    throw error;
+  }
 
   // Parse JSON
   let body: unknown;
@@ -779,72 +1034,152 @@ async function proxyChat(
     return;
   }
 
-  const attempt = await fetchUpstream(cfg, req, bodyObj, physicalModel.id);
-  const attempts: TraceAttempt[] = [
-    attempt.ok
-      ? { model: selected.actualModel, status: "success" }
-      : {
-          model: selected.actualModel,
-          status: "error",
-          error:
-            attempt.reason === "network_error"
-              ? "network_error"
-              : `upstream_http_${attempt.response.status}`,
-        },
-  ];
-  const finalTier = selected.tier;
-  let sessionAction = selected.sessionAction;
+  const requestController = new AbortController();
+  let responseFinished = false;
+  /**
+   * 客户端一旦在 proxy 等待/转发上游期间断开，就立刻取消上游请求，避免继续
+   * 持有流式连接或产生无意义的上游计费。
+   */
+  const abortUpstreamRequest = (): void => {
+    if (responseFinished || requestController.signal.aborted) return;
+    requestController.abort();
+  };
+  const onRequestAborted = (): void => {
+    abortUpstreamRequest();
+  };
+  const onResponseClose = (): void => {
+    abortUpstreamRequest();
+  };
+  const onResponseFinish = (): void => {
+    responseFinished = true;
+  };
+  const cleanupRequestAbortListeners = (): void => {
+    req.off("aborted", onRequestAborted);
+    res.off("close", onResponseClose);
+    res.off("finish", onResponseFinish);
+  };
 
-  if (!attempt.ok && attempt.reason === "network_error") {
+  req.on("aborted", onRequestAborted);
+  res.on("close", onResponseClose);
+  res.on("finish", onResponseFinish);
+
+  let attempt: AttemptResult | undefined;
+  try {
+    attempt = await fetchUpstream(
+      cfg,
+      req,
+      bodyObj,
+      physicalModel.id,
+      runtimeLimits,
+      requestController.signal,
+    );
+    const attempts: TraceAttempt[] = [
+      attempt.ok
+        ? { model: selected.actualModel, status: "success" }
+        : {
+            model: selected.actualModel,
+            status: "error",
+            error:
+              attempt.reason === "timeout"
+                ? "upstream_timeout"
+                : attempt.reason === "network_error"
+                  ? "network_error"
+                  : attempt.reason === "aborted"
+                    ? "client_aborted"
+                    : `upstream_http_${attempt.response.status}`,
+          },
+    ];
+    const finalTier = selected.tier;
+    let sessionAction = selected.sessionAction;
+
+    if (!attempt.ok && attempt.reason === "aborted") {
+      emitProxyTrace(
+        cfg,
+        selected,
+        finalTier,
+        attempts,
+        sessionAction,
+        true,
+      );
+      return;
+    }
+
+    if (!attempt.ok && attempt.reason === "timeout") {
+      const trace = emitProxyTrace(
+        cfg,
+        selected,
+        finalTier,
+        attempts,
+        sessionAction,
+        true,
+      );
+      const headers = buildPublicHeaders(cfg, selected, finalTier, trace);
+      writeOpenAiError(
+        res,
+        504,
+        "Upstream request timed out",
+        "invalid_request_error",
+        null,
+        headers,
+      );
+      return;
+    }
+
+    if (!attempt.ok && attempt.reason === "network_error") {
+      const trace = emitProxyTrace(
+        cfg,
+        selected,
+        finalTier,
+        attempts,
+        sessionAction,
+        true,
+      );
+      const headers = buildPublicHeaders(cfg, selected, finalTier, trace);
+      writeOpenAiError(
+        res,
+        502,
+        attempt.error instanceof Error
+          ? attempt.error.message
+          : "Upstream request failed",
+        "invalid_request_error",
+        null,
+        headers,
+      );
+      return;
+    }
+
+    // 只有真正拿到 HTTP 响应后才更新 session pinning，避免把纯网络错误写成成功 pin。
+    if (attempt.ok && selected.sessionId && !selected.explicit) {
+      sessionStore.setSession(selected.sessionId, {
+        physicalModelId: selected.actualModel,
+        routedPublicModel: selected.routedModel,
+        pinnedTier: finalTier,
+      });
+      if (sessionAction === "none") {
+        sessionAction = "set";
+      }
+    }
+
     const trace = emitProxyTrace(
       cfg,
       selected,
       finalTier,
       attempts,
       sessionAction,
-      true,
+      !attempt.ok,
     );
     const headers = buildPublicHeaders(cfg, selected, finalTier, trace);
-    writeOpenAiError(
-      res,
-      502,
-      attempt.error instanceof Error
-        ? attempt.error.message
-        : "Upstream request failed",
-      "invalid_request_error",
-      null,
-      headers,
-    );
-    return;
-  }
-
-  // 只有真正拿到 HTTP 响应后才更新 session pinning，避免把纯网络错误写成成功 pin。
-  if (attempt.ok && selected.sessionId && !selected.explicit) {
-    sessionStore.setSession(selected.sessionId, {
-      physicalModelId: selected.actualModel,
-      routedPublicModel: selected.routedModel,
-      pinnedTier: finalTier,
-    });
-    if (sessionAction === "none") {
-      sessionAction = "set";
+    const responseHeaders = copyResponseHeaders(attempt.response, headers);
+    res.statusCode = attempt.response.status;
+    for (const [k, v] of Object.entries(responseHeaders)) {
+      res.setHeader(k, v);
     }
+    await streamResponse(attempt.response, res);
+    responseFinished = true;
+  } finally {
+    cleanupRequestAbortListeners();
+    attempt?.cleanup();
   }
-
-  const trace = emitProxyTrace(
-    cfg,
-    selected,
-    finalTier,
-    attempts,
-    sessionAction,
-    !attempt.ok,
-  );
-  const headers = buildPublicHeaders(cfg, selected, finalTier, trace);
-  const responseHeaders = copyResponseHeaders(attempt.response, headers);
-  res.statusCode = attempt.response.status;
-  for (const [k, v] of Object.entries(responseHeaders)) {
-    res.setHeader(k, v);
-  }
-  await streamResponse(attempt.response, res);
 }
 
 // ---------------------------------------------------------------------------
@@ -864,6 +1199,7 @@ export async function startProxy(options: ProxyOptions): Promise<ProxyHandle> {
     traceLogger: options.traceLogger,
     sessionPinning: options.session?.enabled,
   });
+  const runtimeLimits = resolveRuntimeLimits(options.runtimeLimits);
   const sessionStore = new SessionStore(options.session);
   const publicModels = options.config.publicModels;
   const tierEntries = options.config.routing.tiers;
@@ -896,6 +1232,7 @@ export async function startProxy(options: ProxyOptions): Promise<ProxyHandle> {
             req,
             res,
             cfg,
+            runtimeLimits,
             sessionStore,
             tierEntries,
             publicModels,

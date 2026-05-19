@@ -2,7 +2,7 @@
   "id": "llm-router",
   "name": "LLM Router",
   "description": "LLM Router local routing proxy for OpenClaw",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "./dist/index.js",
   "activation": {
     "onStartup": true

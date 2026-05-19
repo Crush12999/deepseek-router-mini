@@ -182,6 +182,16 @@ openclaw gateway restart
 
 补充说明：`plugins.entries.llm-router.config.port` 与 `upstreamUrl` 是可选运行时覆写项；若未显式配置，则沿用 `pluginConfig.config` / `configPath` 指向配置文件中的 `proxy.port` 与 `proxy.upstreamUrl`。
 
+运行时保护默认值目前不是公开配置字段，配置文件中无需填写：
+
+| 保护项 | 默认值 | 行为 |
+| ------ | -----: | ---- |
+| 请求体大小上限 | 10 MB | 超限返回 `413 Payload Too Large`，不会转发到上游。 |
+| 请求体读取超时 | 30 秒 | 客户端迟迟不发完 body 时返回 `408 Request Timeout`。 |
+| 上游请求超时 | 300 秒 | 主动 abort 上游请求并返回 `504 Gateway Timeout`。 |
+
+如果客户端在上游响应前断开连接，代理会取消对应的上游请求，避免旧请求继续占用资源。
+
 ## 4. HTTP API
 
 已实现：
@@ -316,8 +326,11 @@ auto
 | ----------------------------- | ----------: | ----------------------------------------------- |
 | JSON 解析失败                 |       `400` | `error.message` 为 `Invalid JSON body`          |
 | 请求体不是 JSON 对象          |       `400` | `error.message` 为 `Body must be a JSON object` |
+| 请求体过大                    |       `413` | 默认上限为 10 MB                                |
+| 请求体读取超时                |       `408` | 默认 30 秒内必须发完 body                       |
 | 模型 ID 不支持                |       `400` | 当前固定返回 `Supported models: auto`           |
 | 未实现路径，例如 `/v1/models` |       `404` | `error.message` 为 `Not Found`                  |
+| 上游请求超时                  |       `504` | 默认 300 秒，超时会 abort 上游请求              |
 | 上游网络错误                  |       `502` | 尽量附带路由响应头                              |
 | 代理内部未捕获错误            |       `502` | 返回统一错误结构                                |
 

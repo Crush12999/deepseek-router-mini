@@ -103,6 +103,8 @@ scoring knobs：
 
 - 读取和校验 HTTP 请求。
 - 执行请求边界校验：当前只允许 `auto`。
+- 执行运行时保护：限制请求体大小、请求体读取时间和上游请求等待时间。
+- 在客户端断开时取消上游请求，避免旧请求继续占用连接或产生额外成本。
 - 对 `auto` 请求执行路由决策。
 - 调用 `resolvePublicModelCandidate()` 把 alias 解析为 physical model。
 - 把发往上游请求体中的 `model` 改写成真实模型名。
@@ -110,6 +112,19 @@ scoring knobs：
 
 换句话说，`route()` 决定「语义层该走哪个 alias」，`proxy.ts` 决定「实际上游该
 发哪个 physical model」。
+
+
+### 3.3 运行时保护默认值
+
+`src/proxy.ts` 集中维护以下内部默认值，它们会同时作用于 CLI 和 OpenClaw 插件启动路径：
+
+| 常量 | 默认值 | 说明 |
+| ---- | -----: | ---- |
+| `DEFAULT_MAX_BODY_BYTES` | 10 MB | 单个请求体最多读取的 UTF-8 字节数。 |
+| `DEFAULT_BODY_READ_TIMEOUT_MS` | 30 秒 | 客户端发送完整请求体的最长时间。 |
+| `DEFAULT_UPSTREAM_REQUEST_TIMEOUT_MS` | 300 秒 | 本地代理等待上游 Chat Completions 响应的最长时间。 |
+
+这些值目前不是公开配置 schema 的一部分。若要开放给用户配置，需要同步更新 `src/config-schema.ts`、`src/proxy-config-resolver.ts`、CLI / plugin 入口、示例配置和用户文档。
 
 ## 4. 关键模块职责
 
