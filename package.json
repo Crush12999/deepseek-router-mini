@@ -1,6 +1,6 @@
 {
   "name": "@yzj01/llm-router",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "LLM Router local routing proxy for OpenAI-compatible Chat Completions APIs.",
   "type": "module",
   "main": "dist/index.js",
