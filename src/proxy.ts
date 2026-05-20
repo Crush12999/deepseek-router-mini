@@ -257,7 +257,8 @@ function readBody(
  * 从 OpenAI / OpenClaw 风格消息数组里提取路由真正关心的文本视图。
  *
  * - `text`：非 system 消息拼接后的总文本
- * - `routeText`：最后一段 user 文本（当前不再截断 OpenClaw CLI transcript）
+ * - `routeText`：用于路由判定的 user 文本；OpenClaw 新格式会在尾部放置
+ *   两条连续 user 消息，此时前一条承载真实 query
  * - `system`：system prompt 聚合结果
  * - `openingText`：第一段非空文本，便于未来扩展首轮特征
  */
@@ -275,7 +276,7 @@ const OPENCLAW_CLI_TURN_PATTERN =
  * 保留 user 文本原样参与路由。
  *
  * 曾经这里会用 `OPENCLAW_CLI_TURN_PATTERN` 从 OpenClaw CLI transcript 中截取
- * 最后一轮文本；该逻辑先保留但停用，便于后续确认是否需要恢复。
+ * 某一轮文本；该逻辑先保留但停用，便于后续确认是否需要恢复。
  */
 function extractRouteTextFromUserMessage(text: string): string {
   // const matches = [...text.matchAll(OPENCLAW_CLI_TURN_PATTERN)];
@@ -290,9 +291,11 @@ function extractRouteTextFromUserMessage(text: string): string {
  */
 function extractPrompt(messages: unknown[]): ExtractedPrompt {
   const parts: string[] = [];
-  const userRouteTexts: string[] = [];
   let system: string | undefined;
   let openingText = "";
+  let routeUserText = "";
+  let previousRole: unknown;
+  let previousUserText = "";
 
   for (const msg of messages) {
     if (!msg || typeof msg !== "object") continue;
@@ -319,34 +322,25 @@ function extractPrompt(messages: unknown[]): ExtractedPrompt {
       system = system ? `${system}\n${text}` : text;
     } else {
       parts.push(text);
-      if (role === "user") {
-        userRouteTexts.push(
-          text.trim() ? extractRouteTextFromUserMessage(text) : "",
-        );
+      if (role === "user" && text.trim()) {
+        if (previousRole === "user" && previousUserText.trim()) {
+          routeUserText = previousUserText;
+        } else {
+          routeUserText = extractRouteTextFromUserMessage(text);
+        }
       }
       if (!openingText && text.trim()) {
         openingText = text;
       }
     }
+
+    previousRole = role;
+    previousUserText =
+      role === "user" ? extractRouteTextFromUserMessage(text) : "";
   }
 
   const text = parts.join(" ");
-  const preferredUserText =
-    userRouteTexts.length >= 2
-      ? userRouteTexts[userRouteTexts.length - 2]
-      : userRouteTexts.at(-1);
-  const fallbackUserText = [...userRouteTexts]
-    .reverse()
-    .find((item) => item.trim());
-
-  return {
-    text,
-    routeText: preferredUserText?.trim()
-      ? preferredUserText
-      : fallbackUserText || text,
-    system,
-    openingText,
-  };
+  return { text, routeText: routeUserText || text, system, openingText };
 }
 
 // ---------------------------------------------------------------------------

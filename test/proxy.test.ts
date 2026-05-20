@@ -963,7 +963,7 @@ describe("proxy", () => {
     expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
   });
 
-  it("routes by the latest user message instead of agent bootstrap text", async () => {
+  it("routes by the only user message when there is no OpenClaw consecutive user tail", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
     const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
@@ -989,7 +989,7 @@ describe("proxy", () => {
     expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
   });
 
-  it("routes by the penultimate user message when the final OpenClaw user message has no timestamp", async () => {
+  it("routes by the first message in a consecutive OpenClaw user tail", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
     const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
@@ -1002,13 +1002,8 @@ describe("proxy", () => {
         model: "auto",
         messages: [
           {
-            role: "user",
-            content:
-              "Bootstrap: debug failing tests across multiple files, find the root cause, and refactor architecture.",
-          },
-          {
             role: "assistant",
-            content: "Intermediate assistant content proves message position is not the selector.",
+            content: "Bootstrap: use apply_patch for src/plugin.ts when editing files.",
           },
           { role: "user", content: "Summarize briefly: OpenClaw routes simple tasks." },
           {
