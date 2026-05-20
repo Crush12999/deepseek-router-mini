@@ -55,6 +55,20 @@ if (typeof mod.route !== "function") throw new Error("missing route export");
 if (mod.DEFAULT_ROUTING_CONFIG?.overrides?.ambiguousDefaultTier !== "MEDIUM") {
   throw new Error("missing DEFAULT_ROUTING_CONFIG export");
 }
+if (mod.DEFAULT_RAW_CONFIG?.proxy?.port !== 8402) {
+  throw new Error("missing DEFAULT_RAW_CONFIG export");
+}
+if (typeof mod.createDefaultRawConfig !== "function") {
+  throw new Error("missing createDefaultRawConfig export");
+}
+const defaultConfigClone = mod.createDefaultRawConfig();
+if (defaultConfigClone === mod.DEFAULT_RAW_CONFIG) {
+  throw new Error("createDefaultRawConfig must return a clone");
+}
+defaultConfigClone.proxy.port = 9999;
+if (mod.DEFAULT_RAW_CONFIG.proxy.port !== 8402) {
+  throw new Error("DEFAULT_RAW_CONFIG should remain immutable");
+}
 if (typeof mod.getFallbackChain !== "function") throw new Error("missing getFallbackChain export");
 if (typeof mod.filterByExcludeList !== "function") {
   throw new Error("missing filterByExcludeList export");

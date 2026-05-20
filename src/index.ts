@@ -7,6 +7,7 @@ export { VERSION } from "./proxy.js";
 export { resolveConfig } from "./config.js";
 export type { RouterConfig, RouterConfigInput } from "./config.js";
 export { loadConfig } from "./config-loader.js";
+export { createDefaultRawConfig, DEFAULT_RAW_CONFIG } from "./default-config.js";
 export type {
   ConfigSource,
   PhysicalModel,
