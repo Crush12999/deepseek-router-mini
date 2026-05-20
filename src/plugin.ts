@@ -1,11 +1,17 @@
 import { loadConfig } from "./config-loader.js";
+import { createDefaultRawConfig } from "./default-config.js";
 import type { RawConfig } from "./config-schema.js";
 import {
   resolveProxyConfig,
   type ProxyConfigOverrides,
 } from "./proxy-config-resolver.js";
 import { startProxy as startProxyImpl } from "./proxy.js";
-import type { ProxyHandle, ProxyOptions } from "./proxy.js";
+import type {
+  ConfigFallbackReason,
+  ProxyHandle,
+  ProxyHealthInfo,
+  ProxyOptions,
+} from "./proxy.js";
 import {
   generateOpenClawModels,
   type OpenClawModelDefinition,
@@ -60,6 +66,18 @@ export type OpenClawPlugin = {
 
 export type PluginRuntime = {
   startProxy: (options: ProxyOptions) => Promise<ProxyHandle>;
+};
+
+/**
+ * 插件侧安全配置解析结果。
+ *
+ * `config` 始终可用于启动 proxy；`health` 只暴露低泄漏兜底摘要；
+ * `configError` 仅供日志记录，不应透传到 `/health`。
+ */
+type RuntimeConfigResult = {
+  config: RawConfig;
+  health: ProxyHealthInfo;
+  configError?: string;
 };
 
 const defaultRuntime: PluginRuntime = {
@@ -162,10 +180,10 @@ function parsePortValue(value: unknown): number | undefined {
 }
 
 /**
- * 从 pluginConfig 加载配置
- * @param api OpenClaw 插件 API
- * @returns 解析后的配置对象
- * @throws {Error} 如果缺少 config/configPath
+ * 从 pluginConfig 加载配置。
+ *
+ * 这是严格解析入口：合法 inline/file 走 schema 校验，缺失配置仍抛错，
+ * 由更外层的 `resolvePluginRuntimeConfig()` 决定是否进入默认配置兜底。
  */
 export function resolvePluginConfig(api: OpenClawPluginApi): RawConfig {
   const inline = api.pluginConfig?.config;
@@ -184,6 +202,34 @@ export function resolvePluginConfig(api: OpenClawPluginApi): RawConfig {
 }
 
 /**
+ * 把未知错误收敛成稳定字符串，供 logger 使用。
+ */
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * 缺失主配置时的插件边界兜底：返回可启动的默认配置与低泄漏 health 摘要。
+ */
+function fallbackConfig(
+  reason: ConfigFallbackReason,
+  error?: unknown,
+): RuntimeConfigResult {
+  return {
+    config: createDefaultRawConfig(),
+    health: {
+      degraded: true,
+      config: {
+        source: "default",
+        fallbackReason: reason,
+        envFileLoaded: false,
+      },
+    },
+    ...(error ? { configError: formatError(error) } : {}),
+  };
+}
+
+/**
  * 只接受三种已知 trace 覆盖值；其余输入统一视为“未覆盖”。
  */
 function normalizeTraceOverride(
@@ -195,23 +241,53 @@ function normalizeTraceOverride(
 }
 
 /**
- * 组合配置文件与 pluginConfig 中允许的运行时覆盖项。
+ * 提取 pluginConfig 允许覆盖的 proxy 运行时字段。
  */
-function resolvePluginRuntimeConfig(api: OpenClawPluginApi): RawConfig {
-  const config = resolvePluginConfig(api);
-  const portOverride = parsePortValue(api.pluginConfig?.port);
-  const upstreamOverride =
-    typeof api.pluginConfig?.upstreamUrl === "string" &&
-    api.pluginConfig.upstreamUrl.trim()
-      ? api.pluginConfig.upstreamUrl
-      : undefined;
+function resolvePluginProxyOverrides(
+  api: OpenClawPluginApi,
+): ProxyConfigOverrides {
   return {
-    ...config,
-    proxy: resolveProxyConfig(config.proxy, {
-      port: portOverride,
-      upstreamUrl: upstreamOverride,
-      trace: normalizeTraceOverride(api.pluginConfig?.trace),
-    }),
+    port: parsePortValue(api.pluginConfig?.port),
+    upstreamUrl:
+      typeof api.pluginConfig?.upstreamUrl === "string" &&
+      api.pluginConfig.upstreamUrl.trim()
+        ? api.pluginConfig.upstreamUrl
+        : undefined,
+    trace: normalizeTraceOverride(api.pluginConfig?.trace),
+  };
+}
+
+/**
+ * 组合主配置与 pluginConfig 运行时覆盖项。
+ *
+ * 本函数是插件配置加载失败的最后兜底边界：缺失配置时改用默认配置，
+ * 其余合法 inline/file 继续走严格配置解析。
+ */
+function resolvePluginRuntimeConfig(api: OpenClawPluginApi): RuntimeConfigResult {
+  const inline = api.pluginConfig?.config;
+  const path = api.pluginConfig?.configPath;
+  const runtimeConfigResult: RuntimeConfigResult = !inline && !path
+    ? fallbackConfig("missing_config")
+    : {
+        config: resolvePluginConfig(api),
+        health: {
+          degraded: false,
+          config: {
+            source: inline ? ("inline" as const) : ("file" as const),
+            envFileLoaded: false,
+          },
+        },
+      };
+
+  return {
+    ...runtimeConfigResult,
+    config: {
+      ...runtimeConfigResult.config,
+      proxy: resolveProxyConfig(
+        runtimeConfigResult.config.proxy,
+        resolvePluginProxyOverrides(api),
+      ),
+    },
   };
 }
 
@@ -405,6 +481,7 @@ function createProxyService(
   api: OpenClawPluginApi,
   runtime: PluginRuntime,
   runtimeConfig: RawConfig,
+  health: ProxyHealthInfo,
   providerBaseUrl: string,
   modelDefinitions: OpenClawModelDefinition[],
 ): OpenClawService {
@@ -440,6 +517,7 @@ function createProxyService(
           config: startConfig,
           traceLogger: createTraceLogger(api),
           session: {},
+          health,
         });
         serviceProxy = proxy;
         await replaceActiveProxy(proxy);
@@ -478,7 +556,8 @@ export function registerOpenClawPlugin(
   api: OpenClawPluginApi,
   runtime: PluginRuntime = defaultRuntime,
 ): void {
-  const runtimeConfig = resolvePluginRuntimeConfig(api);
+  const runtimeConfigResult = resolvePluginRuntimeConfig(api);
+  const runtimeConfig = runtimeConfigResult.config;
   const providerBaseUrl = localProviderBaseUrl(runtimeConfig.proxy.port);
   const models = generateOpenClawModels(
     runtimeConfig.publicModels,
@@ -487,6 +566,17 @@ export function registerOpenClawPlugin(
   const shouldRegisterRuntimeService = shouldStartRuntimeProxy(
     api.registrationMode,
   );
+
+  if (runtimeConfigResult.health.degraded) {
+    api.logger?.info?.(
+      `LLM Router using default config (${runtimeConfigResult.health.config.fallbackReason}); port=${runtimeConfig.proxy.port}; upstreamUrl=${runtimeConfig.proxy.upstreamUrl}`,
+    );
+    if (runtimeConfigResult.configError) {
+      api.logger?.error?.(
+        `LLM Router config load failed: ${runtimeConfigResult.configError}`,
+      );
+    }
+  }
 
   if (!shouldRegisterRuntimeService) {
     injectLlmRouterModelsConfig(api.config, providerBaseUrl, models);
@@ -497,7 +587,14 @@ export function registerOpenClawPlugin(
   injectLlmRouterModelsConfig(api.config, providerBaseUrl, models);
   try {
     api.registerService(
-      createProxyService(api, runtime, runtimeConfig, providerBaseUrl, models),
+      createProxyService(
+        api,
+        runtime,
+        runtimeConfig,
+        runtimeConfigResult.health,
+        providerBaseUrl,
+        models,
+      ),
     );
   } catch (error) {
     for (const key of Object.keys(api.config)) {

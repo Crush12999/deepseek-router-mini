@@ -1376,16 +1376,53 @@ describe("OpenClaw plugin config-driven loading", () => {
     }));
   });
 
-  it("throws error when plugin config is missing", () => {
-    const startProxy = vi.fn();
+  it("uses default config when plugin config is missing", async () => {
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const info = vi.fn();
     const api = {
       config: {},
       registerService: (service: OpenClawService) => serviceCalls.push(service),
+      logger: {
+        info,
+        error: vi.fn(),
+      },
     };
 
-    expect(() => registerOpenClawPluginWithoutDefaults(api, { startProxy })).toThrow(
-      "llm-router: missing config. Set pluginConfig.config or pluginConfig.configPath"
-    );
+    expect(() => registerOpenClawPluginWithoutDefaults(api, { startProxy })).not.toThrow();
+    expect(api.config).toMatchObject({
+      models: {
+        providers: {
+          xiaoyiprovider: {
+            baseUrl: "http://127.0.0.1:8402/v1",
+            api: "openai-completions",
+            models: [expect.objectContaining({ id: "auto" })],
+          },
+        },
+      },
+    });
+
+    await serviceCalls[0]!.start();
+    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+      config: expect.objectContaining({
+        proxy: expect.objectContaining({
+          port: 8402,
+          upstreamUrl: "https://api.deepseek.com",
+        }),
+      }),
+      health: expect.objectContaining({
+        degraded: true,
+        config: expect.objectContaining({
+          source: "default",
+          fallbackReason: "missing_config",
+          envFileLoaded: false,
+        }),
+      }),
+    }));
+    expect(info).toHaveBeenCalledWith(expect.stringContaining("default config"));
   });
 
   it("allows pluginConfig.port to override config file port", async () => {
