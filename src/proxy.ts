@@ -118,6 +118,35 @@ export function resolveRuntimeLimits(
 const REQUESTABLE_PUBLIC_MODELS = new Set(["auto"]);
 const PUBLIC_HEADER_PREFIXES = ["x-xy-router-"] as const;
 
+export type ConfigSource = "inline" | "file" | "default";
+export type ConfigFallbackReason =
+  | "missing_config"
+  | "config_path_not_found"
+  | "config_file_read_error"
+  | "config_json_parse_error"
+  | "config_schema_error";
+
+/**
+ * `/health` 中暴露的低泄漏配置摘要。
+ *
+ * 这里只返回配置来源与兜底状态，不包含原始错误、文件路径、headers 或 apiKey。
+ */
+export type ProxyHealthConfig = {
+  source: ConfigSource;
+  fallbackReason?: ConfigFallbackReason;
+  envFileLoaded: boolean;
+};
+
+/**
+ * `/health` 对外暴露的精简健康信息。
+ *
+ * 用于描述当前是否处于配置降级状态，不泄漏底层敏感配置细节。
+ */
+export type ProxyHealthInfo = {
+  degraded: boolean;
+  config: ProxyHealthConfig;
+};
+
 /**
  * 启动本地 HTTP proxy 所需的全部输入。
  */
@@ -126,6 +155,10 @@ export type ProxyOptions = {
   traceLogger?: TraceLogger;
   session?: Partial<SessionConfig>;
   runtimeLimits?: ProxyRuntimeLimitInput;
+  /**
+   * `/health` 的低泄漏配置摘要，不包含原始错误、路径、headers 或 apiKey。
+   */
+  health?: ProxyHealthInfo;
 };
 
 /**
@@ -1215,6 +1248,13 @@ export async function startProxy(options: ProxyOptions): Promise<ProxyHandle> {
     sessionPinning: options.session?.enabled,
   });
   const runtimeLimits = resolveRuntimeLimits(options.runtimeLimits);
+  const health: ProxyHealthInfo = options.health ?? {
+    degraded: false,
+    config: {
+      source: "inline",
+      envFileLoaded: false,
+    },
+  };
   const sessionStore = new SessionStore(options.session);
   const publicModels = options.config.publicModels;
   const tierEntries = options.config.routing.tiers;
@@ -1236,6 +1276,8 @@ export async function startProxy(options: ProxyOptions): Promise<ProxyHandle> {
               status: "ok",
               baseUrl: cfg.baseUrl,
               version: VERSION,
+              degraded: health.degraded,
+              config: health.config,
             }),
           );
           return;

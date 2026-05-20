@@ -354,6 +354,38 @@ describe("proxy", () => {
     });
   });
 
+  it("includes config fallback summary in health", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxyImpl({
+      config: withProxyOverrides(createAliasConfig(), {
+        upstreamUrl: upstream.baseUrl,
+        port: 0,
+      }),
+      health: {
+        degraded: true,
+        config: {
+          source: "default",
+          fallbackReason: "missing_config",
+          envFileLoaded: true,
+        },
+      },
+    });
+    handles.push(proxy);
+
+    expect(await (await request(proxy.port, "/health")).json()).toMatchObject({
+      status: "ok",
+      baseUrl: upstream.baseUrl,
+      version: expect.any(String),
+      degraded: true,
+      config: {
+        source: "default",
+        fallbackReason: "missing_config",
+        envFileLoaded: true,
+      },
+    });
+  });
+
   it("rejects unsupported models", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
