@@ -189,10 +189,10 @@ export function resolvePluginConfig(api: OpenClawPluginApi): RawConfig {
   const inline = api.pluginConfig?.config;
   const path = api.pluginConfig?.configPath;
 
-  if (inline) {
+  if (hasInlineConfig(inline)) {
     return loadConfig({ kind: "inline", config: inline as RawConfig });
   }
-  if (path) {
+  if (hasConfigPath(path)) {
     return loadConfig({ kind: "file", path: path as string });
   }
 
@@ -206,6 +206,40 @@ export function resolvePluginConfig(api: OpenClawPluginApi): RawConfig {
  */
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * 只有非 null / undefined 的值才算“真正提供了 inline config”。
+ *
+ * 这样可以避免 `config: null` 或 `config: undefined` 这类占位字段遮蔽合法
+ * `configPath`，并让“仅有空占位字段”的场景回落到缺失配置分支。
+ */
+function hasInlineConfig(value: unknown): boolean {
+  return value !== null && value !== undefined;
+}
+
+/**
+ * pluginConfig.configPath 只有是非空字符串时才算可用文件配置来源。
+ */
+function hasConfigPath(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+/**
+ * 把配置加载异常收敛到稳定枚举，避免插件层暴露底层错误细节。
+ */
+function classifyConfigLoadError(error: unknown): ConfigFallbackReason {
+  if (error instanceof SyntaxError) {
+    return "config_json_parse_error";
+  }
+
+  if (error && typeof error === "object" && "code" in error) {
+    return (error as { code?: unknown }).code === "ENOENT"
+      ? "config_path_not_found"
+      : "config_file_read_error";
+  }
+
+  return "config_schema_error";
 }
 
 /**
@@ -266,18 +300,44 @@ function resolvePluginProxyOverrides(
 function resolvePluginRuntimeConfig(api: OpenClawPluginApi): RuntimeConfigResult {
   const inline = api.pluginConfig?.config;
   const path = api.pluginConfig?.configPath;
-  const runtimeConfigResult: RuntimeConfigResult = !inline && !path
-    ? fallbackConfig("missing_config")
-    : {
+  let runtimeConfigResult: RuntimeConfigResult;
+
+  if (hasInlineConfig(inline)) {
+    try {
+      runtimeConfigResult = {
         config: resolvePluginConfig(api),
         health: {
           degraded: false,
           config: {
-            source: inline ? ("inline" as const) : ("file" as const),
+            source: "inline",
             envFileLoaded: false,
           },
         },
       };
+    } catch (error) {
+      runtimeConfigResult = fallbackConfig("config_schema_error", error);
+    }
+  } else if (hasConfigPath(path)) {
+    try {
+      runtimeConfigResult = {
+        config: resolvePluginConfig(api),
+        health: {
+          degraded: false,
+          config: {
+            source: "file",
+            envFileLoaded: false,
+          },
+        },
+      };
+    } catch (error) {
+      runtimeConfigResult = fallbackConfig(
+        classifyConfigLoadError(error),
+        error,
+      );
+    }
+  } else {
+    runtimeConfigResult = fallbackConfig("missing_config");
+  }
 
   return {
     ...runtimeConfigResult,

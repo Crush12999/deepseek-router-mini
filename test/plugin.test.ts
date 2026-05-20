@@ -85,6 +85,10 @@ function onlyAutoModel(models: ReturnType<typeof createInjectedModels>) {
 }
 
 const fixtureConfigPath = path.resolve(__dirname, "fixtures/minimal-config.json");
+const invalidJsonFixturePath = path.resolve(
+  __dirname,
+  "fixtures/invalid-json-runtime-config.json",
+);
 
 function normalizePluginConfig(
   pluginConfig: Record<string, unknown> | undefined,
@@ -1376,6 +1380,47 @@ describe("OpenClaw plugin config-driven loading", () => {
     }));
   });
 
+  it.each([
+    ["undefined", undefined],
+    ["null", null],
+  ])(
+    "loads configPath when pluginConfig.config is %s placeholder",
+    async (_caseName, configValue) => {
+      const startProxy = vi.fn().mockResolvedValue({
+        port: 8402,
+        baseUrl: "https://api.deepseek.com",
+        close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+      });
+      const api = {
+        config: {},
+        pluginConfig: {
+          config: configValue,
+          configPath: fixtureConfigPath,
+        },
+        registerService: (service: OpenClawService) => serviceCalls.push(service),
+      };
+
+      expect(() => registerOpenClawPluginWithoutDefaults(api, { startProxy })).not.toThrow();
+
+      await serviceCalls[0]!.start();
+      expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+        config: expect.objectContaining({
+          proxy: expect.objectContaining({
+            port: 8402,
+            upstreamUrl: "https://api.deepseek.com",
+          }),
+        }),
+        health: {
+          degraded: false,
+          config: {
+            source: "file",
+            envFileLoaded: false,
+          },
+        },
+      }));
+    },
+  );
+
   it("uses default config when plugin config is missing", async () => {
     const startProxy = vi.fn().mockResolvedValue({
       port: 8402,
@@ -1423,6 +1468,138 @@ describe("OpenClaw plugin config-driven loading", () => {
       }),
     }));
     expect(info).toHaveBeenCalledWith(expect.stringContaining("default config"));
+  });
+
+  it("uses default config when pluginConfig.config is null without configPath", async () => {
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {},
+      pluginConfig: {
+        config: null,
+      },
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    expect(() => registerOpenClawPluginWithoutDefaults(api, { startProxy })).not.toThrow();
+
+    await serviceCalls[0]!.start();
+    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+      health: expect.objectContaining({
+        degraded: true,
+        config: expect.objectContaining({
+          source: "default",
+          fallbackReason: "missing_config",
+          envFileLoaded: false,
+        }),
+      }),
+    }));
+  });
+
+  it.each([
+    ["missing file", "/tmp/llm-router-missing-config.json", "config_path_not_found"],
+    ["directory", __dirname, "config_file_read_error"],
+    [
+      "schema error",
+      path.resolve(__dirname, "fixtures/invalid-config.json"),
+      "config_schema_error",
+    ],
+  ])(
+    "uses default config when configPath has %s",
+    async (_caseName, configPath, fallbackReason) => {
+      const startProxy = vi.fn().mockResolvedValue({
+        port: 8402,
+        baseUrl: "https://api.deepseek.com",
+        close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+      });
+      const api = {
+        config: {},
+        pluginConfig: {
+          configPath,
+        },
+        registerService: (service: OpenClawService) => serviceCalls.push(service),
+      };
+
+      expect(() => registerOpenClawPluginWithoutDefaults(api, { startProxy })).not.toThrow();
+
+      await serviceCalls[0]!.start();
+      expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+        health: {
+          degraded: true,
+          config: {
+            source: "default",
+            fallbackReason,
+            envFileLoaded: false,
+          },
+        },
+      }));
+    },
+  );
+
+  it("uses default config when configPath contains invalid JSON", async () => {
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {},
+      pluginConfig: {
+        configPath: invalidJsonFixturePath,
+      },
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    expect(() => registerOpenClawPluginWithoutDefaults(api, { startProxy })).not.toThrow();
+
+    await serviceCalls[0]!.start();
+    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+      health: {
+        degraded: true,
+        config: {
+          source: "default",
+          fallbackReason: "config_json_parse_error",
+          envFileLoaded: false,
+        },
+      },
+    }));
+  });
+
+  it("uses default config when pluginConfig.config fails schema validation", async () => {
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {},
+      pluginConfig: {
+        config: {
+          version: 1,
+          proxy: {
+            port: 8402,
+          },
+        },
+      },
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    expect(() => registerOpenClawPluginWithoutDefaults(api, { startProxy })).not.toThrow();
+
+    await serviceCalls[0]!.start();
+    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+      health: {
+        degraded: true,
+        config: {
+          source: "default",
+          fallbackReason: "config_schema_error",
+          envFileLoaded: false,
+        },
+      },
+    }));
   });
 
   it("allows pluginConfig.port to override config file port", async () => {
