@@ -77,7 +77,9 @@ SECRET=hidden
   });
 
   it("returns loaded false when the env file is missing", () => {
-    expect(readXiaoyiEnvConfig({ path: join(tmpdir(), "missing-xiaoyi-env") })).toEqual({
+    expect(
+      readXiaoyiEnvConfig({ path: join(tmpdir(), "missing-xiaoyi-env") }),
+    ).toEqual({
       loaded: false,
     });
   });
@@ -98,12 +100,18 @@ SECRET=hidden
         BAD: 123,
       } as unknown as Record<string, unknown>),
     ).toEqual({ UID: "X-UID" });
-    expect(normalizeXiaoyiEnvHeaderMap(undefined)).toEqual(DEFAULT_XIAOYI_ENV_HEADER_MAP);
-    expect(normalizeXiaoyiEnvHeaderMap("bad")).toEqual(DEFAULT_XIAOYI_ENV_HEADER_MAP);
+    expect(normalizeXiaoyiEnvHeaderMap(undefined)).toEqual(
+      DEFAULT_XIAOYI_ENV_HEADER_MAP,
+    );
+    expect(normalizeXiaoyiEnvHeaderMap("bad")).toEqual(
+      DEFAULT_XIAOYI_ENV_HEADER_MAP,
+    );
   });
 
   it("preserves own __proto__ keys from parsed JSON headerMap objects", () => {
-    const result = normalizeXiaoyiEnvHeaderMap(JSON.parse('{"__proto__":"X-Test","UID":"X-UID"}'));
+    const result = normalizeXiaoyiEnvHeaderMap(
+      JSON.parse('{"__proto__":"X-Test","UID":"X-UID"}'),
+    );
 
     expect(Object.keys(result)).toEqual(["__proto__", "UID"]);
     expect(Object.getPrototypeOf(result)).toBeNull();
@@ -118,7 +126,9 @@ X-UID=123456
 `);
     const onlyUidPath = tempFile("X-UID=123456\n");
 
-    expect(readXiaoyiEnvConfig({ path: withServiceUrlPath, headerMap: {} })).toEqual({
+    expect(
+      readXiaoyiEnvConfig({ path: withServiceUrlPath, headerMap: {} }),
+    ).toEqual({
       loaded: true,
       upstreamUrl: "https://gateway.example.com",
     });

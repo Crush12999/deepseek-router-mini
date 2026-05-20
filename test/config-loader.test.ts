@@ -36,7 +36,10 @@ function setPublicModel(raw: RawConfig, id: string, value: unknown): void {
 
 describe("loadConfig", () => {
   it("should load config from file", () => {
-    const config = loadConfig({ kind: "file", path: join(__dirname, "fixtures/minimal-config.json") });
+    const config = loadConfig({
+      kind: "file",
+      path: join(__dirname, "fixtures/minimal-config.json"),
+    });
     expect(config.proxy.port).toBe(8402);
     expect(config.models).toHaveLength(2);
   });
@@ -45,21 +48,30 @@ describe("loadConfig", () => {
     const raw = cloneConfig();
     delete raw.publicModels.auto;
 
-    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(/must contain.*auto/i);
+    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
+      /must contain.*auto/i,
+    );
   });
 
   it("requires auto to be router with metadata", () => {
     const raw = cloneConfig();
-    raw.publicModels.auto = { kind: "alias", candidates: ["deepseek-v4-flash"] };
+    raw.publicModels.auto = {
+      kind: "alias",
+      candidates: ["deepseek-v4-flash"],
+    };
 
-    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(/auto.*router/i);
+    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
+      /auto.*router/i,
+    );
   });
 
   it("rejects auto router without metadata", () => {
     const raw = cloneConfig();
     setPublicModel(raw, "auto", { kind: "router" });
 
-    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(/publicModels\.auto\.metadata.*required/i);
+    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
+      /publicModels\.auto\.metadata.*required/i,
+    );
   });
 
   it("rejects non-auto router public models", () => {
@@ -185,30 +197,59 @@ describe("loadConfig", () => {
   });
 
   it("should reject invalid candidate reference", () => {
-    expect(() => loadConfig({ kind: "file", path: join(__dirname, "fixtures/invalid-config.json") })).toThrow(
-      /unknown.*candidate/i,
-    );
+    expect(() =>
+      loadConfig({
+        kind: "file",
+        path: join(__dirname, "fixtures/invalid-config.json"),
+      }),
+    ).toThrow(/unknown.*candidate/i);
   });
 
   it("should reject duplicate model IDs", () => {
     const raw = cloneConfig();
-    raw.models.push(structuredClone(raw.models[0]) as RawConfig["models"][number]);
+    raw.models.push(
+      structuredClone(raw.models[0]) as RawConfig["models"][number],
+    );
 
-    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(/duplicate.*deepseek-v4-flash/i);
+    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
+      /duplicate.*deepseek-v4-flash/i,
+    );
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["empty", ""],
+    ["non-string", 123],
+  ])("rejects %s proxy.upstreamUrl", (_caseName, upstreamUrl) => {
+    const raw = cloneConfig();
+    if (upstreamUrl === undefined) {
+      delete (raw.proxy as Partial<RawConfig["proxy"]>).upstreamUrl;
+    } else {
+      (raw.proxy as unknown as Record<string, unknown>).upstreamUrl =
+        upstreamUrl;
+    }
+
+    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
+      /proxy\.upstreamUrl.*non-empty string/i,
+    );
   });
 
   it("rejects tier target that points at router model", () => {
     const raw = cloneConfig();
     raw.routing.tiers.SIMPLE.publicModel = "auto";
 
-    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(/SIMPLE.*alias/i);
+    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
+      /SIMPLE.*alias/i,
+    );
   });
 
   it("should reject empty candidates in alias", () => {
     const raw = cloneConfig();
     raw.publicModels.flash = { kind: "alias", candidates: [] };
 
-    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(/candidates.*empty/i);
+    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
+      /candidates.*empty/i,
+    );
   });
 
   it("rejects alias metadata with invalid field types", () => {
@@ -256,22 +297,21 @@ describe("loadConfig", () => {
     ["complexReasoning", Number.NaN],
     ["complexReasoning", "0.8"],
     ["complexReasoning", Number.POSITIVE_INFINITY],
-  ] satisfies Array<[keyof NonNullable<RawConfig["routing"]["tierBoundaries"]>, number | string]>)(
-    "rejects invalid routing.tierBoundaries.%s",
-    (key, value) => {
-      const raw = cloneConfig();
-      raw.routing.tierBoundaries = {
-        simpleMedium: 0.15,
-        mediumComplex: 0.45,
-        complexReasoning: 0.75,
-      };
-      raw.routing.tierBoundaries[key] = value as never;
+  ] satisfies Array<
+    [keyof NonNullable<RawConfig["routing"]["tierBoundaries"]>, number | string]
+  >)("rejects invalid routing.tierBoundaries.%s", (key, value) => {
+    const raw = cloneConfig();
+    raw.routing.tierBoundaries = {
+      simpleMedium: 0.15,
+      mediumComplex: 0.45,
+      complexReasoning: 0.75,
+    };
+    raw.routing.tierBoundaries[key] = value as never;
 
-      expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
-        new RegExp(`routing\\.tierBoundaries\\.${key}.*finite number`, "i"),
-      );
-    },
-  );
+    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
+      new RegExp(`routing\\.tierBoundaries\\.${key}.*finite number`, "i"),
+    );
+  });
 
   it("rejects non-monotonic boundaries", () => {
     const raw = cloneConfig();
@@ -311,27 +351,35 @@ describe("loadConfig", () => {
     const raw = cloneConfig();
     raw.proxy.port = 99999;
 
-    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(/port.*1-65535/i);
+    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
+      /port.*1-65535/i,
+    );
   });
 
   it("should reject non-string header values", () => {
     const raw = cloneConfig();
     raw.proxy.headers = { "X-Test": 123 as never };
 
-    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(/header.*string/i);
+    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
+      /header.*string/i,
+    );
   });
 
   it("should reject fallback referencing non-existent model", () => {
     const raw = cloneConfig();
     raw.routing.tiers.SIMPLE.fallback = ["unknown"];
 
-    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(/fallback.*unknown/i);
+    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
+      /fallback.*unknown/i,
+    );
   });
 
   it("should reject fallback referencing router public model", () => {
     const raw = cloneConfig();
     raw.routing.tiers.SIMPLE.fallback = ["auto"];
 
-    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(/fallback.*alias/i);
+    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
+      /fallback.*alias/i,
+    );
   });
 });

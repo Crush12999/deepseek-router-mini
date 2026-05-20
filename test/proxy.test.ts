@@ -28,7 +28,9 @@ async function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-async function startUpstream(handler?: (req: IncomingMessage, res: ServerResponse) => void) {
+async function startUpstream(
+  handler?: (req: IncomingMessage, res: ServerResponse) => void,
+) {
   const requests: CapturedRequest[] = [];
   const server = http.createServer((req, res) => {
     void (async () => {
@@ -55,7 +57,12 @@ async function startUpstream(handler?: (req: IncomingMessage, res: ServerRespons
         }
 
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ id: "cmpl_1", choices: [{ message: { content: "ok" } }] }));
+        res.end(
+          JSON.stringify({
+            id: "cmpl_1",
+            choices: [{ message: { content: "ok" } }],
+          }),
+        );
       } catch {
         if (!res.headersSent) {
           res.statusCode = 400;
@@ -72,7 +79,8 @@ async function startUpstream(handler?: (req: IncomingMessage, res: ServerRespons
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => {
       const address = server.address();
-      if (!address || typeof address === "string") reject(new Error("bad address"));
+      if (!address || typeof address === "string")
+        reject(new Error("bad address"));
       else resolve(address.port);
     });
   });
@@ -80,7 +88,10 @@ async function startUpstream(handler?: (req: IncomingMessage, res: ServerRespons
   return {
     baseUrl: `http://127.0.0.1:${port}`,
     requests,
-    close: () => new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve()))),
+    close: () =>
+      new Promise<void>((resolve, reject) =>
+        server.close((err) => (err ? reject(err) : resolve())),
+      ),
   };
 }
 
@@ -266,19 +277,17 @@ function withProxyOverrides(
   };
 }
 
-async function startProxy(
-  options: {
-    baseUrl?: string;
-    port?: number;
-    apiKey?: string;
-    headers?: Record<string, string>;
-    traceMode?: "off" | "summary" | "debug";
-    traceLogger?: ProxyOptions["traceLogger"];
-    session?: ProxyOptions["session"];
-    runtimeLimits?: ProxyRuntimeLimitTestOptions;
-    config?: RawConfig;
-  },
-) {
+async function startProxy(options: {
+  baseUrl?: string;
+  port?: number;
+  apiKey?: string;
+  headers?: Record<string, string>;
+  traceMode?: "off" | "summary" | "debug";
+  traceLogger?: ProxyOptions["traceLogger"];
+  session?: ProxyOptions["session"];
+  runtimeLimits?: ProxyRuntimeLimitTestOptions;
+  config?: RawConfig;
+}) {
   if (options.config) {
     const config = withProxyOverrides(options.config, {
       upstreamUrl: options.baseUrl ?? options.config.proxy.upstreamUrl,
@@ -466,14 +475,22 @@ describe("proxy", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get(routerHeader("model"))).toBe("flash");
-    expect(res.headers.get(routerHeader("actual-model"))).toBe("deepseek-v4-flash");
-    expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
+    expect(res.headers.get(routerHeader("actual-model"))).toBe(
+      "deepseek-v4-flash",
+    );
+    expect(upstream.requests[0]?.body).toMatchObject({
+      model: "deepseek-v4-flash",
+    });
   });
 
   it("forwards auto requests with auth", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
-    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0, apiKey: "secret" });
+    const proxy = await startProxy({
+      baseUrl: upstream.baseUrl,
+      port: 0,
+      apiKey: "secret",
+    });
     handles.push(proxy);
 
     const res = await request(proxy.port, "/v1/chat/completions", {
@@ -481,7 +498,12 @@ describe("proxy", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         model: "auto",
-        messages: [{ role: "user", content: "Summarize briefly: OpenClaw routes simple tasks." }],
+        messages: [
+          {
+            role: "user",
+            content: "Summarize briefly: OpenClaw routes simple tasks.",
+          },
+        ],
       }),
     });
 
@@ -492,7 +514,9 @@ describe("proxy", () => {
     expect(res.headers.get(routerHeader("upstream"))).toBe(upstream.baseUrl);
     expect(upstream.requests[0]?.url).toBe("/chat/completions");
     expect(upstream.requests[0]?.headers.authorization).toBe("Bearer secret");
-    expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
+    expect(upstream.requests[0]?.body).toMatchObject({
+      model: "deepseek-v4-flash",
+    });
   });
 
   it("does not send authorization when apiKey and authorization headers are absent", async () => {
@@ -519,7 +543,11 @@ describe("proxy", () => {
   it("keeps request authorization instead of overriding it with apiKey", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
-    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0, apiKey: "secret" });
+    const proxy = await startProxy({
+      baseUrl: upstream.baseUrl,
+      port: 0,
+      apiKey: "secret",
+    });
     handles.push(proxy);
 
     const res = await request(proxy.port, "/v1/chat/completions", {
@@ -535,7 +563,9 @@ describe("proxy", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(upstream.requests[0]?.headers.authorization).toBe("Bearer request-token");
+    expect(upstream.requests[0]?.headers.authorization).toBe(
+      "Bearer request-token",
+    );
   });
 
   it("lets configured authorization override request authorization and apiKey", async () => {
@@ -562,13 +592,18 @@ describe("proxy", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(upstream.requests[0]?.headers.authorization).toBe("Bearer configured-token");
+    expect(upstream.requests[0]?.headers.authorization).toBe(
+      "Bearer configured-token",
+    );
   });
 
   it("forwards to an upstream v1 API base without changing the local route", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
-    const proxy = await startProxy({ baseUrl: `${upstream.baseUrl}/v1`, port: 0 });
+    const proxy = await startProxy({
+      baseUrl: `${upstream.baseUrl}/v1`,
+      port: 0,
+    });
     handles.push(proxy);
 
     const res = await request(proxy.port, "/v1/chat/completions", {
@@ -576,7 +611,12 @@ describe("proxy", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         model: "auto",
-        messages: [{ role: "user", content: "Summarize briefly: OpenClaw routes simple tasks." }],
+        messages: [
+          {
+            role: "user",
+            content: "Summarize briefly: OpenClaw routes simple tasks.",
+          },
+        ],
       }),
     });
 
@@ -587,7 +627,10 @@ describe("proxy", () => {
   it("forwards to an upstream v4 API base without changing the local route", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
-    const proxy = await startProxy({ baseUrl: `${upstream.baseUrl}/v4`, port: 0 });
+    const proxy = await startProxy({
+      baseUrl: `${upstream.baseUrl}/v4`,
+      port: 0,
+    });
     handles.push(proxy);
 
     const res = await request(proxy.port, "/v1/chat/completions", {
@@ -614,16 +657,25 @@ describe("proxy", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         model: "auto",
-        messages: [{ role: "user", content: "Summarize briefly: OpenClaw routes simple tasks." }],
+        messages: [
+          {
+            role: "user",
+            content: "Summarize briefly: OpenClaw routes simple tasks.",
+          },
+        ],
       }),
     });
 
     expect(res.status).toBe(200);
     expect(res.headers.get(routerHeader("model"))).toBe("flash");
     expect(res.headers.get(routerHeader("tier"))).toBe("SIMPLE");
-    expect(res.headers.get(routerHeader("trace"))).toBe("auto:simple:flash:first-pass");
+    expect(res.headers.get(routerHeader("trace"))).toBe(
+      "auto:simple:flash:first-pass",
+    );
     expect(res.headers.get(routerHeader("routed"))).toBe("true");
-    expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
+    expect(upstream.requests[0]?.body).toMatchObject({
+      model: "deepseek-v4-flash",
+    });
   });
 
   it("uses routing threshold overrides from config", async () => {
@@ -656,8 +708,12 @@ describe("proxy", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get(routerHeader("model"))).toBe("pro");
     expect(res.headers.get(routerHeader("tier"))).toBe("REASONING");
-    expect(res.headers.get(routerHeader("trace"))).toBe("auto:reasoning:pro:reasoning");
-    expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-pro" });
+    expect(res.headers.get(routerHeader("trace"))).toBe(
+      "auto:reasoning:pro:reasoning",
+    );
+    expect(upstream.requests[0]?.body).toMatchObject({
+      model: "deepseek-v4-pro",
+    });
   });
 
   it("does not write trace logs by default", async () => {
@@ -673,7 +729,12 @@ describe("proxy", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         model: "auto",
-        messages: [{ role: "user", content: "Summarize briefly: OpenClaw routes simple tasks." }],
+        messages: [
+          {
+            role: "user",
+            content: "Summarize briefly: OpenClaw routes simple tasks.",
+          },
+        ],
       }),
     });
 
@@ -686,7 +747,11 @@ describe("proxy", () => {
     const upstream = await startUpstream();
     handles.push(upstream);
     const logSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
-    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0, traceMode: "summary" });
+    const proxy = await startProxy({
+      baseUrl: upstream.baseUrl,
+      port: 0,
+      traceMode: "summary",
+    });
     handles.push(proxy);
 
     const res = await request(proxy.port, "/v1/chat/completions", {
@@ -694,7 +759,12 @@ describe("proxy", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         model: "auto",
-        messages: [{ role: "user", content: "Summarize briefly: OpenClaw routes simple tasks." }],
+        messages: [
+          {
+            role: "user",
+            content: "Summarize briefly: OpenClaw routes simple tasks.",
+          },
+        ],
       }),
     });
 
@@ -709,9 +779,14 @@ describe("proxy", () => {
     const upstream = await startUpstream();
     handles.push(upstream);
     const logSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
-    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0, traceMode: "debug" });
+    const proxy = await startProxy({
+      baseUrl: upstream.baseUrl,
+      port: 0,
+      traceMode: "debug",
+    });
     handles.push(proxy);
-    const routePrompt = "Compare these two API response formats and summarize the compatibility risks for a migration plan.";
+    const routePrompt =
+      "Compare these two API response formats and summarize the compatibility risks for a migration plan.";
 
     const res = await request(proxy.port, "/v1/chat/completions", {
       method: "POST",
@@ -722,7 +797,10 @@ describe("proxy", () => {
       body: JSON.stringify({
         model: "auto",
         messages: [
-          { role: "system", content: "Return a strict JSON object matching the schema." },
+          {
+            role: "system",
+            content: "Return a strict JSON object matching the schema.",
+          },
           { role: "user", content: routePrompt },
         ],
       }),
@@ -747,9 +825,13 @@ describe("proxy", () => {
     expect(logged).toHaveProperty("confidence");
     expect(logged).toHaveProperty("score");
     expect(logged).toHaveProperty("agenticScore");
-    expect(logged).toHaveProperty("attempts", [{ model: "deepseek-v4-flash", status: "success" }]);
+    expect(logged).toHaveProperty("attempts", [
+      { model: "deepseek-v4-flash", status: "success" },
+    ]);
     expect(rawLog).not.toContain(routePrompt);
-    expect(rawLog).not.toContain("Return a strict JSON object matching the schema.");
+    expect(rawLog).not.toContain(
+      "Return a strict JSON object matching the schema.",
+    );
     expect(rawLog).not.toContain("should-not-be-logged");
     expect(rawLog).not.toContain("messages");
     expect(rawLog).not.toContain("authorization");
@@ -759,23 +841,37 @@ describe("proxy", () => {
     const upstream = await startUpstream();
     handles.push(upstream);
     const logSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
-    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0, traceMode: "debug" });
+    const proxy = await startProxy({
+      baseUrl: upstream.baseUrl,
+      port: 0,
+      traceMode: "debug",
+    });
     handles.push(proxy);
 
     const res = await request(proxy.port, "/v1/chat/completions", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-session-id": "first-auto-pro-set" },
+      headers: {
+        "content-type": "application/json",
+        "x-session-id": "first-auto-pro-set",
+      },
       body: JSON.stringify({
         model: "auto",
         messages: [
-          { role: "user", content: "Prove this theorem step by step and derive the result formally." },
+          {
+            role: "user",
+            content:
+              "Prove this theorem step by step and derive the result formally.",
+          },
         ],
       }),
     });
 
     expect(res.status).toBe(200);
     expect(res.headers.get(routerHeader("model"))).toBe("pro");
-    const logged = JSON.parse(String(logSpy.mock.calls[0]?.[0])) as Record<string, unknown>;
+    const logged = JSON.parse(String(logSpy.mock.calls[0]?.[0])) as Record<
+      string,
+      unknown
+    >;
     expect(logged).toMatchObject({
       trace: "auto:reasoning:pro:reasoning",
       routedModel: "pro",
@@ -795,7 +891,10 @@ describe("proxy", () => {
       config: createAliasConfig(),
     });
     handles.push(proxy);
-    const headers = { "content-type": "application/json", "x-session-id": "alias-reuse-pro" };
+    const headers = {
+      "content-type": "application/json",
+      "x-session-id": "alias-reuse-pro",
+    };
 
     const first = await request(proxy.port, "/v1/chat/completions", {
       method: "POST",
@@ -803,7 +902,11 @@ describe("proxy", () => {
       body: JSON.stringify({
         model: "auto",
         messages: [
-          { role: "user", content: "Prove this theorem step by step and derive the result formally." },
+          {
+            role: "user",
+            content:
+              "Prove this theorem step by step and derive the result formally.",
+          },
         ],
       }),
     });
@@ -821,8 +924,13 @@ describe("proxy", () => {
 
     expect(second.status).toBe(200);
     expect(second.headers.get(routerHeader("trace"))).toContain(":pro:");
-    const firstLogged = JSON.parse(String(logSpy.mock.calls[0]?.[0])) as Record<string, unknown>;
-    const secondLogged = JSON.parse(String(logSpy.mock.calls[1]?.[0])) as Record<string, unknown>;
+    const firstLogged = JSON.parse(String(logSpy.mock.calls[0]?.[0])) as Record<
+      string,
+      unknown
+    >;
+    const secondLogged = JSON.parse(
+      String(logSpy.mock.calls[1]?.[0]),
+    ) as Record<string, unknown>;
     expect(firstLogged).toMatchObject({
       routedModel: "pro",
       actualModel: "deepseek-v4-pro",
@@ -835,7 +943,10 @@ describe("proxy", () => {
       sessionAction: "reuse",
     });
     expect(upstream.requests).toHaveLength(2);
-    expect(requestedModels(upstream.requests)).toEqual(["deepseek-v4-pro", "deepseek-v4-pro"]);
+    expect(requestedModels(upstream.requests)).toEqual([
+      "deepseek-v4-pro",
+      "deepseek-v4-pro",
+    ]);
   });
 
   it("routes auto requests through config-driven alias tiers without exposing alias ids publicly", async () => {
@@ -856,15 +967,24 @@ describe("proxy", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         model: "auto",
-        messages: [{ role: "user", content: "Summarize briefly: OpenClaw routes simple tasks." }],
+        messages: [
+          {
+            role: "user",
+            content: "Summarize briefly: OpenClaw routes simple tasks.",
+          },
+        ],
       }),
     });
 
     expect(simple.status).toBe(200);
     expect(simple.headers.get(routerHeader("model"))).toBe("lite");
-    expect(simple.headers.get(routerHeader("actual-model"))).toBe("deepseek-v4-flash");
+    expect(simple.headers.get(routerHeader("actual-model"))).toBe(
+      "deepseek-v4-flash",
+    );
     expect(simple.headers.get(routerHeader("tier"))).toBe("SIMPLE");
-    expect(simple.headers.get(routerHeader("trace"))).toBe("auto:simple:lite:first-pass");
+    expect(simple.headers.get(routerHeader("trace"))).toBe(
+      "auto:simple:lite:first-pass",
+    );
 
     const reasoning = await request(proxy.port, "/v1/chat/completions", {
       method: "POST",
@@ -872,17 +992,28 @@ describe("proxy", () => {
       body: JSON.stringify({
         model: "auto",
         messages: [
-          { role: "user", content: "Prove this theorem step by step and derive the result formally." },
+          {
+            role: "user",
+            content:
+              "Prove this theorem step by step and derive the result formally.",
+          },
         ],
       }),
     });
 
     expect(reasoning.status).toBe(200);
     expect(reasoning.headers.get(routerHeader("model"))).toBe("think");
-    expect(reasoning.headers.get(routerHeader("actual-model"))).toBe("deepseek-v4-pro");
+    expect(reasoning.headers.get(routerHeader("actual-model"))).toBe(
+      "deepseek-v4-pro",
+    );
     expect(reasoning.headers.get(routerHeader("tier"))).toBe("REASONING");
-    expect(reasoning.headers.get(routerHeader("trace"))).toBe("auto:reasoning:think:reasoning");
-    expect(requestedModels(upstream.requests)).toEqual(["deepseek-v4-flash", "deepseek-v4-pro"]);
+    expect(reasoning.headers.get(routerHeader("trace"))).toBe(
+      "auto:reasoning:think:reasoning",
+    );
+    expect(requestedModels(upstream.requests)).toEqual([
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+    ]);
   });
 
   it("supports non-default swift/think aliases while keeping public and physical model semantics separate", async () => {
@@ -909,7 +1040,9 @@ describe("proxy", () => {
 
     expect(routed.status).toBe(200);
     expect(routed.headers.get(routerHeader("model"))).toBe("swift");
-    expect(routed.headers.get(routerHeader("actual-model"))).toBe("deepseek-v4-flash");
+    expect(routed.headers.get(routerHeader("actual-model"))).toBe(
+      "deepseek-v4-flash",
+    );
 
     const reasoning = await request(proxy.port, "/v1/chat/completions", {
       method: "POST",
@@ -917,17 +1050,28 @@ describe("proxy", () => {
       body: JSON.stringify({
         model: "auto",
         messages: [
-          { role: "user", content: "Prove this theorem step by step and derive the result formally." },
+          {
+            role: "user",
+            content:
+              "Prove this theorem step by step and derive the result formally.",
+          },
         ],
       }),
     });
 
     expect(reasoning.status).toBe(200);
     expect(reasoning.headers.get(routerHeader("model"))).toBe("think");
-    expect(reasoning.headers.get(routerHeader("actual-model"))).toBe("deepseek-v4-pro");
+    expect(reasoning.headers.get(routerHeader("actual-model"))).toBe(
+      "deepseek-v4-pro",
+    );
     expect(reasoning.headers.get(routerHeader("tier"))).toBe("REASONING");
-    expect(reasoning.headers.get(routerHeader("trace"))).toBe("auto:reasoning:think:reasoning");
-    expect(requestedModels(upstream.requests)).toEqual(["deepseek-v4-flash", "deepseek-v4-pro"]);
+    expect(reasoning.headers.get(routerHeader("trace"))).toBe(
+      "auto:reasoning:think:reasoning",
+    );
+    expect(requestedModels(upstream.requests)).toEqual([
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+    ]);
   });
 
   it("uses console.debug for trace logging without touching console.error", async () => {
@@ -935,7 +1079,11 @@ describe("proxy", () => {
     handles.push(upstream);
     const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0, traceMode: "debug" });
+    const proxy = await startProxy({
+      baseUrl: upstream.baseUrl,
+      port: 0,
+      traceMode: "debug",
+    });
     handles.push(proxy);
 
     const res = await request(proxy.port, "/v1/chat/completions", {
@@ -943,7 +1091,12 @@ describe("proxy", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         model: "auto",
-        messages: [{ role: "user", content: "Summarize briefly: OpenClaw routes simple tasks." }],
+        messages: [
+          {
+            role: "user",
+            content: "Summarize briefly: OpenClaw routes simple tasks.",
+          },
+        ],
       }),
     });
 
@@ -964,7 +1117,10 @@ describe("proxy", () => {
       body: JSON.stringify({
         model: "auto",
         messages: [
-          { role: "system", content: "Return a strict JSON object matching the schema." },
+          {
+            role: "system",
+            content: "Return a strict JSON object matching the schema.",
+          },
           { role: "user", content: "Summarize Redis briefly." },
         ],
       }),
@@ -972,7 +1128,9 @@ describe("proxy", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get(routerHeader("model"))).toBe("flash");
-    expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
+    expect(upstream.requests[0]?.body).toMatchObject({
+      model: "deepseek-v4-flash",
+    });
   });
 
   it("keeps simple auto requests without tools on flash", async () => {
@@ -986,13 +1144,20 @@ describe("proxy", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         model: "auto",
-        messages: [{ role: "user", content: "Summarize briefly: OpenClaw routes simple tasks." }],
+        messages: [
+          {
+            role: "user",
+            content: "Summarize briefly: OpenClaw routes simple tasks.",
+          },
+        ],
       }),
     });
 
     expect(res.status).toBe(200);
     expect(res.headers.get(routerHeader("model"))).toBe("flash");
-    expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
+    expect(upstream.requests[0]?.body).toMatchObject({
+      model: "deepseek-v4-flash",
+    });
   });
 
   it("routes by the only user message when there is no OpenClaw consecutive user tail", async () => {
@@ -1009,16 +1174,22 @@ describe("proxy", () => {
         messages: [
           {
             role: "assistant",
-            content: "Bootstrap: use apply_patch for src/plugin.ts when editing files.",
+            content:
+              "Bootstrap: use apply_patch for src/plugin.ts when editing files.",
           },
-          { role: "user", content: "Summarize briefly: OpenClaw routes simple tasks." },
+          {
+            role: "user",
+            content: "Summarize briefly: OpenClaw routes simple tasks.",
+          },
         ],
       }),
     });
 
     expect(res.status).toBe(200);
     expect(res.headers.get(routerHeader("model"))).toBe("flash");
-    expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
+    expect(upstream.requests[0]?.body).toMatchObject({
+      model: "deepseek-v4-flash",
+    });
   });
 
   it("routes by the first message in a consecutive OpenClaw user tail", async () => {
@@ -1035,12 +1206,17 @@ describe("proxy", () => {
         messages: [
           {
             role: "assistant",
-            content: "Bootstrap: use apply_patch for src/plugin.ts when editing files.",
+            content:
+              "Bootstrap: use apply_patch for src/plugin.ts when editing files.",
           },
-          { role: "user", content: "Summarize briefly: OpenClaw routes simple tasks." },
           {
             role: "user",
-            content: "No timestamp tail: Prove this theorem step by step and derive the result formally.",
+            content: "Summarize briefly: OpenClaw routes simple tasks.",
+          },
+          {
+            role: "user",
+            content:
+              "No timestamp tail: Prove this theorem step by step and derive the result formally.",
           },
         ],
       }),
@@ -1048,7 +1224,9 @@ describe("proxy", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get(routerHeader("model"))).toBe("flash");
-    expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
+    expect(upstream.requests[0]?.body).toMatchObject({
+      model: "deepseek-v4-flash",
+    });
   });
 
   it.skip("routes by the final OpenClaw CLI turn inside a bootstrap-wrapped user message", async () => {
@@ -1081,7 +1259,9 @@ describe("proxy", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get(routerHeader("model"))).toBe("flash");
-    expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
+    expect(upstream.requests[0]?.body).toMatchObject({
+      model: "deepseek-v4-flash",
+    });
   });
 
   it("lets custom authorization override api key", async () => {
@@ -1148,7 +1328,9 @@ describe("proxy", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(upstream.requests[0]?.headers["content-type"]).toBe("application/json; charset=utf-8");
+    expect(upstream.requests[0]?.headers["content-type"]).toBe(
+      "application/json; charset=utf-8",
+    );
   });
 
   it("keeps auto sessions pinned to pro after upgrade", async () => {
@@ -1157,7 +1339,10 @@ describe("proxy", () => {
     const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
     handles.push(proxy);
 
-    const headers = { "content-type": "application/json", "x-session-id": "session-pro" };
+    const headers = {
+      "content-type": "application/json",
+      "x-session-id": "session-pro",
+    };
 
     await request(proxy.port, "/v1/chat/completions", {
       method: "POST",
@@ -1165,7 +1350,11 @@ describe("proxy", () => {
       body: JSON.stringify({
         model: "auto",
         messages: [
-          { role: "user", content: "Prove this theorem step by step and derive the result formally." },
+          {
+            role: "user",
+            content:
+              "Prove this theorem step by step and derive the result formally.",
+          },
         ],
       }),
     });
@@ -1178,8 +1367,12 @@ describe("proxy", () => {
       }),
     });
 
-    expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-pro" });
-    expect(upstream.requests[1]?.body).toMatchObject({ model: "deepseek-v4-pro" });
+    expect(upstream.requests[0]?.body).toMatchObject({
+      model: "deepseek-v4-pro",
+    });
+    expect(upstream.requests[1]?.body).toMatchObject({
+      model: "deepseek-v4-pro",
+    });
   });
 
   it("does not pin an auto flash route over a later complex auto request", async () => {
@@ -1188,7 +1381,10 @@ describe("proxy", () => {
     const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
     handles.push(proxy);
 
-    const headers = { "content-type": "application/json", "x-session-id": "flash-then-complex" };
+    const headers = {
+      "content-type": "application/json",
+      "x-session-id": "flash-then-complex",
+    };
 
     const simple = await request(proxy.port, "/v1/chat/completions", {
       method: "POST",
@@ -1218,7 +1414,10 @@ describe("proxy", () => {
     });
 
     expect(complex.status).toBe(200);
-    expect(requestedModels(upstream.requests)).toEqual(["deepseek-v4-flash", "deepseek-v4-pro"]);
+    expect(requestedModels(upstream.requests)).toEqual([
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+    ]);
   });
 
   it("keeps auto flash on a retryable upstream failure without falling back to pro", async () => {
@@ -1244,7 +1443,9 @@ describe("proxy", () => {
     expect(res.status).toBe(429);
     expect(res.headers.get(routerHeader("model"))).toBe("flash");
     expect(res.headers.get(routerHeader("tier"))).toBe("SIMPLE");
-    expect(res.headers.get(routerHeader("trace"))).toBe("auto:simple:flash:error");
+    expect(res.headers.get(routerHeader("trace"))).toBe(
+      "auto:simple:flash:error",
+    );
     expect(res.headers.get(routerHeader("fallback"))).toBe("false");
     expect(count).toBe(1);
     expect(requestedModels(upstream.requests)).toEqual(["deepseek-v4-flash"]);
@@ -1256,11 +1457,16 @@ describe("proxy", () => {
     const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
     handles.push(proxy);
 
-    const headers = { "content-type": "application/json", "x-session-id": "three-strike-session" };
+    const headers = {
+      "content-type": "application/json",
+      "x-session-id": "three-strike-session",
+    };
     const body = JSON.stringify({
       model: "auto",
       tools: [{ type: "function", function: { name: "search" } }],
-      messages: [{ role: "user", content: "Translate hello and check one tool result." }],
+      messages: [
+        { role: "user", content: "Translate hello and check one tool result." },
+      ],
     });
 
     for (let i = 0; i < 4; i++) {
@@ -1290,14 +1496,22 @@ describe("proxy", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         model: "auto",
-        messages: [{ role: "user", content: "Prove this theorem step by step and derive the result formally." }],
+        messages: [
+          {
+            role: "user",
+            content:
+              "Prove this theorem step by step and derive the result formally.",
+          },
+        ],
       }),
     });
 
     expect(res.status).toBe(502);
     expect(res.headers.get(routerHeader("model"))).toBe("pro");
     expect(res.headers.get(routerHeader("tier"))).toBe("REASONING");
-    expect(res.headers.get(routerHeader("trace"))).toBe("auto:reasoning:pro:reasoning");
+    expect(res.headers.get(routerHeader("trace"))).toBe(
+      "auto:reasoning:pro:reasoning",
+    );
     expect(res.headers.get(routerHeader("fallback"))).toBe("false");
     expect(await res.json()).toMatchObject({
       error: {
@@ -1310,7 +1524,10 @@ describe("proxy", () => {
 
   it("uses a neutral fallback message for non-Error network failures", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue("socket closed");
-    const proxy = await startProxy({ baseUrl: "http://upstream.example.test", port: 0 });
+    const proxy = await startProxy({
+      baseUrl: "http://upstream.example.test",
+      port: 0,
+    });
     handles.push(proxy);
 
     const res = await request(proxy.port, "/v1/chat/completions", {
@@ -1318,14 +1535,22 @@ describe("proxy", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         model: "auto",
-        messages: [{ role: "user", content: "Prove this theorem step by step and derive the result formally." }],
+        messages: [
+          {
+            role: "user",
+            content:
+              "Prove this theorem step by step and derive the result formally.",
+          },
+        ],
       }),
     });
 
     expect(res.status).toBe(502);
     expect(res.headers.get(routerHeader("model"))).toBe("pro");
     expect(res.headers.get(routerHeader("tier"))).toBe("REASONING");
-    expect(res.headers.get(routerHeader("trace"))).toBe("auto:reasoning:pro:reasoning");
+    expect(res.headers.get(routerHeader("trace"))).toBe(
+      "auto:reasoning:pro:reasoning",
+    );
     expect(res.headers.get(routerHeader("fallback"))).toBe("false");
     expect(await res.json()).toEqual({
       error: {
@@ -1450,90 +1675,88 @@ describe("proxy", () => {
       body: string;
       connectionHeader?: string;
       socketClosed: boolean;
-    }>(
-      (resolve, reject) => {
-        let settled = false;
-        let responseEnded = false;
-        let sawResponse = false;
-        let socketClosed = false;
-        let statusCode: number | undefined;
-        let connectionHeader: string | undefined;
-        let responseBody = "";
+    }>((resolve, reject) => {
+      let settled = false;
+      let responseEnded = false;
+      let sawResponse = false;
+      let socketClosed = false;
+      let statusCode: number | undefined;
+      let connectionHeader: string | undefined;
+      let responseBody = "";
 
-        const cleanup = (): void => {
-          clearTimeout(safetyTimeout);
-          keepAliveAgent.destroy();
-        };
+      const cleanup = (): void => {
+        clearTimeout(safetyTimeout);
+        keepAliveAgent.destroy();
+      };
 
-        const rejectOnce = (error: Error): void => {
-          if (settled) return;
-          settled = true;
-          cleanup();
-          reject(error);
-        };
+      const rejectOnce = (error: Error): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      };
 
-        const maybeResolve = (): void => {
-          if (!responseEnded || !socketClosed) return;
-          if (settled) return;
-          settled = true;
-          cleanup();
-          resolve({
-            statusCode,
-            body: responseBody,
-            connectionHeader,
-            socketClosed,
-          });
-        };
+      const maybeResolve = (): void => {
+        if (!responseEnded || !socketClosed) return;
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve({
+          statusCode,
+          body: responseBody,
+          connectionHeader,
+          socketClosed,
+        });
+      };
 
-        const safetyTimeout = setTimeout(() => {
-          rejectOnce(
-            new Error("Timed out waiting for proxy body-read timeout response"),
-          );
-        }, 1_000);
-
-        const clientReq = http.request(
-          {
-            hostname: "127.0.0.1",
-            port: proxy.port,
-            path: "/v1/chat/completions",
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            agent: keepAliveAgent,
-          },
-          (clientRes) => {
-            sawResponse = true;
-            statusCode = clientRes.statusCode;
-            connectionHeader =
-              typeof clientRes.headers.connection === "string"
-                ? clientRes.headers.connection
-                : undefined;
-
-            clientRes.setEncoding("utf8");
-            clientRes.on("data", (chunk) => {
-              responseBody += chunk;
-            });
-            clientRes.on("end", () => {
-              responseEnded = true;
-              maybeResolve();
-            });
-            clientRes.on("error", rejectOnce);
-          },
+      const safetyTimeout = setTimeout(() => {
+        rejectOnce(
+          new Error("Timed out waiting for proxy body-read timeout response"),
         );
+      }, 1_000);
 
-        clientReq.on("socket", (socket) => {
-          socket.on("close", () => {
-            socketClosed = true;
+      const clientReq = http.request(
+        {
+          hostname: "127.0.0.1",
+          port: proxy.port,
+          path: "/v1/chat/completions",
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          agent: keepAliveAgent,
+        },
+        (clientRes) => {
+          sawResponse = true;
+          statusCode = clientRes.statusCode;
+          connectionHeader =
+            typeof clientRes.headers.connection === "string"
+              ? clientRes.headers.connection
+              : undefined;
+
+          clientRes.setEncoding("utf8");
+          clientRes.on("data", (chunk) => {
+            responseBody += chunk;
+          });
+          clientRes.on("end", () => {
+            responseEnded = true;
             maybeResolve();
           });
-        });
+          clientRes.on("error", rejectOnce);
+        },
+      );
 
-        clientReq.on("error", (error) => {
-          if (sawResponse) return;
-          rejectOnce(error);
+      clientReq.on("socket", (socket) => {
+        socket.on("close", () => {
+          socketClosed = true;
+          maybeResolve();
         });
-        clientReq.write('{"model":"auto","messages":[');
-      },
-    );
+      });
+
+      clientReq.on("error", (error) => {
+        if (sawResponse) return;
+        rejectOnce(error);
+      });
+      clientReq.write('{"model":"auto","messages":[');
+    });
 
     expect(result.statusCode).toBe(408);
     expect(result.connectionHeader).toBe("close");
@@ -1637,8 +1860,8 @@ describe("proxy", () => {
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
       });
-      res.write("data: {\"choices\":[{\"delta\":{\"content\":\"he\"}}]}\n\n");
-      res.write("data: {\"choices\":[{\"delta\":{\"content\":\"llo\"}}]}\n\n");
+      res.write('data: {"choices":[{"delta":{"content":"he"}}]}\n\n');
+      res.write('data: {"choices":[{"delta":{"content":"llo"}}]}\n\n');
       res.end("data: [DONE]\n\n");
     });
     handles.push(upstream);
@@ -1673,7 +1896,12 @@ describe("proxy", () => {
         [routerHeader("tier")]: "spoofed-tier",
         [routerHeader("trace")]: "spoofed-trace",
       });
-      res.end(JSON.stringify({ id: "cmpl_1", choices: [{ message: { content: "ok" } }] }));
+      res.end(
+        JSON.stringify({
+          id: "cmpl_1",
+          choices: [{ message: { content: "ok" } }],
+        }),
+      );
     });
     handles.push(upstream);
     const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
@@ -1685,7 +1913,10 @@ describe("proxy", () => {
       body: JSON.stringify({
         model: "auto",
         messages: [
-          { role: "system", content: "Return a strict JSON object matching the schema." },
+          {
+            role: "system",
+            content: "Return a strict JSON object matching the schema.",
+          },
           {
             role: "user",
             content:
@@ -1697,11 +1928,15 @@ describe("proxy", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get(routerHeader("model"))).toBe("flash");
-    expect(res.headers.get(routerHeader("actual-model"))).toBe("deepseek-v4-flash");
+    expect(res.headers.get(routerHeader("actual-model"))).toBe(
+      "deepseek-v4-flash",
+    );
     expect(res.headers.get(routerHeader("routed"))).toBe("true");
     expect(res.headers.get(routerHeader("fallback"))).toBe("false");
     expect(res.headers.get(routerHeader("upstream"))).toBe(upstream.baseUrl);
     expect(res.headers.get(routerHeader("tier"))).toBe("MEDIUM");
-    expect(res.headers.get(routerHeader("trace"))).toBe("auto:medium:flash:first-pass");
+    expect(res.headers.get(routerHeader("trace"))).toBe(
+      "auto:medium:flash:first-pass",
+    );
   });
 });

@@ -5,7 +5,11 @@ import { join } from "node:path";
 /**
  * 默认读取的 .xiaoyienv 路径。
  */
-export const DEFAULT_XIAOYI_ENV_PATH = join(homedir(), ".openclaw", ".xiaoyienv");
+export const DEFAULT_XIAOYI_ENV_PATH = join(
+  homedir(),
+  ".openclaw",
+  ".xiaoyienv",
+);
 
 /**
  * 默认仅允许把 X-UID 从环境文件映射到上游请求头，避免意外透传其他敏感字段。
@@ -77,7 +81,9 @@ export function parseXiaoyiEnvContent(content: string): Record<string, string> {
  * 若调用方显式传入空对象或全非法对象，则返回空映射以允许关闭默认 X-UID 映射。
  * 结果同样使用 null-prototype map，确保 `"__proto__"` 等特殊 key 作为普通映射项被保留。
  */
-export function normalizeXiaoyiEnvHeaderMap(value: unknown): Record<string, string> {
+export function normalizeXiaoyiEnvHeaderMap(
+  value: unknown,
+): Record<string, string> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return { ...DEFAULT_XIAOYI_ENV_HEADER_MAP };
   }
@@ -103,7 +109,9 @@ export function normalizeXiaoyiEnvHeaderMap(value: unknown): Record<string, stri
  * 且只暴露 `SERVICE_URL` 与白名单 header，不会推导 `apiKey` 或透传未映射字段。
  * 读取 header 前会校验 own key 与字符串值，避免把原型链上的函数等值带入请求头。
  */
-export function readXiaoyiEnvConfig(options: XiaoyiEnvReadOptions = {}): XiaoyiEnvConfig {
+export function readXiaoyiEnvConfig(
+  options: XiaoyiEnvReadOptions = {},
+): XiaoyiEnvConfig {
   const path = options.path ?? DEFAULT_XIAOYI_ENV_PATH;
 
   try {

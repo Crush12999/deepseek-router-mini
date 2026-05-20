@@ -310,9 +310,10 @@ function resolvePluginProxyOverrides(
 /**
  * 读取 pluginConfig.xiaoyiEnv；非法结构直接忽略，避免把宿主任意对象透传给 env 解析器。
  */
-function readXiaoyiEnvOptions(
-  api: OpenClawPluginApi,
-): { path?: string; headerMap?: unknown } {
+function readXiaoyiEnvOptions(api: OpenClawPluginApi): {
+  path?: string;
+  headerMap?: unknown;
+} {
   const value = api.pluginConfig?.xiaoyiEnv;
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const envConfig = value as { path?: unknown; headerMap?: unknown };
@@ -347,9 +348,7 @@ function mergeOptionalHeadersByCase(
 function createHeaderKeySet(
   headers: Record<string, string> | undefined,
 ): Set<string> {
-  return new Set(
-    Object.keys(headers ?? {}).map((key) => key.toLowerCase()),
-  );
+  return new Set(Object.keys(headers ?? {}).map((key) => key.toLowerCase()));
 }
 
 /**
@@ -423,7 +422,9 @@ function resolveProxyConfigWithCaseInsensitiveHeaders(
  * 本函数是插件配置加载失败的最后兜底边界：缺失配置时改用默认配置，
  * 其余合法 inline/file 继续走严格配置解析。
  */
-function resolvePluginRuntimeConfig(api: OpenClawPluginApi): RuntimeConfigResult {
+function resolvePluginRuntimeConfig(
+  api: OpenClawPluginApi,
+): RuntimeConfigResult {
   const inline = api.pluginConfig?.config;
   const path = api.pluginConfig?.configPath;
   let runtimeConfigResult: RuntimeConfigResult;
@@ -474,7 +475,10 @@ function resolvePluginRuntimeConfig(api: OpenClawPluginApi): RuntimeConfigResult
   const rawCoveredEnvHeaders =
     source === "default"
       ? (env.headers ?? {})
-      : omitHeadersCoveredBy(env.headers, runtimeConfigResult.config.proxy.headers);
+      : omitHeadersCoveredBy(
+          env.headers,
+          runtimeConfigResult.config.proxy.headers,
+        );
   const proxyWithEnv: RawConfig["proxy"] = {
     ...runtimeConfigResult.config.proxy,
     ...(envUpstreamUrl ? { upstreamUrl: envUpstreamUrl } : {}),
@@ -700,7 +704,6 @@ async function replaceActiveProxy(proxy: ProxyHandle): Promise<void> {
 
   activeProxy = proxy;
 }
-
 
 /**
  * 根据最终 startProxy 配置重新计算 env 是否真实生效。

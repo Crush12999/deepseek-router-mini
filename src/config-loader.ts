@@ -9,7 +9,10 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-function assertFiniteNumber(value: unknown, path: string): asserts value is number {
+function assertFiniteNumber(
+  value: unknown,
+  path: string,
+): asserts value is number {
   if (!isFiniteNumber(value)) {
     throw new Error(`${path} must be a finite number`);
   }
@@ -23,7 +26,13 @@ function assertPublicModelMetadata(value: unknown, path: string): void {
   const metadata = value as Record<string, unknown>;
   const metadataPath = `${path}.metadata`;
 
-  for (const key of ["name", "reasoning", "contextWindow", "maxTokens", "cost"]) {
+  for (const key of [
+    "name",
+    "reasoning",
+    "contextWindow",
+    "maxTokens",
+    "cost",
+  ]) {
     if (!hasOwn(metadata, key)) {
       throw new Error(`${metadataPath}.${key} is required`);
     }
@@ -65,7 +74,11 @@ function assertPublicModelMetadata(value: unknown, path: string): void {
   }
 }
 
-function assertAliasPublicModel(publicModels: RawConfig["publicModels"], id: string, path: string): void {
+function assertAliasPublicModel(
+  publicModels: RawConfig["publicModels"],
+  id: string,
+  path: string,
+): void {
   const publicModel = publicModels[id];
 
   if (!publicModel) {
@@ -84,7 +97,10 @@ function assertAliasPublicModel(publicModels: RawConfig["publicModels"], id: str
  * @throws {Error} 如果配置不合法（重复 ID、引用不存在、缺少 auto 等）
  */
 export function loadConfig(source: ConfigSource): RawConfig {
-  const raw = source.kind === "inline" ? source.config : JSON.parse(readFileSync(source.path, "utf-8"));
+  const raw =
+    source.kind === "inline"
+      ? source.config
+      : JSON.parse(readFileSync(source.path, "utf-8"));
   validateConfig(raw);
   return raw;
 }
@@ -122,27 +138,44 @@ function validateConfig(config: RawConfig): void {
   }
   assertPublicModelMetadata(auto.metadata, "publicModels.auto");
 
-  for (const [publicModelId, publicModel] of Object.entries(config.publicModels)) {
+  for (const [publicModelId, publicModel] of Object.entries(
+    config.publicModels,
+  )) {
     if (publicModel.kind === "router") {
       if (publicModelId !== "auto") {
-        throw new Error(`publicModels.${publicModelId}: only auto may use kind: "router"`);
+        throw new Error(
+          `publicModels.${publicModelId}: only auto may use kind: "router"`,
+        );
       }
-      assertPublicModelMetadata(publicModel.metadata, `publicModels.${publicModelId}`);
+      assertPublicModelMetadata(
+        publicModel.metadata,
+        `publicModels.${publicModelId}`,
+      );
       continue;
     }
 
-    if (!Array.isArray(publicModel.candidates) || publicModel.candidates.length === 0) {
-      throw new Error(`publicModels.${publicModelId}.candidates must not be empty`);
+    if (
+      !Array.isArray(publicModel.candidates) ||
+      publicModel.candidates.length === 0
+    ) {
+      throw new Error(
+        `publicModels.${publicModelId}.candidates must not be empty`,
+      );
     }
 
     for (const candidate of publicModel.candidates) {
       if (!modelIds.has(candidate)) {
-        throw new Error(`Unknown candidate '${candidate}' in publicModels.${publicModelId}`);
+        throw new Error(
+          `Unknown candidate '${candidate}' in publicModels.${publicModelId}`,
+        );
       }
     }
 
     if (publicModel.metadata != null) {
-      assertPublicModelMetadata(publicModel.metadata, `publicModels.${publicModelId}`);
+      assertPublicModelMetadata(
+        publicModel.metadata,
+        `publicModels.${publicModelId}`,
+      );
     }
   }
 
@@ -153,17 +186,29 @@ function validateConfig(config: RawConfig): void {
   }
 
   for (const [tier, tierConfig] of Object.entries(config.routing.tiers)) {
-    assertAliasPublicModel(config.publicModels, tierConfig.publicModel, `routing.tiers.${tier}.publicModel`);
+    assertAliasPublicModel(
+      config.publicModels,
+      tierConfig.publicModel,
+      `routing.tiers.${tier}.publicModel`,
+    );
 
     for (const fallbackId of tierConfig.fallback ?? []) {
-      assertAliasPublicModel(config.publicModels, fallbackId, `routing.tiers.${tier}.fallback`);
+      assertAliasPublicModel(
+        config.publicModels,
+        fallbackId,
+        `routing.tiers.${tier}.fallback`,
+      );
     }
   }
 
   if (hasOwn(config.routing as object, "tierBoundaries")) {
     const tierBoundaries = config.routing.tierBoundaries;
 
-    if (!tierBoundaries || typeof tierBoundaries !== "object" || Array.isArray(tierBoundaries)) {
+    if (
+      !tierBoundaries ||
+      typeof tierBoundaries !== "object" ||
+      Array.isArray(tierBoundaries)
+    ) {
       throw new Error("routing.tierBoundaries must be an object");
     }
 
@@ -171,31 +216,55 @@ function validateConfig(config: RawConfig): void {
 
     assertFiniteNumber(simpleMedium, "routing.tierBoundaries.simpleMedium");
     assertFiniteNumber(mediumComplex, "routing.tierBoundaries.mediumComplex");
-    assertFiniteNumber(complexReasoning, "routing.tierBoundaries.complexReasoning");
+    assertFiniteNumber(
+      complexReasoning,
+      "routing.tierBoundaries.complexReasoning",
+    );
 
     if (!(simpleMedium <= mediumComplex && mediumComplex <= complexReasoning)) {
       throw new Error(
-        "routing.tierBoundaries must satisfy simpleMedium <= mediumComplex <= complexReasoning"
+        "routing.tierBoundaries must satisfy simpleMedium <= mediumComplex <= complexReasoning",
       );
     }
   }
 
   if (hasOwn(config.routing as object, "confidenceThreshold")) {
-    assertFiniteNumber(config.routing.confidenceThreshold, "routing.confidenceThreshold");
+    assertFiniteNumber(
+      config.routing.confidenceThreshold,
+      "routing.confidenceThreshold",
+    );
 
-    if (config.routing.confidenceThreshold < 0 || config.routing.confidenceThreshold > 1) {
+    if (
+      config.routing.confidenceThreshold < 0 ||
+      config.routing.confidenceThreshold > 1
+    ) {
       throw new Error("routing.confidenceThreshold must be between 0 and 1");
     }
   }
 
-  if (!Number.isInteger(config.proxy.port) || config.proxy.port < 1 || config.proxy.port > 65535) {
-    throw new Error(`proxy.port must be an integer between 1-65535, got: ${config.proxy.port}`);
+  if (
+    !Number.isInteger(config.proxy.port) ||
+    config.proxy.port < 1 ||
+    config.proxy.port > 65535
+  ) {
+    throw new Error(
+      `proxy.port must be an integer between 1-65535, got: ${config.proxy.port}`,
+    );
+  }
+
+  if (
+    typeof config.proxy.upstreamUrl !== "string" ||
+    config.proxy.upstreamUrl.trim().length === 0
+  ) {
+    throw new Error("proxy.upstreamUrl must be a non-empty string");
   }
 
   if (config.proxy.headers) {
     for (const [key, value] of Object.entries(config.proxy.headers)) {
       if (typeof value !== "string") {
-        throw new Error(`proxy.headers['${key}'] must be a string, got: ${typeof value}`);
+        throw new Error(
+          `proxy.headers['${key}'] must be a string, got: ${typeof value}`,
+        );
       }
     }
   }

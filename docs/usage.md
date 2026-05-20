@@ -24,8 +24,8 @@ LLM Router 在 v0.2.0 里把「请求入口」和「路由结果」分成了两�
 
 ## 2. 配置文件
 
-CLI 必须使用 `--config`，OpenClaw 插件必须提供 `pluginConfig.config` 或
-`pluginConfig.configPath`。
+CLI 必须使用 `--config`；OpenClaw 插件优先使用 `pluginConfig.config` 或
+`pluginConfig.configPath`，缺失或非法时会进入内置默认配置兜底。
 
 示例配置：
 
@@ -114,6 +114,33 @@ CLI 必须使用 `--config`，OpenClaw 插件必须提供 `pluginConfig.config` 
 - 如果你希望新增 `lite` / `think` / `debug` 之类的新 alias，只需要改
   `publicModels` 和 `routing`；客户端请求入口仍然保持为 `auto`。
 
+OpenClaw 插件模式额外提供启动兜底：如果 `pluginConfig.config` 和
+`pluginConfig.configPath` 都缺失或非法，插件会回退到内置默认配置，确保本地
+Router 仍能启动。该兜底配置不包含真实 `apiKey`，上游鉴权仍需要通过
+OpenClaw provider 配置、插件运行时覆盖或其他受支持的方式提供。
+
+插件还可以把 `~/.openclaw/.xiaoyienv` 作为兜底补充读取：
+
+```env
+SERVICE_URL=https://api.deepseek.com
+X-UID=123456
+```
+
+- `SERVICE_URL` 仅用于补充兜底配置的上游 URL。
+- 其他 key 只有通过 `pluginConfig.xiaoyiEnv.headerMap` 映射后才会作为 header
+  使用；默认映射是 `{ "X-UID": "X-UID" }`。
+
+配置优先级摘要：
+
+1. 合法的 `pluginConfig.config` 优先于 `pluginConfig.configPath`。
+2. 合法的 `pluginConfig.configPath` 优先于内置默认配置。
+3. 只有主配置缺失或非法时，`SERVICE_URL` 才会补充兜底配置的
+   `proxy.upstreamUrl`。
+4. 映射后的 `.xiaoyienv` headers 可以补充配置；同名 header 被配置或
+   provider 覆盖时，以更高优先级来源为准。
+5. `pluginConfig.port`、`pluginConfig.upstreamUrl`、`pluginConfig.trace`
+   属于运行时覆盖项，优先级高于主配置和 `.xiaoyienv`。
+
 ### 2.1 Routing thresholds
 
 `routing.tierBoundaries` 和 `routing.confidenceThreshold` 是当前**唯一开放给配
@@ -156,7 +183,12 @@ curl -sS http://127.0.0.1:8402/health
 {
   "status": "ok",
   "baseUrl": "https://api.deepseek.com",
-  "version": "0.2.0"
+  "version": "1.0.3",
+  "degraded": false,
+  "config": {
+    "source": "inline",
+    "envFileLoaded": false
+  }
 }
 ```
 
@@ -182,13 +214,20 @@ openclaw gateway restart
 
 补充说明：`plugins.entries.llm-router.config.port` 与 `upstreamUrl` 是可选运行时覆写项；若未显式配置，则沿用 `pluginConfig.config` / `configPath` 指向配置文件中的 `proxy.port` 与 `proxy.upstreamUrl`。
 
+当插件进入内置默认配置兜底时，`GET /health` 仍返回低泄漏摘要：`degraded`
+为 `true`，`config.source` 为 `default`，`config.fallbackReason` 只包含稳定
+枚举（例如 `missing_config`、`config_json_parse_error`），不会暴露原始异常
+详情。`config.envFileLoaded` 只在 `.xiaoyienv` 的 `SERVICE_URL` 或映射后的
+header 最终实际生效时为 `true`；如果文件不存在、读取失败，或相关值被更高优
+先级配置覆盖，则保持 `false`。
+
 运行时保护默认值目前不是公开配置字段，配置文件中无需填写：
 
-| 保护项 | 默认值 | 行为 |
-| ------ | -----: | ---- |
-| 请求体大小上限 | 10 MB | 超限返回 `413 Payload Too Large`，不会转发到上游。 |
-| 请求体读取超时 | 30 秒 | 客户端迟迟不发完 body 时返回 `408 Request Timeout`。 |
-| 上游请求超时 | 300 秒 | 主动 abort 上游请求并返回 `504 Gateway Timeout`。 |
+| 保护项         | 默认值 | 行为                                                 |
+| -------------- | -----: | ---------------------------------------------------- |
+| 请求体大小上限 |  10 MB | 超限返回 `413 Payload Too Large`，不会转发到上游。   |
+| 请求体读取超时 |  30 秒 | 客户端迟迟不发完 body 时返回 `408 Request Timeout`。 |
+| 上游请求超时   | 300 秒 | 主动 abort 上游请求并返回 `504 Gateway Timeout`。    |
 
 如果客户端在上游响应前断开连接，代理会取消对应的上游请求，避免旧请求继续占用资源。
 
@@ -257,15 +296,15 @@ curl -iS http://127.0.0.1:8402/v1/chat/completions \
 
 代理会添加以下响应头：
 
-| 响应头                     | 含义                                                                 |
-| -------------------------- | -------------------------------------------------------------------- |
-| `x-xy-router-model`        | Router 内部最终选中的 alias，也就是语义层路由结果。                  |
-| `x-xy-router-actual-model` | physical / upstream model，也就是实际发往上游请求体的真实模型名。    |
+| 响应头                     | 含义                                                                       |
+| -------------------------- | -------------------------------------------------------------------------- |
+| `x-xy-router-model`        | Router 内部最终选中的 alias，也就是语义层路由结果。                        |
+| `x-xy-router-actual-model` | physical / upstream model，也就是实际发往上游请求体的真实模型名。          |
 | `x-xy-router-tier`         | 当前请求最终落到的 tier，例如 `SIMPLE`、`MEDIUM`、`COMPLEX`、`REASONING`。 |
-| `x-xy-router-trace`        | 紧凑路由摘要，例如 `auto:medium:flash:first-pass`。                  |
-| `x-xy-router-routed`       | 是否经过 `auto` 路由。当前成功请求通常为 `true`。                    |
-| `x-xy-router-fallback`     | 是否发生 fallback。当前实现固定为 `false`。                          |
-| `x-xy-router-upstream`     | 当前代理配置的上游 API base。                                        |
+| `x-xy-router-trace`        | 紧凑路由摘要，例如 `auto:medium:flash:first-pass`。                        |
+| `x-xy-router-routed`       | 是否经过 `auto` 路由。当前成功请求通常为 `true`。                          |
+| `x-xy-router-fallback`     | 是否发生 fallback。当前实现固定为 `false`。                                |
+| `x-xy-router-upstream`     | 当前代理配置的上游 API base。                                              |
 
 示例：
 

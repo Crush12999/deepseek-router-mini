@@ -12,7 +12,10 @@ import {
   registerOpenClawPlugin as registerOpenClawPluginImpl,
 } from "../src/plugin.js";
 
-function createPluginConfig(port = 8402, upstreamUrl = "https://api.deepseek.com"): RawConfig {
+function createPluginConfig(
+  port = 8402,
+  upstreamUrl = "https://api.deepseek.com",
+): RawConfig {
   return {
     version: 1,
     proxy: { port, upstreamUrl, trace: "off" as const },
@@ -86,10 +89,13 @@ function onlyAutoModel(models: ReturnType<typeof createInjectedModels>) {
   return models.filter((model) => model.id === "auto");
 }
 
-const fixtureConfigPath = path.resolve(__dirname, "fixtures/minimal-config.json");
+const fixtureConfigPath = path.resolve(
+  __dirname,
+  "fixtures/minimal-config.json",
+);
 const invalidJsonFixturePath = path.resolve(
   __dirname,
-  "fixtures/invalid-json-runtime-config.json",
+  "fixtures/invalid-json-runtime-config.json.invalid",
 );
 const tempDirs: string[] = [];
 
@@ -211,7 +217,9 @@ describe("OpenClaw plugin config injection", () => {
         },
       },
     });
-    const provider = (config.models as { providers: Record<string, Record<string, unknown>> }).providers.xiaoyiprovider;
+    const provider = (
+      config.models as { providers: Record<string, Record<string, unknown>> }
+    ).providers.xiaoyiprovider;
     expect(provider).not.toHaveProperty("apiKey");
   });
 
@@ -262,26 +270,29 @@ describe("OpenClaw plugin config injection", () => {
     ["string", "broken"],
     ["null", null],
     ["array", ["broken"]],
-  ])("replaces non-object xiaoyiprovider config (%s) with managed provider config", (_caseName, value) => {
-    const runtimeConfig = createPluginConfig();
-    const models = createInjectedModels(runtimeConfig);
-    const injectedModels = onlyAutoModel(models);
-    const config = {
-      models: {
-        providers: {
-          xiaoyiprovider: value,
+  ])(
+    "replaces non-object xiaoyiprovider config (%s) with managed provider config",
+    (_caseName, value) => {
+      const runtimeConfig = createPluginConfig();
+      const models = createInjectedModels(runtimeConfig);
+      const injectedModels = onlyAutoModel(models);
+      const config = {
+        models: {
+          providers: {
+            xiaoyiprovider: value,
+          },
         },
-      },
-    };
+      };
 
-    injectLlmRouterModelsConfig(config, "http://127.0.0.1:8402/v1", models);
+      injectLlmRouterModelsConfig(config, "http://127.0.0.1:8402/v1", models);
 
-    expect(config.models.providers.xiaoyiprovider).toEqual({
-      baseUrl: "http://127.0.0.1:8402/v1",
-      api: "openai-completions",
-      models: injectedModels,
-    });
-  });
+      expect(config.models.providers.xiaoyiprovider).toEqual({
+        baseUrl: "http://127.0.0.1:8402/v1",
+        api: "openai-completions",
+        models: injectedModels,
+      });
+    },
+  );
 
   it("injects models generated from runtime config instead of a static catalog", () => {
     const runtimeConfig = createPluginConfig();
@@ -316,9 +327,10 @@ describe("OpenClaw plugin config injection", () => {
 
     injectLlmRouterModelsConfig(config, "http://127.0.0.1:8402/v1", models);
 
-    expect((config.models as { providers: Record<string, { models: unknown }> }).providers.xiaoyiprovider.models).toEqual(
-      injectedModels,
-    );
+    expect(
+      (config.models as { providers: Record<string, { models: unknown }> })
+        .providers.xiaoyiprovider.models,
+    ).toEqual(injectedModels);
     expect(models).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -369,9 +381,12 @@ describe("OpenClaw plugin config injection", () => {
     injectLlmRouterModelsConfig(config, "http://127.0.0.1:8402/v1", models);
     injectLlmRouterModelsConfig(config, "http://127.0.0.1:8402/v1", models);
 
-    const providers = (config.models as { providers: Record<string, unknown> }).providers;
+    const providers = (config.models as { providers: Record<string, unknown> })
+      .providers;
     expect(Object.keys(providers)).toEqual(["xiaoyiprovider"]);
-    expect(((providers.xiaoyiprovider) as { models: unknown[] }).models).toEqual(injectedModels);
+    expect((providers.xiaoyiprovider as { models: unknown[] }).models).toEqual(
+      injectedModels,
+    );
   });
 });
 
@@ -441,18 +456,20 @@ describe("OpenClaw plugin lifecycle", () => {
       afterWrite: { mode: "auto" },
       mutate: expect.any(Function),
     });
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-      config: expect.objectContaining({
-        proxy: expect.objectContaining({
-          port: 8402,
-          upstreamUrl: "https://api.deepseek.com",
+    expect(startProxy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          proxy: expect.objectContaining({
+            port: 8402,
+            upstreamUrl: "https://api.deepseek.com",
+          }),
+        }),
+        traceLogger: expect.objectContaining({
+          debug: expect.any(Function),
+          info: expect.any(Function),
         }),
       }),
-      traceLogger: expect.objectContaining({
-        debug: expect.any(Function),
-        info: expect.any(Function),
-      }),
-    }));
+    );
     expect(api.logger.info).toHaveBeenCalledWith(
       "LLM Router listening on http://127.0.0.1:8402/v1",
     );
@@ -484,11 +501,11 @@ describe("OpenClaw plugin lifecycle", () => {
         },
       },
     };
-    const mutateConfigFile = vi.fn(async (params: {
-      mutate: (draft: typeof persistedConfig) => void;
-    }) => {
-      params.mutate(persistedConfig);
-    });
+    const mutateConfigFile = vi.fn(
+      async (params: { mutate: (draft: typeof persistedConfig) => void }) => {
+        params.mutate(persistedConfig);
+      },
+    );
     const api = {
       config: {},
       runtime: {
@@ -614,7 +631,8 @@ describe("OpenClaw plugin lifecycle", () => {
       const api = {
         config: {},
         registrationMode,
-        registerService: (service: OpenClawService) => serviceCalls.push(service),
+        registerService: (service: OpenClawService) =>
+          serviceCalls.push(service),
       };
 
       const result = registerOpenClawPlugin(api, { startProxy });
@@ -711,24 +729,26 @@ describe("OpenClaw plugin lifecycle", () => {
     registerOpenClawPlugin(api, { startProxy });
     await serviceCalls[0]!.start();
 
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-      config: expect.objectContaining({
-        proxy: expect.objectContaining({
-          port: 8402,
-          upstreamUrl: "https://api.deepseek.com",
-          apiKey: "config-key",
-          headers: {
-            "X-Provider": "yes",
-            "X-Override": "request",
-            "X-Request": "yes",
-          },
+    expect(startProxy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          proxy: expect.objectContaining({
+            port: 8402,
+            upstreamUrl: "https://api.deepseek.com",
+            apiKey: "config-key",
+            headers: {
+              "X-Provider": "yes",
+              "X-Override": "request",
+              "X-Request": "yes",
+            },
+          }),
+        }),
+        traceLogger: expect.objectContaining({
+          debug: expect.any(Function),
+          info: expect.any(Function),
         }),
       }),
-      traceLogger: expect.objectContaining({
-        debug: expect.any(Function),
-        info: expect.any(Function),
-      }),
-    }));
+    );
   });
 
   it("re-reads provider runtime overrides when the host updates config before first start", async () => {
@@ -782,8 +802,12 @@ describe("OpenClaw plugin lifecycle", () => {
   });
 
   it("re-reads provider runtime overrides on every start after stop", async () => {
-    const firstClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
-    const secondClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const firstClose = vi
+      .fn<() => Promise<void>>()
+      .mockResolvedValue(undefined);
+    const secondClose = vi
+      .fn<() => Promise<void>>()
+      .mockResolvedValue(undefined);
     const startProxy = vi
       .fn()
       .mockResolvedValueOnce({
@@ -840,21 +864,24 @@ describe("OpenClaw plugin lifecycle", () => {
     await serviceCalls[0]!.start();
 
     expect(startProxy).toHaveBeenCalledTimes(2);
-    expect(startProxy).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      config: expect.objectContaining({
-        proxy: expect.objectContaining({
-          apiKey: "next-key",
-          headers: {
-            "X-Provider": "next",
-            "X-After-Stop": "yes",
-          },
+    expect(startProxy).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        config: expect.objectContaining({
+          proxy: expect.objectContaining({
+            apiKey: "next-key",
+            headers: {
+              "X-Provider": "next",
+              "X-After-Stop": "yes",
+            },
+          }),
+        }),
+        traceLogger: expect.objectContaining({
+          debug: expect.any(Function),
+          info: expect.any(Function),
         }),
       }),
-      traceLogger: expect.objectContaining({
-        debug: expect.any(Function),
-        info: expect.any(Function),
-      }),
-    }));
+    );
   });
 
   it("prefers provider apiKey over api_key for proxy runtime", async () => {
@@ -881,19 +908,21 @@ describe("OpenClaw plugin lifecycle", () => {
     registerOpenClawPlugin(api, { startProxy });
     await serviceCalls[0]!.start();
 
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-      config: expect.objectContaining({
-        proxy: expect.objectContaining({
-          port: 8402,
-          upstreamUrl: "https://api.deepseek.com",
-          apiKey: "camel-key",
+    expect(startProxy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          proxy: expect.objectContaining({
+            port: 8402,
+            upstreamUrl: "https://api.deepseek.com",
+            apiKey: "camel-key",
+          }),
+        }),
+        traceLogger: expect.objectContaining({
+          debug: expect.any(Function),
+          info: expect.any(Function),
         }),
       }),
-      traceLogger: expect.objectContaining({
-        debug: expect.any(Function),
-        info: expect.any(Function),
-      }),
-    }));
+    );
   });
 
   it("passes provider request headers over provider headers for proxy runtime", async () => {
@@ -930,24 +959,26 @@ describe("OpenClaw plugin lifecycle", () => {
     registerOpenClawPlugin(api, { startProxy });
     await serviceCalls[0]!.start();
 
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-      config: expect.objectContaining({
-        proxy: expect.objectContaining({
-          port: 8402,
-          upstreamUrl: "https://api.deepseek.com",
-          headers: {
-            authorization: "Bearer request-token",
-            "x-uid": "request-user",
-            "x-provider-only": "yes",
-            "x-request-only": "yes",
-          },
+    expect(startProxy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          proxy: expect.objectContaining({
+            port: 8402,
+            upstreamUrl: "https://api.deepseek.com",
+            headers: {
+              authorization: "Bearer request-token",
+              "x-uid": "request-user",
+              "x-provider-only": "yes",
+              "x-request-only": "yes",
+            },
+          }),
+        }),
+        traceLogger: expect.objectContaining({
+          debug: expect.any(Function),
+          info: expect.any(Function),
         }),
       }),
-      traceLogger: expect.objectContaining({
-        debug: expect.any(Function),
-        info: expect.any(Function),
-      }),
-    }));
+    );
   });
 
   it("prefers pluginConfig port/upstreamUrl overrides over config file values", async () => {
@@ -1055,8 +1086,12 @@ describe("OpenClaw plugin lifecycle", () => {
   );
 
   it("closes the previous proxy when a later service starts", async () => {
-    const firstClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
-    const secondClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const firstClose = vi
+      .fn<() => Promise<void>>()
+      .mockResolvedValue(undefined);
+    const secondClose = vi
+      .fn<() => Promise<void>>()
+      .mockResolvedValue(undefined);
     const startProxy = vi
       .fn()
       .mockResolvedValueOnce({
@@ -1087,8 +1122,12 @@ describe("OpenClaw plugin lifecycle", () => {
   });
 
   it("does not let an old service stop close a later proxy", async () => {
-    const firstClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
-    const secondClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const firstClose = vi
+      .fn<() => Promise<void>>()
+      .mockResolvedValue(undefined);
+    const secondClose = vi
+      .fn<() => Promise<void>>()
+      .mockResolvedValue(undefined);
     const startProxy = vi
       .fn()
       .mockResolvedValueOnce({
@@ -1124,7 +1163,9 @@ describe("OpenClaw plugin lifecycle", () => {
   it("does not register provider or mutate config when service registration fails", () => {
     const registerError = new Error("duplicate service id");
     const startProxy = vi.fn();
-    const config = { models: { providers: { keep: { baseUrl: "https://keep.example.com" } } } };
+    const config = {
+      models: { providers: { keep: { baseUrl: "https://keep.example.com" } } },
+    };
     const api = {
       config,
       registerProvider: vi.fn(),
@@ -1133,7 +1174,9 @@ describe("OpenClaw plugin lifecycle", () => {
       }),
     };
 
-    expect(() => registerOpenClawPlugin(api, { startProxy })).toThrow(registerError);
+    expect(() => registerOpenClawPlugin(api, { startProxy })).toThrow(
+      registerError,
+    );
     expect(startProxy).not.toHaveBeenCalled();
     expect(api.registerProvider).not.toHaveBeenCalled();
     expect(api.config).toEqual({
@@ -1175,7 +1218,10 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(closeStarted).toHaveBeenCalled();
 
     closeResolvers.forEach((resolve) => resolve());
-    await expect(Promise.all([firstStop, secondStop])).resolves.toEqual([undefined, undefined]);
+    await expect(Promise.all([firstStop, secondStop])).resolves.toEqual([
+      undefined,
+      undefined,
+    ]);
     expect(close).toHaveBeenCalledTimes(1);
   });
 
@@ -1217,7 +1263,9 @@ describe("OpenClaw plugin lifecycle", () => {
       .fn<() => Promise<void>>()
       .mockRejectedValueOnce(closeError)
       .mockResolvedValueOnce(undefined);
-    const secondClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const secondClose = vi
+      .fn<() => Promise<void>>()
+      .mockResolvedValue(undefined);
     const startProxy = vi
       .fn()
       .mockResolvedValueOnce({
@@ -1259,7 +1307,9 @@ describe("OpenClaw plugin lifecycle", () => {
   });
 
   it("logs and rethrows proxy startup errors so OpenClaw can surface them", async () => {
-    const error = new Error("listen EADDRINUSE: address already in use 127.0.0.1:8402");
+    const error = new Error(
+      "listen EADDRINUSE: address already in use 127.0.0.1:8402",
+    );
     const api = {
       config: {},
       registerProvider: vi.fn(),
@@ -1392,14 +1442,16 @@ describe("OpenClaw plugin config-driven loading", () => {
     });
 
     await serviceCalls[0]!.start();
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-      config: expect.objectContaining({
-        proxy: expect.objectContaining({
-          port: 8402,
-          upstreamUrl: "https://api.deepseek.com",
+    expect(startProxy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          proxy: expect.objectContaining({
+            port: 8402,
+            upstreamUrl: "https://api.deepseek.com",
+          }),
         }),
       }),
-    }));
+    );
   });
 
   it.each([
@@ -1419,27 +1471,32 @@ describe("OpenClaw plugin config-driven loading", () => {
           config: configValue,
           configPath: fixtureConfigPath,
         },
-        registerService: (service: OpenClawService) => serviceCalls.push(service),
+        registerService: (service: OpenClawService) =>
+          serviceCalls.push(service),
       };
 
-      expect(() => registerOpenClawPluginWithoutDefaults(api, { startProxy })).not.toThrow();
+      expect(() =>
+        registerOpenClawPluginWithoutDefaults(api, { startProxy }),
+      ).not.toThrow();
 
       await serviceCalls[0]!.start();
-      expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-        config: expect.objectContaining({
-          proxy: expect.objectContaining({
-            port: 8402,
-            upstreamUrl: "https://api.deepseek.com",
+      expect(startProxy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          config: expect.objectContaining({
+            proxy: expect.objectContaining({
+              port: 8402,
+              upstreamUrl: "https://api.deepseek.com",
+            }),
           }),
-        }),
-        health: {
-          degraded: false,
-          config: {
-            source: "file",
-            envFileLoaded: false,
+          health: {
+            degraded: false,
+            config: {
+              source: "file",
+              envFileLoaded: false,
+            },
           },
-        },
-      }));
+        }),
+      );
     },
   );
 
@@ -1459,7 +1516,9 @@ describe("OpenClaw plugin config-driven loading", () => {
       },
     };
 
-    expect(() => registerOpenClawPluginWithoutDefaults(api, { startProxy })).not.toThrow();
+    expect(() =>
+      registerOpenClawPluginWithoutDefaults(api, { startProxy }),
+    ).not.toThrow();
     expect(api.config).toMatchObject({
       models: {
         providers: {
@@ -1473,23 +1532,27 @@ describe("OpenClaw plugin config-driven loading", () => {
     });
 
     await serviceCalls[0]!.start();
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-      config: expect.objectContaining({
-        proxy: expect.objectContaining({
-          port: 8402,
-          upstreamUrl: "https://api.deepseek.com",
-        }),
-      }),
-      health: expect.objectContaining({
-        degraded: true,
+    expect(startProxy).toHaveBeenCalledWith(
+      expect.objectContaining({
         config: expect.objectContaining({
-          source: "default",
-          fallbackReason: "missing_config",
-          envFileLoaded: false,
+          proxy: expect.objectContaining({
+            port: 8402,
+            upstreamUrl: "https://api.deepseek.com",
+          }),
+        }),
+        health: expect.objectContaining({
+          degraded: true,
+          config: expect.objectContaining({
+            source: "default",
+            fallbackReason: "missing_config",
+            envFileLoaded: false,
+          }),
         }),
       }),
-    }));
-    expect(info).toHaveBeenCalledWith(expect.stringContaining("default config"));
+    );
+    expect(info).toHaveBeenCalledWith(
+      expect.stringContaining("default config"),
+    );
   });
 
   it("uses default config when pluginConfig.config is null without configPath", async () => {
@@ -1506,23 +1569,31 @@ describe("OpenClaw plugin config-driven loading", () => {
       registerService: (service: OpenClawService) => serviceCalls.push(service),
     };
 
-    expect(() => registerOpenClawPluginWithoutDefaults(api, { startProxy })).not.toThrow();
+    expect(() =>
+      registerOpenClawPluginWithoutDefaults(api, { startProxy }),
+    ).not.toThrow();
 
     await serviceCalls[0]!.start();
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-      health: expect.objectContaining({
-        degraded: true,
-        config: expect.objectContaining({
-          source: "default",
-          fallbackReason: "missing_config",
-          envFileLoaded: false,
+    expect(startProxy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        health: expect.objectContaining({
+          degraded: true,
+          config: expect.objectContaining({
+            source: "default",
+            fallbackReason: "missing_config",
+            envFileLoaded: false,
+          }),
         }),
       }),
-    }));
+    );
   });
 
   it.each([
-    ["missing file", "/tmp/llm-router-missing-config.json", "config_path_not_found"],
+    [
+      "missing file",
+      "/tmp/llm-router-missing-config.json",
+      "config_path_not_found",
+    ],
     ["directory", __dirname, "config_file_read_error"],
     [
       "schema error",
@@ -1542,22 +1613,27 @@ describe("OpenClaw plugin config-driven loading", () => {
         pluginConfig: {
           configPath,
         },
-        registerService: (service: OpenClawService) => serviceCalls.push(service),
+        registerService: (service: OpenClawService) =>
+          serviceCalls.push(service),
       };
 
-      expect(() => registerOpenClawPluginWithoutDefaults(api, { startProxy })).not.toThrow();
+      expect(() =>
+        registerOpenClawPluginWithoutDefaults(api, { startProxy }),
+      ).not.toThrow();
 
       await serviceCalls[0]!.start();
-      expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-        health: {
-          degraded: true,
-          config: {
-            source: "default",
-            fallbackReason,
-            envFileLoaded: false,
+      expect(startProxy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          health: {
+            degraded: true,
+            config: {
+              source: "default",
+              fallbackReason,
+              envFileLoaded: false,
+            },
           },
-        },
-      }));
+        }),
+      );
     },
   );
 
@@ -1575,19 +1651,23 @@ describe("OpenClaw plugin config-driven loading", () => {
       registerService: (service: OpenClawService) => serviceCalls.push(service),
     };
 
-    expect(() => registerOpenClawPluginWithoutDefaults(api, { startProxy })).not.toThrow();
+    expect(() =>
+      registerOpenClawPluginWithoutDefaults(api, { startProxy }),
+    ).not.toThrow();
 
     await serviceCalls[0]!.start();
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-      health: {
-        degraded: true,
-        config: {
-          source: "default",
-          fallbackReason: "config_json_parse_error",
-          envFileLoaded: false,
+    expect(startProxy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        health: {
+          degraded: true,
+          config: {
+            source: "default",
+            fallbackReason: "config_json_parse_error",
+            envFileLoaded: false,
+          },
         },
-      },
-    }));
+      }),
+    );
   });
 
   it("uses default config when pluginConfig.config fails schema validation", async () => {
@@ -1609,19 +1689,23 @@ describe("OpenClaw plugin config-driven loading", () => {
       registerService: (service: OpenClawService) => serviceCalls.push(service),
     };
 
-    expect(() => registerOpenClawPluginWithoutDefaults(api, { startProxy })).not.toThrow();
+    expect(() =>
+      registerOpenClawPluginWithoutDefaults(api, { startProxy }),
+    ).not.toThrow();
 
     await serviceCalls[0]!.start();
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-      health: {
-        degraded: true,
-        config: {
-          source: "default",
-          fallbackReason: "config_schema_error",
-          envFileLoaded: false,
+    expect(startProxy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        health: {
+          degraded: true,
+          config: {
+            source: "default",
+            fallbackReason: "config_schema_error",
+            envFileLoaded: false,
+          },
         },
-      },
-    }));
+      }),
+    );
   });
 
   it("uses xiaoyienv SERVICE_URL when falling back to default config", async () => {
@@ -1646,11 +1730,51 @@ describe("OpenClaw plugin config-driven loading", () => {
       upstreamUrl: "https://env.example.com",
       headers: { "X-UID": "123456" },
     });
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-      health: expect.objectContaining({
-        config: expect.objectContaining({ envFileLoaded: true }),
+    expect(startProxy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        health: expect.objectContaining({
+          config: expect.objectContaining({ envFileLoaded: true }),
+        }),
       }),
-    }));
+    );
+  });
+
+  it("treats missing RawConfig upstreamUrl as schema error before applying xiaoyienv fallback", async () => {
+    const envPath = writeTempXiaoyiEnv("SERVICE_URL=https://env.example.com\n");
+    const invalidConfig = createPluginConfig();
+    delete (invalidConfig.proxy as Partial<RawConfig["proxy"]>).upstreamUrl;
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://env.example.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {},
+      pluginConfig: {
+        config: invalidConfig,
+        xiaoyiEnv: { path: envPath },
+      },
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPluginWithoutDefaults(api, { startProxy });
+    await serviceCalls[0]!.start();
+
+    expectStartProxyRuntimeCall(startProxy, {
+      upstreamUrl: "https://env.example.com",
+    });
+    expect(startProxy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        health: {
+          degraded: true,
+          config: {
+            source: "default",
+            fallbackReason: "config_schema_error",
+            envFileLoaded: true,
+          },
+        },
+      }),
+    );
   });
 
   it("does not let xiaoyienv SERVICE_URL override a valid RawConfig upstreamUrl", async () => {
@@ -1700,16 +1824,18 @@ describe("OpenClaw plugin config-driven loading", () => {
     registerOpenClawPluginWithoutDefaults(api, { startProxy });
     await serviceCalls[0]!.start();
 
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-      config: expect.objectContaining({
-        proxy: expect.objectContaining({
-          upstreamUrl: "https://raw.example.com",
+    expect(startProxy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          proxy: expect.objectContaining({
+            upstreamUrl: "https://raw.example.com",
+          }),
+        }),
+        health: expect.objectContaining({
+          config: expect.objectContaining({ envFileLoaded: false }),
         }),
       }),
-      health: expect.objectContaining({
-        config: expect.objectContaining({ envFileLoaded: false }),
-      }),
-    }));
+    );
   });
 
   it("keeps pluginConfig upstreamUrl above xiaoyienv SERVICE_URL during fallback", async () => {
@@ -1731,20 +1857,22 @@ describe("OpenClaw plugin config-driven loading", () => {
     registerOpenClawPluginWithoutDefaults(api, { startProxy });
     await serviceCalls[0]!.start();
 
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-      config: expect.objectContaining({
-        proxy: expect.objectContaining({
-          upstreamUrl: "https://plugin.example.com",
-        }),
-      }),
-      health: expect.objectContaining({
-        degraded: true,
+    expect(startProxy).toHaveBeenCalledWith(
+      expect.objectContaining({
         config: expect.objectContaining({
-          source: "default",
-          envFileLoaded: false,
+          proxy: expect.objectContaining({
+            upstreamUrl: "https://plugin.example.com",
+          }),
+        }),
+        health: expect.objectContaining({
+          degraded: true,
+          config: expect.objectContaining({
+            source: "default",
+            envFileLoaded: false,
+          }),
         }),
       }),
-    }));
+    );
   });
 
   it("keeps provider request headers above xiaoyienv headers case-insensitively at service start", async () => {
@@ -1787,11 +1915,13 @@ describe("OpenClaw plugin config-driven loading", () => {
         "x-uid": "request-user",
       },
     });
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-      health: expect.objectContaining({
-        config: expect.objectContaining({ envFileLoaded: false }),
+    expect(startProxy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        health: expect.objectContaining({
+          config: expect.objectContaining({ envFileLoaded: false }),
+        }),
       }),
-    }));
+    );
   });
 
   it("does not mark same-valued xiaoyienv header loaded when provider request overrides it", async () => {
@@ -1829,11 +1959,13 @@ describe("OpenClaw plugin config-driven loading", () => {
         "x-uid": "same",
       },
     });
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-      health: expect.objectContaining({
-        config: expect.objectContaining({ envFileLoaded: false }),
+    expect(startProxy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        health: expect.objectContaining({
+          config: expect.objectContaining({ envFileLoaded: false }),
+        }),
       }),
-    }));
+    );
   });
 
   it("does not mark same-valued xiaoyienv header loaded when RawConfig proxy headers override it", async () => {
@@ -1864,11 +1996,13 @@ describe("OpenClaw plugin config-driven loading", () => {
         "x-uid": "same",
       },
     });
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-      health: expect.objectContaining({
-        config: expect.objectContaining({ envFileLoaded: false }),
+    expect(startProxy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        health: expect.objectContaining({
+          config: expect.objectContaining({ envFileLoaded: false }),
+        }),
       }),
-    }));
+    );
   });
 
   it("marks xiaoyienv loaded when at least one env header survives provider overrides", async () => {
@@ -1910,11 +2044,13 @@ describe("OpenClaw plugin config-driven loading", () => {
         "X-KEEP": "env-keep",
       },
     });
-    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
-      health: expect.objectContaining({
-        config: expect.objectContaining({ envFileLoaded: true }),
+    expect(startProxy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        health: expect.objectContaining({
+          config: expect.objectContaining({ envFileLoaded: true }),
+        }),
       }),
-    }));
+    );
   });
 
   it("supports custom xiaoyienv headerMap and ignores unmapped keys", async () => {
@@ -1957,7 +2093,7 @@ describe("OpenClaw plugin config-driven loading", () => {
       config: {},
       pluginConfig: {
         configPath: fixtureConfigPath,
-        port: 9999
+        port: 9999,
       },
       registerService: (service: OpenClawService) => serviceCalls.push(service),
     };
@@ -1991,7 +2127,7 @@ describe("OpenClaw plugin config-driven loading", () => {
       config: {},
       pluginConfig: {
         configPath: fixtureConfigPath,
-        upstreamUrl: "https://override.example.com"
+        upstreamUrl: "https://override.example.com",
       },
       registerService: (service: OpenClawService) => serviceCalls.push(service),
     };

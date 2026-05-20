@@ -7,7 +7,9 @@ import { describe, expect, it } from "vitest";
 
 const execFileAsync = promisify(execFile);
 const root = path.resolve(import.meta.dirname, "..");
-const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")) as {
+const pkg = JSON.parse(
+  fs.readFileSync(path.join(root, "package.json"), "utf8"),
+) as {
   name: string;
   description: string;
 };
@@ -164,24 +166,24 @@ console.log(JSON.stringify({
 `;
 
 describe("built package entrypoint", () => {
-  it(
-    "exports the OpenClaw plugin object and key named exports from dist",
-    async () => {
-      await execFileAsync("npm", ["run", "build"]);
+  it("exports the OpenClaw plugin object and key named exports from dist", async () => {
+    await execFileAsync("npm", ["run", "build"]);
 
-      const { stdout } = await execFileAsync("node", ["--input-type=module", "--eval", smokeScript]);
-      const result = JSON.parse(stdout) as {
-        id: string;
-        version: string;
-        exportedFunctions: string[];
-      };
+    const { stdout } = await execFileAsync("node", [
+      "--input-type=module",
+      "--eval",
+      smokeScript,
+    ]);
+    const result = JSON.parse(stdout) as {
+      id: string;
+      version: string;
+      exportedFunctions: string[];
+    };
 
-      expect(result).toMatchObject({
-        id: pluginMetadata.id,
-        version: expect.any(String),
-        exportedFunctions: ["function", "function", "function", "function"],
-      });
-    },
-    30_000,
-  );
+    expect(result).toMatchObject({
+      id: pluginMetadata.id,
+      version: expect.any(String),
+      exportedFunctions: ["function", "function", "function", "function"],
+    });
+  }, 30_000);
 });

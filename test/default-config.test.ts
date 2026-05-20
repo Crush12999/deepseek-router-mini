@@ -3,17 +3,26 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { loadConfig } from "../src/config-loader.js";
-import { createDefaultRawConfig, DEFAULT_RAW_CONFIG } from "../src/default-config.js";
+import {
+  createDefaultRawConfig,
+  DEFAULT_RAW_CONFIG,
+} from "../src/default-config.js";
 
 const minimalConfigFixture = JSON.parse(
-  readFileSync(new URL("./fixtures/minimal-config.json", import.meta.url), "utf8"),
+  readFileSync(
+    new URL("./fixtures/minimal-config.json", import.meta.url),
+    "utf8",
+  ),
 );
 
 describe("DEFAULT_RAW_CONFIG", () => {
   it("matches the minimal fixture exactly and stays a valid fallback config", () => {
     expect(DEFAULT_RAW_CONFIG).toEqual(minimalConfigFixture);
 
-    const config = loadConfig({ kind: "inline", config: createDefaultRawConfig() });
+    const config = loadConfig({
+      kind: "inline",
+      config: createDefaultRawConfig(),
+    });
 
     expect(config.proxy).toMatchObject({
       port: 8402,
@@ -33,13 +42,15 @@ describe("DEFAULT_RAW_CONFIG", () => {
   });
 
   it("prevents callers from mutating the shared default config", () => {
-    try {
+    expect(() => {
       DEFAULT_RAW_CONFIG.proxy.port = 9999;
-    } catch {}
+    }).toThrow(TypeError);
 
-    try {
-      DEFAULT_RAW_CONFIG.models.push(structuredClone(DEFAULT_RAW_CONFIG.models[0]));
-    } catch {}
+    expect(() => {
+      DEFAULT_RAW_CONFIG.models.push(
+        structuredClone(DEFAULT_RAW_CONFIG.models[0]),
+      );
+    }).toThrow(TypeError);
 
     expect(DEFAULT_RAW_CONFIG.proxy.port).toBe(8402);
     expect(DEFAULT_RAW_CONFIG.models).toHaveLength(2);

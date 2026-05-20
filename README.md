@@ -108,6 +108,21 @@ openclaw config set plugins.entries.llm-router.config.configPath "/path/to/confi
 openclaw config get models.providers.xiaoyiprovider
 ```
 
+If `pluginConfig.config` and `pluginConfig.configPath` are missing or invalid,
+OpenClaw plugin mode falls back to a built-in default config so the local router
+can still start. The fallback config does not include a real `apiKey`.
+
+The plugin may optionally read `~/.openclaw/.xiaoyienv` as a fallback supplement:
+
+```env
+SERVICE_URL=https://api.deepseek.com
+X-UID=123456
+```
+
+`SERVICE_URL` supplements the fallback upstream URL. Other keys are only sent as
+headers when mapped by `pluginConfig.xiaoyiEnv.headerMap`; the default map is
+`{ "X-UID": "X-UID" }`.
+
 OpenClaw 应始终向本地 Router 请求 `auto`，再由 Router 在内部决定最终落到哪
 个 alias / physical model。
 
@@ -135,11 +150,11 @@ response headers, not accepted in request bodies.
 The local proxy applies conservative runtime limits by default. These limits are
 internal defaults rather than public config fields:
 
-| Limit | Default | Behavior |
-| --- | ---: | --- |
-| Request body size | 10 MB | Returns `413 Payload Too Large` before forwarding upstream. |
-| Request body read time | 30 s | Returns `408 Request Timeout` if the client does not finish sending the body. |
-| Upstream request time | 300 s | Aborts the upstream request and returns `504 Gateway Timeout`. |
+| Limit                  | Default | Behavior                                                                      |
+| ---------------------- | ------: | ----------------------------------------------------------------------------- |
+| Request body size      |   10 MB | Returns `413 Payload Too Large` before forwarding upstream.                   |
+| Request body read time |    30 s | Returns `408 Request Timeout` if the client does not finish sending the body. |
+| Upstream request time  |   300 s | Aborts the upstream request and returns `504 Gateway Timeout`.                |
 
 If the client disconnects before the upstream call completes, the proxy aborts
 the upstream request to avoid keeping stale work running.

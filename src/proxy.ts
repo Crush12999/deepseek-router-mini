@@ -707,7 +707,8 @@ function buildRoutingConfigFromRawConfig(rawConfig: RawConfig): RoutingConfig {
       ...rawConfig.routing.tierBoundaries,
     },
     confidenceThreshold:
-      rawConfig.routing.confidenceThreshold ?? DEFAULT_ROUTING_CONFIG.scoring.confidenceThreshold,
+      rawConfig.routing.confidenceThreshold ??
+      DEFAULT_ROUTING_CONFIG.scoring.confidenceThreshold,
   };
 
   return {
@@ -1141,14 +1142,7 @@ async function proxyChat(
     let sessionAction = selected.sessionAction;
 
     if (!attempt.ok && attempt.reason === "aborted") {
-      emitProxyTrace(
-        cfg,
-        selected,
-        finalTier,
-        attempts,
-        sessionAction,
-        true,
-      );
+      emitProxyTrace(cfg, selected, finalTier, attempts, sessionAction, true);
       return;
     }
 

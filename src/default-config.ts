@@ -94,7 +94,9 @@ function buildDefaultRawConfig(): RawConfig {
 /**
  * 配置加载失败时使用的内置兜底配置，不包含真实密钥。
  */
-export const DEFAULT_RAW_CONFIG: RawConfig = deepFreeze(buildDefaultRawConfig());
+export const DEFAULT_RAW_CONFIG: RawConfig = deepFreeze(
+  buildDefaultRawConfig(),
+);
 
 /**
  * 返回一份可变的默认配置副本，供调用方安全修改而不影响共享兜底配置。
