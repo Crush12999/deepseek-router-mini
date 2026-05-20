@@ -32,7 +32,7 @@ import type { RouterOptions } from "./router/types.js";
 import type { SessionConfig } from "./session.js";
 import { deriveSessionId, SessionStore } from "./session.js";
 
-export const VERSION = "1.0.1";
+export const VERSION = "1.0.2";
 
 const HOP_BY_HOP = new Set([
   "connection",
@@ -257,7 +257,7 @@ function readBody(
  * 从 OpenAI / OpenClaw 风格消息数组里提取路由真正关心的文本视图。
  *
  * - `text`：非 system 消息拼接后的总文本
- * - `routeText`：优先取最后一段 user 指令，避免 OpenClaw CLI transcript 干扰
+ * - `routeText`：最后一段 user 文本（当前不再截断 OpenClaw CLI transcript）
  * - `system`：system prompt 聚合结果
  * - `openingText`：第一段非空文本，便于未来扩展首轮特征
  */
@@ -272,13 +272,17 @@ const OPENCLAW_CLI_TURN_PATTERN =
   /(?:^|\n)\[[^\]\n]+?\]\s+([\s\S]*?)(?=(?:\n\[[^\]\n]+?\]\s+)|$)/g;
 
 /**
- * 从 OpenClaw CLI transcript 中截取最后一轮真实 user 文本，减少历史回显内容
- * 对路由打分的污染。
+ * 保留 user 文本原样参与路由。
+ *
+ * 曾经这里会用 `OPENCLAW_CLI_TURN_PATTERN` 从 OpenClaw CLI transcript 中截取
+ * 最后一轮文本；该逻辑先保留但停用，便于后续确认是否需要恢复。
  */
 function extractRouteTextFromUserMessage(text: string): string {
-  const matches = [...text.matchAll(OPENCLAW_CLI_TURN_PATTERN)];
-  const last = matches.at(-1)?.[1]?.trim();
-  return last || text;
+  // const matches = [...text.matchAll(OPENCLAW_CLI_TURN_PATTERN)];
+  // const last = matches.at(-1)?.[1]?.trim();
+  // return last || text;
+  void OPENCLAW_CLI_TURN_PATTERN;
+  return text;
 }
 
 /**
