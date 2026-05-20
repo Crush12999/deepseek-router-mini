@@ -18,6 +18,7 @@ import {
   LLM_ROUTER_PROVIDER_API,
   LLM_ROUTER_PROVIDER_ID,
 } from "./provider.js";
+import { readXiaoyiEnvConfig } from "./xiaoyi-env.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -36,6 +37,10 @@ export type OpenClawPluginApi = {
         trace?: unknown;
         config?: RawConfig;
         configPath?: string;
+        xiaoyiEnv?: {
+          path?: unknown;
+          headerMap?: unknown;
+        };
       }
     | Record<string, unknown>;
   registrationMode?: string;
@@ -74,9 +79,19 @@ export type PluginRuntime = {
  * `config` 始终可用于启动 proxy；`health` 只暴露低泄漏兜底摘要；
  * `configError` 仅供日志记录，不应透传到 `/health`。
  */
+type EnvConfigContribution = {
+  upstreamUrlApplied: boolean;
+  headers: Record<string, string>;
+};
+
 type RuntimeConfigResult = {
   config: RawConfig;
   health: ProxyHealthInfo;
+  /**
+   * 内部诊断：记录 env 对运行时配置的候选贡献，用于 service start 阶段
+   * 在合并 provider/request 覆盖后重新计算低泄漏 health 标记。
+   */
+  envContribution: EnvConfigContribution;
   configError?: string;
 };
 
@@ -259,6 +274,7 @@ function fallbackConfig(
         envFileLoaded: false,
       },
     },
+    envContribution: { upstreamUrlApplied: false, headers: {} },
     ...(error ? { configError: formatError(error) } : {}),
   };
 }
@@ -292,6 +308,116 @@ function resolvePluginProxyOverrides(
 }
 
 /**
+ * 读取 pluginConfig.xiaoyiEnv；非法结构直接忽略，避免把宿主任意对象透传给 env 解析器。
+ */
+function readXiaoyiEnvOptions(
+  api: OpenClawPluginApi,
+): { path?: string; headerMap?: unknown } {
+  const value = api.pluginConfig?.xiaoyiEnv;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const envConfig = value as { path?: unknown; headerMap?: unknown };
+
+  const path =
+    typeof envConfig.path === "string" && envConfig.path.trim().length > 0
+      ? envConfig.path
+      : undefined;
+
+  return {
+    ...(path ? { path } : {}),
+    headerMap: envConfig.headerMap,
+  };
+}
+
+/**
+ * 按大小写不敏感规则合并可选 headers；若最终为空则回退为 undefined。
+ */
+function mergeOptionalHeadersByCase(
+  ...records: Array<Record<string, string> | undefined>
+): Record<string, string> | undefined {
+  const definedRecords = records.filter(
+    (record): record is Record<string, string> => record !== undefined,
+  );
+  const merged = mergeHeaders(...definedRecords);
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+/**
+ * 生成大小写不敏感的 header key 集合，用于判断高优先级来源是否覆盖 env。
+ */
+function createHeaderKeySet(
+  headers: Record<string, string> | undefined,
+): Set<string> {
+  return new Set(
+    Object.keys(headers ?? {}).map((key) => key.toLowerCase()),
+  );
+}
+
+/**
+ * 排除已被更高优先级 headers 覆盖的 env headers。
+ *
+ * header 覆盖按大小写不敏感匹配；只要高优先级来源提供同名 header，
+ * 即使值完全相同，也不再把该 env header 视为真实生效。
+ */
+function omitHeadersCoveredBy(
+  envHeaders: Record<string, string> | undefined,
+  coveringHeaders: Record<string, string> | undefined,
+): Record<string, string> {
+  if (!envHeaders) return {};
+
+  const coveringKeys = createHeaderKeySet(coveringHeaders);
+  const appliedHeaders: Record<string, string> = {};
+  for (const [key, value] of Object.entries(envHeaders)) {
+    if (!coveringKeys.has(key.toLowerCase())) {
+      appliedHeaders[key] = value;
+    }
+  }
+  return appliedHeaders;
+}
+
+/**
+ * 判断 env headers 是否至少有一项由 env 来源进入当前 proxy headers。
+ *
+ * `higherPriorityHeaders` 用来显式记录后续覆盖来源；不能仅靠最终 key/value
+ * 相等判断来源，因为更高优先级 header 可能用相同值覆盖 env。
+ */
+function hasAppliedEnvHeaders(
+  proxyHeaders: Record<string, string> | undefined,
+  envHeaders: Record<string, string> | undefined,
+  higherPriorityHeaders?: Record<string, string>,
+): boolean {
+  if (!proxyHeaders || !envHeaders) return false;
+  const envHeadersNotCovered = omitHeadersCoveredBy(
+    envHeaders,
+    higherPriorityHeaders,
+  );
+
+  return Object.entries(envHeadersNotCovered).some(([envKey, envValue]) => {
+    const appliedKey = Object.keys(proxyHeaders).find(
+      (candidate) => candidate.toLowerCase() === envKey.toLowerCase(),
+    );
+    return appliedKey !== undefined && proxyHeaders[appliedKey] === envValue;
+  });
+}
+
+/**
+ * 合并 proxy 覆盖项，但 headers 使用插件边界要求的大小写不敏感覆盖规则。
+ *
+ * `resolveProxyConfig()` 仍负责 port、upstreamUrl、apiKey 和 trace 的字段优先级；
+ * 本包装只修正普通对象展开会同时保留 `X-UID`/`x-uid` 的 header 场景。
+ */
+function resolveProxyConfigWithCaseInsensitiveHeaders(
+  baseProxy: RawConfig["proxy"],
+  overrides: ProxyConfigOverrides,
+): RawConfig["proxy"] {
+  const resolved = resolveProxyConfig(baseProxy, overrides);
+
+  return {
+    ...resolved,
+    headers: mergeOptionalHeadersByCase(baseProxy.headers, overrides.headers),
+  };
+}
+
+/**
  * 组合主配置与 pluginConfig 运行时覆盖项。
  *
  * 本函数是插件配置加载失败的最后兜底边界：缺失配置时改用默认配置，
@@ -313,6 +439,7 @@ function resolvePluginRuntimeConfig(api: OpenClawPluginApi): RuntimeConfigResult
             envFileLoaded: false,
           },
         },
+        envContribution: { upstreamUrlApplied: false, headers: {} },
       };
     } catch (error) {
       runtimeConfigResult = fallbackConfig("config_schema_error", error);
@@ -328,6 +455,7 @@ function resolvePluginRuntimeConfig(api: OpenClawPluginApi): RuntimeConfigResult
             envFileLoaded: false,
           },
         },
+        envContribution: { upstreamUrlApplied: false, headers: {} },
       };
     } catch (error) {
       runtimeConfigResult = fallbackConfig(
@@ -339,14 +467,59 @@ function resolvePluginRuntimeConfig(api: OpenClawPluginApi): RuntimeConfigResult
     runtimeConfigResult = fallbackConfig("missing_config");
   }
 
+  const env = readXiaoyiEnvConfig(readXiaoyiEnvOptions(api));
+  const source = runtimeConfigResult.health.config.source;
+  const pluginOverrides = resolvePluginProxyOverrides(api);
+  const envUpstreamUrl = source === "default" ? env.upstreamUrl : undefined;
+  const rawCoveredEnvHeaders =
+    source === "default"
+      ? (env.headers ?? {})
+      : omitHeadersCoveredBy(env.headers, runtimeConfigResult.config.proxy.headers);
+  const proxyWithEnv: RawConfig["proxy"] = {
+    ...runtimeConfigResult.config.proxy,
+    ...(envUpstreamUrl ? { upstreamUrl: envUpstreamUrl } : {}),
+    headers:
+      source === "default"
+        ? mergeOptionalHeadersByCase(
+            runtimeConfigResult.config.proxy.headers,
+            env.headers,
+          )
+        : mergeOptionalHeadersByCase(
+            env.headers,
+            runtimeConfigResult.config.proxy.headers,
+          ),
+  };
+  const finalProxy = resolveProxyConfigWithCaseInsensitiveHeaders(
+    proxyWithEnv,
+    pluginOverrides,
+  );
+  const envUpstreamApplied =
+    envUpstreamUrl !== undefined && pluginOverrides.upstreamUrl === undefined;
+  const pluginCoveredEnvHeaders = omitHeadersCoveredBy(
+    rawCoveredEnvHeaders,
+    pluginOverrides.headers,
+  );
+  const envHeadersApplied = hasAppliedEnvHeaders(
+    finalProxy.headers,
+    pluginCoveredEnvHeaders,
+  );
+
   return {
     ...runtimeConfigResult,
+    health: {
+      ...runtimeConfigResult.health,
+      config: {
+        ...runtimeConfigResult.health.config,
+        envFileLoaded: envUpstreamApplied || envHeadersApplied,
+      },
+    },
+    envContribution: {
+      upstreamUrlApplied: envUpstreamApplied,
+      headers: pluginCoveredEnvHeaders,
+    },
     config: {
       ...runtimeConfigResult.config,
-      proxy: resolveProxyConfig(
-        runtimeConfigResult.config.proxy,
-        resolvePluginProxyOverrides(api),
-      ),
+      proxy: finalProxy,
     },
   };
 }
@@ -528,6 +701,34 @@ async function replaceActiveProxy(proxy: ProxyHandle): Promise<void> {
   activeProxy = proxy;
 }
 
+
+/**
+ * 根据最终 startProxy 配置重新计算 env 是否真实生效。
+ *
+ * provider/request headers 会在 service start 阶段才合并，因此 health 标记必须
+ * 延后到这里按最终 headers 核算，避免被同名覆盖的 env header 误报为已加载。
+ */
+function resolveEffectiveHealth(
+  health: ProxyHealthInfo,
+  envContribution: EnvConfigContribution,
+  startConfig: RawConfig,
+  providerHeaders: Record<string, string> | undefined,
+): ProxyHealthInfo {
+  return {
+    ...health,
+    config: {
+      ...health.config,
+      envFileLoaded:
+        envContribution.upstreamUrlApplied ||
+        hasAppliedEnvHeaders(
+          startConfig.proxy.headers,
+          envContribution.headers,
+          providerHeaders,
+        ),
+    },
+  };
+}
+
 /**
  * 为 OpenClaw 注册的运行态 service 包装层。
  *
@@ -542,6 +743,7 @@ function createProxyService(
   runtime: PluginRuntime,
   runtimeConfig: RawConfig,
   health: ProxyHealthInfo,
+  envContribution: EnvConfigContribution,
   providerBaseUrl: string,
   modelDefinitions: OpenClawModelDefinition[],
 ): OpenClawService {
@@ -568,8 +770,17 @@ function createProxyService(
         const providerOverrides = resolveProviderRuntimeOverrides(api);
         const startConfig: RawConfig = {
           ...runtimeConfig,
-          proxy: resolveProxyConfig(runtimeConfig.proxy, providerOverrides),
+          proxy: resolveProxyConfigWithCaseInsensitiveHeaders(
+            runtimeConfig.proxy,
+            providerOverrides,
+          ),
         };
+        const startHealth = resolveEffectiveHealth(
+          health,
+          envContribution,
+          startConfig,
+          providerOverrides.headers,
+        );
 
         // 先停旧实例，再切新实例，避免 OpenClaw 多次 start 时出现重复监听。
         await closeActiveProxy();
@@ -577,7 +788,7 @@ function createProxyService(
           config: startConfig,
           traceLogger: createTraceLogger(api),
           session: {},
-          health,
+          health: startHealth,
         });
         serviceProxy = proxy;
         await replaceActiveProxy(proxy);
@@ -652,6 +863,7 @@ export function registerOpenClawPlugin(
         runtime,
         runtimeConfig,
         runtimeConfigResult.health,
+        runtimeConfigResult.envContribution,
         providerBaseUrl,
         models,
       ),
