@@ -290,9 +290,9 @@ function extractRouteTextFromUserMessage(text: string): string {
  */
 function extractPrompt(messages: unknown[]): ExtractedPrompt {
   const parts: string[] = [];
+  const userRouteTexts: string[] = [];
   let system: string | undefined;
   let openingText = "";
-  let lastUserText = "";
 
   for (const msg of messages) {
     if (!msg || typeof msg !== "object") continue;
@@ -319,8 +319,10 @@ function extractPrompt(messages: unknown[]): ExtractedPrompt {
       system = system ? `${system}\n${text}` : text;
     } else {
       parts.push(text);
-      if (role === "user" && text.trim()) {
-        lastUserText = extractRouteTextFromUserMessage(text);
+      if (role === "user") {
+        userRouteTexts.push(
+          text.trim() ? extractRouteTextFromUserMessage(text) : "",
+        );
       }
       if (!openingText && text.trim()) {
         openingText = text;
@@ -329,7 +331,22 @@ function extractPrompt(messages: unknown[]): ExtractedPrompt {
   }
 
   const text = parts.join(" ");
-  return { text, routeText: lastUserText || text, system, openingText };
+  const preferredUserText =
+    userRouteTexts.length >= 2
+      ? userRouteTexts[userRouteTexts.length - 2]
+      : userRouteTexts.at(-1);
+  const fallbackUserText = [...userRouteTexts]
+    .reverse()
+    .find((item) => item.trim());
+
+  return {
+    text,
+    routeText: preferredUserText?.trim()
+      ? preferredUserText
+      : fallbackUserText || text,
+    system,
+    openingText,
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -989,6 +989,41 @@ describe("proxy", () => {
     expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
   });
 
+  it("routes by the penultimate user message when the final OpenClaw user message has no timestamp", async () => {
+    const upstream = await startUpstream();
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "auto",
+        messages: [
+          {
+            role: "user",
+            content:
+              "Bootstrap: debug failing tests across multiple files, find the root cause, and refactor architecture.",
+          },
+          {
+            role: "assistant",
+            content: "Intermediate assistant content proves message position is not the selector.",
+          },
+          { role: "user", content: "Summarize briefly: OpenClaw routes simple tasks." },
+          {
+            role: "user",
+            content: "No timestamp tail: Prove this theorem step by step and derive the result formally.",
+          },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get(routerHeader("model"))).toBe("flash");
+    expect(upstream.requests[0]?.body).toMatchObject({ model: "deepseek-v4-flash" });
+  });
+
   it.skip("routes by the final OpenClaw CLI turn inside a bootstrap-wrapped user message", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
