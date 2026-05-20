@@ -8,6 +8,13 @@ export { resolveConfig } from "./config.js";
 export type { RouterConfig, RouterConfigInput } from "./config.js";
 export { loadConfig } from "./config-loader.js";
 export { createDefaultRawConfig, DEFAULT_RAW_CONFIG } from "./default-config.js";
+export {
+  DEFAULT_XIAOYI_ENV_HEADER_MAP,
+  DEFAULT_XIAOYI_ENV_PATH,
+  normalizeXiaoyiEnvHeaderMap,
+  parseXiaoyiEnvContent,
+  readXiaoyiEnvConfig,
+} from "./xiaoyi-env.js";
 export type {
   ConfigSource,
   PhysicalModel,
@@ -17,6 +24,7 @@ export type {
   Tier,
   TierEntry,
 } from "./config-schema.js";
+export type { XiaoyiEnvConfig, XiaoyiEnvReadOptions } from "./xiaoyi-env.js";
 export { createModelRegistry } from "./model-registry.js";
 export type { ModelRegistry } from "./model-registry.js";
 export { resolvePublicModel, resolvePublicModelCandidate } from "./public-model-resolver.js";
