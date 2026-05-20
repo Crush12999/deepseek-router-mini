@@ -31,6 +31,21 @@
         "type": "string",
         "enum": ["off", "summary", "debug"],
         "description": "Runtime override config.proxy.trace."
+      },
+      "xiaoyiEnv": {
+        "type": "object",
+        "description": "Optional .xiaoyienv reader config. SERVICE_URL may supplement fallback upstreamUrl; headerMap maps env keys to upstream header names.",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Optional path to .xiaoyienv. Defaults to ~/.openclaw/.xiaoyienv."
+          },
+          "headerMap": {
+            "type": "object",
+            "description": "Map .xiaoyienv keys to upstream header names. Defaults to {\"X-UID\":\"X-UID\"}.",
+            "additionalProperties": { "type": "string" }
+          }
+        }
       }
     }
   }

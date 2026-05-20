@@ -1712,7 +1712,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     }));
   });
 
-  it("prefers pluginConfig upstreamUrl over xiaoyienv SERVICE_URL without marking ignored env as loaded", async () => {
+  it("keeps pluginConfig upstreamUrl above xiaoyienv SERVICE_URL during fallback", async () => {
     const envPath = writeTempXiaoyiEnv("SERVICE_URL=https://env.example.com\n");
     const startProxy = vi.fn().mockResolvedValue({
       port: 8402,
@@ -1747,7 +1747,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     }));
   });
 
-  it("lets provider request headers override xiaoyienv headers case-insensitively at service start", async () => {
+  it("keeps provider request headers above xiaoyienv headers case-insensitively at service start", async () => {
     const envPath = writeTempXiaoyiEnv("X-UID=env-user\n");
     const startProxy = vi.fn().mockResolvedValue({
       port: 8402,
@@ -1759,6 +1759,10 @@ describe("OpenClaw plugin config-driven loading", () => {
         models: {
           providers: {
             xiaoyiprovider: {
+              headers: {
+                "X-UID": "provider-user",
+                "X-Provider": "yes",
+              },
               request: {
                 headers: {
                   "x-uid": "request-user",
@@ -1779,6 +1783,7 @@ describe("OpenClaw plugin config-driven loading", () => {
 
     expectStartProxyRuntimeCall(startProxy, {
       headers: {
+        "X-Provider": "yes",
         "x-uid": "request-user",
       },
     });

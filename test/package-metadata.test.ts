@@ -75,6 +75,18 @@ describe("package metadata", () => {
     expect(pluginJson).not.toContain("DEEPSEEK_");
   });
 
+  it("documents optional xiaoyiEnv headerMap config", () => {
+    const plugin = JSON.parse(fs.readFileSync(path.join(root, "openclaw.plugin.json"), "utf8"));
+
+    expect(plugin.configSchema.properties.xiaoyiEnv).toMatchObject({
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        headerMap: { type: "object" },
+      },
+    });
+  });
+
   it("keeps package and docs free of legacy public names", () => {
     for (const relativePath of publicSurfaceFiles) {
       const content = fs.readFileSync(path.join(root, relativePath), "utf8");
