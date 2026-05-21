@@ -505,7 +505,7 @@ function copyResponseHeaders(
  * 或 shutdown/client abort 发生时，也必须主动取消读取，避免 close/restart 被一条
  * 卡住的流式 body 长期阻塞。
  */
-async function streamResponse(
+export async function streamResponseForTest(
   response: Response,
   res: ServerResponse,
   options: {
@@ -521,6 +521,7 @@ async function streamResponse(
 
   const reader = response.body.getReader();
   let idleTimeout: NodeJS.Timeout | undefined;
+  let completed = false;
 
   const cleanupIdleTimeout = (): void => {
     if (idleTimeout) {
@@ -546,20 +547,43 @@ async function streamResponse(
 
   const waitForDrain = async (): Promise<void> => {
     /**
-     * `drain` 是下游 backpressure 的唯一可靠释放信号；同时监听 abort/close，
-     * 保证慢客户端或 shutdown 时不会把流转发卡在等待 drain 上。
+     * `drain` 是下游 backpressure 的唯一可靠释放信号；同时监听 abort/close/error，
+     * 保证慢客户端、写入失败或 shutdown 时不会把流转发卡在等待 drain 上。
      */
-    await Promise.race([
-      once(res, "drain"),
-      once(res, "close").then(() => {
-        throw new Error("Response closed while waiting for drain");
-      }),
-      once(options.signal, "abort").then(() => {
-        throw options.signal.reason instanceof Error
-          ? options.signal.reason
-          : new Error("Stream aborted");
-      }),
-    ]);
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = (): void => {
+        res.off("drain", onDrain);
+        res.off("close", onClose);
+        res.off("error", onError);
+        options.signal.removeEventListener("abort", onAbort);
+      };
+      const settle = (callback: () => void): void => {
+        cleanup();
+        callback();
+      };
+      const onDrain = (): void => settle(resolve);
+      const onClose = (): void =>
+        settle(() => reject(new Error("Response closed while waiting for drain")));
+      const onError = (error: Error): void => settle(() => reject(error));
+      const onAbort = (): void =>
+        settle(() =>
+          reject(
+            options.signal.reason instanceof Error
+              ? options.signal.reason
+              : new Error("Stream aborted"),
+          ),
+        );
+
+      if (options.signal.aborted) {
+        onAbort();
+        return;
+      }
+
+      res.once("drain", onDrain);
+      res.once("close", onClose);
+      res.once("error", onError);
+      options.signal.addEventListener("abort", onAbort, { once: true });
+    });
   };
 
   try {
@@ -589,15 +613,18 @@ async function streamResponse(
     }
 
     res.end();
+    completed = true;
   } finally {
     cleanupIdleTimeout();
-    if (options.signal.aborted) {
+    if (options.signal.aborted || !completed) {
       await reader.cancel(options.signal.reason).catch(() => {});
     } else {
       reader.releaseLock();
     }
   }
 }
+
+const streamResponse = streamResponseForTest;
 
 /**
  * 输出 OpenAI-compatible 错误结构，可选附带路由诊断头。

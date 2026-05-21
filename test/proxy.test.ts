@@ -1,11 +1,13 @@
 import http from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { EventEmitter } from "node:events";
 import { gzipSync } from "node:zlib";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { RawConfig } from "../src/config-schema.js";
 import { startProxy as startProxyImpl } from "../src/proxy.js";
+import { streamResponseForTest } from "../src/proxy.js";
 import type { ProxyOptions } from "../src/proxy.js";
 import { SessionStore } from "../src/session.js";
 
@@ -1998,6 +2000,50 @@ describe("proxy", () => {
       ]),
     ).resolves.toBeUndefined();
   });
+
+  it("stops waiting for downstream drain when the response emits an error", async () => {
+    class BackpressuredResponse extends EventEmitter {
+      ended = false;
+
+      write(): boolean {
+        return false;
+      }
+
+      end(): void {
+        this.ended = true;
+      }
+    }
+
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("chunk"));
+        },
+      }),
+    );
+    const res = new BackpressuredResponse() as unknown as ServerResponse;
+    const streamPromise = streamResponseForTest(response, res, {
+      signal: new AbortController().signal,
+      idleTimeoutMs: 1_000,
+      onIdleTimeout: () => {},
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    res.emit("error", new Error("synthetic response write failure"));
+
+    await expect(
+      Promise.race([
+        streamPromise,
+        new Promise<never>((_, reject) => {
+          setTimeout(
+            () => reject(new Error("Timed out waiting for response error")),
+            500,
+          );
+        }),
+      ]),
+    ).rejects.toThrow("synthetic response write failure");
+    expect((res as unknown as BackpressuredResponse).ended).toBe(false);
+  }, 3_000);
 
   it("returns 504 when the upstream chat request times out", async () => {
     const upstream = await startUpstream(() => {
