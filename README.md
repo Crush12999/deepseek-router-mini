@@ -112,6 +112,11 @@ If `pluginConfig.config` and `pluginConfig.configPath` are missing or invalid,
 OpenClaw plugin mode falls back to a built-in default config so the local router
 can still start. The fallback config does not include a real `apiKey`.
 
+When fallback config is used, the plugin adds the built-in default header
+`x-request-from: openclaw`. `pluginConfig.defaultHeaders` may add or override
+headers at this fallback-only layer; it is ignored when `pluginConfig.config` or
+`pluginConfig.configPath` is valid.
+
 The plugin may optionally read `~/.openclaw/.xiaoyienv` as a fallback supplement:
 
 ```env

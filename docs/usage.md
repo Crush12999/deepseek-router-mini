@@ -119,6 +119,12 @@ OpenClaw 插件模式额外提供启动兜底：如果 `pluginConfig.config` 和
 Router 仍能启动。该兜底配置不包含真实 `apiKey`，上游鉴权仍需要通过
 OpenClaw provider 配置、插件运行时覆盖或其他受支持的方式提供。
 
+进入内置默认配置兜底时，插件会加入内置默认 header：
+`x-request-from: openclaw`。`pluginConfig.defaultHeaders` 可以补充或覆盖这
+一兜底层 headers；但只在 `config.source === "default"` 时生效。只要
+`pluginConfig.config` 或 `pluginConfig.configPath` 合法，即便配置了
+`defaultHeaders` 也完全不使用。
+
 插件还可以把 `~/.openclaw/.xiaoyienv` 作为兜底补充读取：
 
 ```env
@@ -136,8 +142,10 @@ X-UID=123456
 2. 合法的 `pluginConfig.configPath` 优先于内置默认配置。
 3. 只有主配置缺失或非法时，`SERVICE_URL` 才会补充兜底配置的
    `proxy.upstreamUrl`。
-4. 映射后的 `.xiaoyienv` headers 可以补充配置；同名 header 被配置或
-   provider 覆盖时，以更高优先级来源为准。
+4. 默认兜底 headers 优先级是：内置默认 headers <
+   `pluginConfig.defaultHeaders` < `.xiaoyienv` 映射 headers <
+   合法 `RawConfig.proxy.headers` < provider/request headers；同名 header
+   按大小写不敏感规则由更高优先级来源覆盖。
 5. `pluginConfig.port`、`pluginConfig.upstreamUrl`、`pluginConfig.trace`
    属于运行时覆盖项，优先级高于主配置和 `.xiaoyienv`。
 
@@ -219,7 +227,8 @@ openclaw gateway restart
 枚举（例如 `missing_config`、`config_json_parse_error`），不会暴露原始异常
 详情。`config.envFileLoaded` 只在 `.xiaoyienv` 的 `SERVICE_URL` 或映射后的
 header 最终实际生效时为 `true`；如果文件不存在、读取失败，或相关值被更高优
-先级配置覆盖，则保持 `false`。
+先级配置覆盖，则保持 `false`。`pluginConfig.defaultHeaders` 不影响
+`config.envFileLoaded`，`/health` 也不会暴露 headers 内容、数量或是否配置。
 
 运行时保护默认值目前不是公开配置字段，配置文件中无需填写：
 

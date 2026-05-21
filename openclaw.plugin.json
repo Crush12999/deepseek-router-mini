@@ -19,6 +19,11 @@
         "type": "string",
         "description": "Path to a RawConfig JSON file for llm-router."
       },
+      "defaultHeaders": {
+        "type": "object",
+        "description": "Headers applied only when the built-in default fallback config is used. Built-in default is {\"x-request-from\":\"openclaw\"}.",
+        "additionalProperties": { "type": "string" }
+      },
       "port": {
         "type": "number",
         "description": "Runtime override config.proxy.port. Optional; if omitted, use the value from pluginConfig.config / configPath."

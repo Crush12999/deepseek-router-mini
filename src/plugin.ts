@@ -37,6 +37,7 @@ export type OpenClawPluginApi = {
         trace?: unknown;
         config?: RawConfig;
         configPath?: string;
+        defaultHeaders?: unknown;
         xiaoyiEnv?: {
           path?: unknown;
           headerMap?: unknown;
@@ -108,6 +109,9 @@ const RUNTIME_REGISTRATION_MODES = new Set([
   "activate",
   "active",
 ]);
+const DEFAULT_FALLBACK_HEADERS = Object.freeze({
+  "x-request-from": "openclaw",
+});
 
 /**
  * 将 Router trace 适配到 OpenClaw 的 logger 接口。
@@ -330,6 +334,30 @@ function readXiaoyiEnvOptions(api: OpenClawPluginApi): {
 }
 
 /**
+ * 读取默认兜底配置专用 headers；非法项跳过，避免破坏兜底启动。
+ */
+function readDefaultHeaders(
+  api: OpenClawPluginApi,
+): Record<string, string> | undefined {
+  const value = api.pluginConfig?.defaultHeaders;
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return undefined;
+
+  const headers = Object.create(null) as Record<string, string>;
+  for (const [rawKey, rawValue] of Object.entries(value)) {
+    const key = rawKey.trim();
+    if (!key || typeof rawValue !== "string") continue;
+
+    const headerValue = rawValue.trim();
+    if (!headerValue) continue;
+
+    headers[key] = headerValue;
+  }
+
+  return Object.keys(headers).length > 0 ? headers : undefined;
+}
+
+/**
  * 按大小写不敏感规则合并可选 headers；若最终为空则回退为 undefined。
  */
 function mergeOptionalHeadersByCase(
@@ -364,7 +392,7 @@ function omitHeadersCoveredBy(
   if (!envHeaders) return {};
 
   const coveringKeys = createHeaderKeySet(coveringHeaders);
-  const appliedHeaders: Record<string, string> = {};
+  const appliedHeaders = Object.create(null) as Record<string, string>;
   for (const [key, value] of Object.entries(envHeaders)) {
     if (!coveringKeys.has(key.toLowerCase())) {
       appliedHeaders[key] = value;
@@ -472,6 +500,13 @@ function resolvePluginRuntimeConfig(
   const source = runtimeConfigResult.health.config.source;
   const pluginOverrides = resolvePluginProxyOverrides(api);
   const envUpstreamUrl = source === "default" ? env.upstreamUrl : undefined;
+  const defaultFallbackHeaders =
+    source === "default"
+      ? mergeOptionalHeadersByCase(
+          DEFAULT_FALLBACK_HEADERS,
+          readDefaultHeaders(api),
+        )
+      : undefined;
   const rawCoveredEnvHeaders =
     source === "default"
       ? (env.headers ?? {})
@@ -485,6 +520,7 @@ function resolvePluginRuntimeConfig(
     headers:
       source === "default"
         ? mergeOptionalHeadersByCase(
+            defaultFallbackHeaders,
             runtimeConfigResult.config.proxy.headers,
             env.headers,
           )
@@ -554,7 +590,7 @@ function readProviderConfig(api: OpenClawPluginApi): JsonObject {
 function readStringRecord(value: unknown): Record<string, string> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
 
-  const headers: Record<string, string> = {};
+  const headers = Object.create(null) as Record<string, string>;
   for (const [key, headerValue] of Object.entries(value)) {
     if (typeof headerValue === "string") {
       headers[key] = headerValue;
@@ -569,7 +605,7 @@ function readStringRecord(value: unknown): Record<string, string> {
 function mergeHeaders(
   ...records: Array<Record<string, string>>
 ): Record<string, string> {
-  const headers: Record<string, string> = {};
+  const headers = Object.create(null) as Record<string, string>;
 
   for (const record of records) {
     for (const [key, value] of Object.entries(record)) {

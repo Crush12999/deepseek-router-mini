@@ -1555,6 +1555,164 @@ describe("OpenClaw plugin config-driven loading", () => {
     );
   });
 
+  it("applies built-in default headers only when falling back to default config", async () => {
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {},
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPluginWithoutDefaults(api, { startProxy });
+    await serviceCalls[0]!.start();
+
+    expectStartProxyRuntimeCall(startProxy, {
+      headers: { "x-request-from": "openclaw" },
+    });
+  });
+
+  it("applies pluginConfig.defaultHeaders during default fallback", async () => {
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {},
+      pluginConfig: {
+        defaultHeaders: {
+          "X-UID": "123456",
+          "X-Source": "custom",
+        },
+      },
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPluginWithoutDefaults(api, { startProxy });
+    await serviceCalls[0]!.start();
+
+    expectStartProxyRuntimeCall(startProxy, {
+      headers: {
+        "x-request-from": "openclaw",
+        "X-UID": "123456",
+        "X-Source": "custom",
+      },
+    });
+  });
+
+  it("ignores defaultHeaders and built-in default headers when RawConfig is valid", async () => {
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {},
+      pluginConfig: {
+        config: createPluginConfig(),
+        defaultHeaders: { "X-UID": "default-user" },
+      },
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPluginWithoutDefaults(api, { startProxy });
+    await serviceCalls[0]!.start();
+
+    expectStartProxyRuntimeCall(startProxy, {
+      headers: undefined,
+    });
+  });
+
+  it("lets xiaoyienv headers override defaultHeaders case-insensitively", async () => {
+    const envPath = writeTempXiaoyiEnv("X-UID=env-user\n");
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {},
+      pluginConfig: {
+        defaultHeaders: { "x-uid": "default-user" },
+        xiaoyiEnv: { path: envPath },
+      },
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPluginWithoutDefaults(api, { startProxy });
+    await serviceCalls[0]!.start();
+
+    expectStartProxyRuntimeCall(startProxy, {
+      headers: {
+        "x-request-from": "openclaw",
+        "X-UID": "env-user",
+      },
+    });
+  });
+
+  it("skips invalid defaultHeaders entries without blocking fallback startup", async () => {
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {},
+      pluginConfig: {
+        defaultHeaders: {
+          "": "blank-key",
+          "X-Empty": "",
+          "X-Number": 123,
+          "X-Valid": "yes",
+        },
+      },
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPluginWithoutDefaults(api, { startProxy });
+    await serviceCalls[0]!.start();
+
+    expectStartProxyRuntimeCall(startProxy, {
+      headers: {
+        "x-request-from": "openclaw",
+        "X-Valid": "yes",
+      },
+    });
+  });
+
+  it("preserves special defaultHeaders keys without prototype pollution", async () => {
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const defaultHeaders = JSON.parse(
+      '{"__proto__":"proto-header","constructor":"ctor-header"}',
+    );
+    const api = {
+      config: {},
+      pluginConfig: { defaultHeaders },
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPluginWithoutDefaults(api, { startProxy });
+    await serviceCalls[0]!.start();
+
+    const expectedHeaders = Object.assign(Object.create(null), {
+      "x-request-from": "openclaw",
+      constructor: "ctor-header",
+    }) as Record<string, string>;
+    expectedHeaders.__proto__ = "proto-header";
+
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expectStartProxyRuntimeCall(startProxy, {
+      headers: expectedHeaders,
+    });
+  });
+
   it("uses default config when pluginConfig.config is null without configPath", async () => {
     const startProxy = vi.fn().mockResolvedValue({
       port: 8402,
@@ -1728,7 +1886,7 @@ describe("OpenClaw plugin config-driven loading", () => {
 
     expectStartProxyRuntimeCall(startProxy, {
       upstreamUrl: "https://env.example.com",
-      headers: { "X-UID": "123456" },
+      headers: { "x-request-from": "openclaw", "X-UID": "123456" },
     });
     expect(startProxy).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1911,6 +2069,7 @@ describe("OpenClaw plugin config-driven loading", () => {
 
     expectStartProxyRuntimeCall(startProxy, {
       headers: {
+        "x-request-from": "openclaw",
         "X-Provider": "yes",
         "x-uid": "request-user",
       },
@@ -1956,6 +2115,7 @@ describe("OpenClaw plugin config-driven loading", () => {
 
     expectStartProxyRuntimeCall(startProxy, {
       headers: {
+        "x-request-from": "openclaw",
         "x-uid": "same",
       },
     });
@@ -2040,6 +2200,7 @@ describe("OpenClaw plugin config-driven loading", () => {
 
     expectStartProxyRuntimeCall(startProxy, {
       headers: {
+        "x-request-from": "openclaw",
         "x-uid": "request-user",
         "X-KEEP": "env-keep",
       },
@@ -2075,7 +2236,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     await serviceCalls[0]!.start();
 
     expectStartProxyRuntimeCall(startProxy, {
-      headers: { "X-UID": "123456" },
+      headers: { "x-request-from": "openclaw", "X-UID": "123456" },
     });
     const proxyConfig = startProxy.mock.calls[0]![0].config.proxy as {
       headers?: Record<string, string>;
