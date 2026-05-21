@@ -787,67 +787,123 @@ function createProxyService(
   modelDefinitions: OpenClawModelDefinition[],
 ): OpenClawService {
   let serviceProxy: ProxyHandle | undefined;
+  let startPromise: Promise<void> | undefined;
+  let stopPromise: Promise<void> | undefined;
 
   return {
     id: "llm-router-proxy",
     async start() {
+      // OpenClaw may invoke lifecycle hooks concurrently; serialize per-service
+      // start/stop so one service cannot publish a proxy while its own stop is
+      // still closing it, and so concurrent starts share one runtime.startProxy.
+      if (stopPromise) {
+        await stopPromise;
+      }
+      if (serviceProxy && activeProxy === serviceProxy) {
+        return;
+      }
+      if (startPromise) {
+        await startPromise;
+        return;
+      }
+
+      const currentStart = (async () => {
+        try {
+          if (serviceProxy && activeProxy === serviceProxy) {
+            return;
+          }
+
+          if (serviceProxy) {
+            await closeProxyOnce(serviceProxy);
+            serviceProxy = undefined;
+          }
+
+          await persistLlmRouterModelsConfig(
+            api,
+            providerBaseUrl,
+            modelDefinitions,
+          );
+          const providerOverrides = resolveProviderRuntimeOverrides(api);
+          const startConfig: RawConfig = {
+            ...runtimeConfig,
+            proxy: resolveProxyConfigWithCaseInsensitiveHeaders(
+              runtimeConfig.proxy,
+              providerOverrides,
+            ),
+          };
+          const startHealth = resolveEffectiveHealth(
+            health,
+            envContribution,
+            startConfig,
+            providerOverrides.headers,
+          );
+
+          // 先停旧实例，再切新实例，避免 OpenClaw 多次 start 时出现重复监听。
+          await closeActiveProxy();
+          const proxy = await runtime.startProxy({
+            config: startConfig,
+            traceLogger: createTraceLogger(api),
+            session: {},
+            health: startHealth,
+          });
+          serviceProxy = proxy;
+          await replaceActiveProxy(proxy);
+          api.logger?.info?.(`LLM Router listening on ${providerBaseUrl}`);
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          api.logger?.error?.(
+            `LLM Router failed to start on port ${runtimeConfig.proxy.port}: ${message}`,
+          );
+          throw error;
+        }
+      })();
+
+      startPromise = currentStart;
       try {
-        if (serviceProxy && activeProxy === serviceProxy) {
-          return;
+        await currentStart;
+      } finally {
+        if (startPromise === currentStart) {
+          startPromise = undefined;
         }
-
-        if (serviceProxy) {
-          await closeProxyOnce(serviceProxy);
-          serviceProxy = undefined;
-        }
-
-        await persistLlmRouterModelsConfig(
-          api,
-          providerBaseUrl,
-          modelDefinitions,
-        );
-        const providerOverrides = resolveProviderRuntimeOverrides(api);
-        const startConfig: RawConfig = {
-          ...runtimeConfig,
-          proxy: resolveProxyConfigWithCaseInsensitiveHeaders(
-            runtimeConfig.proxy,
-            providerOverrides,
-          ),
-        };
-        const startHealth = resolveEffectiveHealth(
-          health,
-          envContribution,
-          startConfig,
-          providerOverrides.headers,
-        );
-
-        // 先停旧实例，再切新实例，避免 OpenClaw 多次 start 时出现重复监听。
-        await closeActiveProxy();
-        const proxy = await runtime.startProxy({
-          config: startConfig,
-          traceLogger: createTraceLogger(api),
-          session: {},
-          health: startHealth,
-        });
-        serviceProxy = proxy;
-        await replaceActiveProxy(proxy);
-        api.logger?.info?.(`LLM Router listening on ${providerBaseUrl}`);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        api.logger?.error?.(
-          `LLM Router failed to start on port ${runtimeConfig.proxy.port}: ${message}`,
-        );
-        throw error;
       }
     },
     async stop() {
-      if (!serviceProxy) return;
+      if (stopPromise) {
+        await stopPromise;
+        return;
+      }
 
-      const proxy = serviceProxy;
-      await closeProxyOnce(proxy);
+      const currentStop = (async () => {
+        // Stop must wait for an in-flight start to settle; otherwise a proxy
+        // created after the early stop check would remain in serviceProxy.
+        if (startPromise) {
+          try {
+            await startPromise;
+          } catch {
+            // Startup failure is reported to the start caller. Stop still
+            // attempts cleanup because a failed start may have left a prior
+            // serviceProxy that needs serial close/retry semantics.
+          }
+        }
 
-      if (serviceProxy === proxy && activeProxy !== proxy) {
-        serviceProxy = undefined;
+        if (!serviceProxy) return;
+
+        const proxy = serviceProxy;
+        await closeProxyOnce(proxy);
+
+        if (serviceProxy === proxy && activeProxy !== proxy) {
+          serviceProxy = undefined;
+        }
+      })();
+
+      stopPromise = currentStop;
+      try {
+        await currentStop;
+      } finally {
+        if (stopPromise === currentStop) {
+          stopPromise = undefined;
+        }
       }
     },
   };

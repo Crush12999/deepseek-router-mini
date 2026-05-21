@@ -1188,6 +1188,121 @@ describe("OpenClaw plugin lifecycle", () => {
     });
   });
 
+  it("deduplicates concurrent service start calls against one runtime start", async () => {
+    const close = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close,
+    });
+    const api = {
+      config: {},
+      registerProvider: vi.fn(),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPlugin(api, { startProxy });
+
+    await Promise.all([serviceCalls[0]!.start(), serviceCalls[0]!.start()]);
+
+    expect(startProxy).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows retry after a failed service start", async () => {
+    const startError = new Error("port is already in use");
+    const close = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const startProxy = vi
+      .fn()
+      .mockRejectedValueOnce(startError)
+      .mockResolvedValueOnce({
+        port: 8402,
+        baseUrl: "https://api.deepseek.com",
+        close,
+      });
+    const api = {
+      config: {},
+      registerProvider: vi.fn(),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+      logger: {
+        error: vi.fn(),
+      },
+    };
+
+    registerOpenClawPlugin(api, { startProxy });
+
+    await expect(serviceCalls[0]!.start()).rejects.toThrow(startError);
+    await expect(serviceCalls[0]!.start()).resolves.toBeUndefined();
+
+    expect(startProxy).toHaveBeenCalledTimes(2);
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates concurrent service stop calls against one proxy close", async () => {
+    const close = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close,
+    });
+    const api = {
+      config: {},
+      registerProvider: vi.fn(),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPlugin(api, { startProxy });
+    await serviceCalls[0]!.start();
+
+    await Promise.all([serviceCalls[0]!.stop(), serviceCalls[0]!.stop()]);
+
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for an in-flight start before stopping the created proxy", async () => {
+    let markStartProxyCalled!: () => void;
+    let resolveStart!: (proxy: {
+      port: number;
+      baseUrl: string;
+      close: () => Promise<void>;
+    }) => void;
+    const startProxyCalled = new Promise<void>((resolve) => {
+      markStartProxyCalled = resolve;
+    });
+    const close = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const startProxy = vi.fn(
+      () => {
+        markStartProxyCalled();
+        return new Promise<{
+          port: number;
+          baseUrl: string;
+          close: () => Promise<void>;
+        }>((resolve) => {
+          resolveStart = resolve;
+        });
+      },
+    );
+    const api = {
+      config: {},
+      registerProvider: vi.fn(),
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPlugin(api, { startProxy });
+
+    const start = serviceCalls[0]!.start();
+    const stop = serviceCalls[0]!.stop();
+    await startProxyCalled;
+    resolveStart({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close,
+    });
+
+    await Promise.all([start, stop]);
+
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
   it("runs the underlying proxy close once for concurrent stop calls", async () => {
     const closeResolvers: Array<() => void> = [];
     const closeStarted = vi.fn();
