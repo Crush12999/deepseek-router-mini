@@ -1,5 +1,6 @@
 import http from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { gzipSync } from "node:zlib";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -517,6 +518,42 @@ describe("proxy", () => {
     expect(upstream.requests[0]?.body).toMatchObject({
       model: "deepseek-v4-flash",
     });
+  });
+
+  it("strips stale compression headers from decoded upstream responses", async () => {
+    const upstreamBody = JSON.stringify({
+      id: "cmpl_gzip",
+      choices: [{ message: { content: "decoded ok" } }],
+    });
+    const gzippedBody = gzipSync(upstreamBody);
+    const upstream = await startUpstream((_req, res) => {
+      res.writeHead(200, {
+        "content-type": "application/json",
+        "content-encoding": "gzip",
+        "content-length": String(gzippedBody.byteLength),
+      });
+      res.end(gzippedBody);
+    });
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const res = await request(proxy.port, "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "auto",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      choices: [{ message: { content: "decoded ok" } }],
+    });
+    expect(res.headers.get("content-encoding")).toBeNull();
+    expect(res.headers.get("content-length")).toBeNull();
+    expect(upstream.requests[0]?.headers["accept-encoding"]).toBe("identity");
   });
 
   it("does not send authorization when apiKey and authorization headers are absent", async () => {

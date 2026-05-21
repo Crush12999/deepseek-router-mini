@@ -117,6 +117,7 @@ export function resolveRuntimeLimits(
  */
 const REQUESTABLE_PUBLIC_MODELS = new Set(["auto"]);
 const PUBLIC_HEADER_PREFIXES = ["x-xy-router-"] as const;
+const DECODED_RESPONSE_HEADERS = new Set(["content-encoding", "content-length"]);
 
 export type ConfigSource = "inline" | "file" | "default";
 export type ConfigFallbackReason =
@@ -429,6 +430,10 @@ function buildUpstreamHeaders(
     setHeader("content-type", "application/json");
   }
 
+  // Node fetch auto-decodes gzip/br/deflate responses but leaves upstream headers
+  // visible, so ask providers for identity bodies to avoid stale compression metadata.
+  setHeader("accept-encoding", "identity");
+
   return headers;
 }
 
@@ -461,6 +466,7 @@ function copyResponseHeaders(
   for (const [key, value] of response.headers.entries()) {
     const lower = key.toLowerCase();
     if (HOP_BY_HOP.has(lower)) continue;
+    if (DECODED_RESPONSE_HEADERS.has(lower)) continue;
     if (PUBLIC_HEADER_PREFIXES.some((prefix) => lower.startsWith(prefix)))
       continue;
     headers[key] = value;
