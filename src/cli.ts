@@ -197,10 +197,15 @@ export async function runCli(rawArgs: string[], runtime: Partial<CliRuntime> = {
   const shutdown = async (): Promise<void> => {
     /**
      * OS signals may arrive more than once (Ctrl+C spam, SIGTERM during SIGINT).
-     * Only the first one should run `close()` so proxy shutdown remains idempotent;
-     * later signals stay visible but do not duplicate resource cleanup.
+     * Only the first one should run `close()` so proxy shutdown remains idempotent.
+     * A later signal is treated as operator intent to stop waiting for graceful
+     * cleanup and forces a non-zero exit, so a stuck close cannot trap Ctrl+C.
      */
-    if (shuttingDown) return;
+    if (shuttingDown) {
+      rt.error("Shutdown already in progress; forcing exit.");
+      rt.exit(1);
+      return;
+    }
     shuttingDown = true;
     rt.log("\nShutting down...");
     try {

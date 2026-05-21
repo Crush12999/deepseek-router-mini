@@ -186,12 +186,7 @@ describe("cli", () => {
 
     it("runs shutdown only once when multiple signals arrive", async () => {
       const signalHandlers = new Map<string, () => void>();
-      const close = vi.fn<() => Promise<void>>(
-        () =>
-          new Promise((resolve) => {
-            setTimeout(resolve, 20);
-          }),
-      );
+      const close = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
       const exit = vi.fn();
       const startProxy = vi.fn<NonNullable<CliRuntime["startProxy"]>>().mockResolvedValue({
         port: 8402,
@@ -216,6 +211,42 @@ describe("cli", () => {
         expect(exit).toHaveBeenCalledWith(0);
       });
       expect(close).toHaveBeenCalledTimes(1);
+    });
+
+    it("forces exit 1 on a second shutdown signal while close is still pending", async () => {
+      const signalHandlers = new Map<string, () => void>();
+      const close = vi.fn<() => Promise<void>>(
+        () =>
+          new Promise(() => {
+            // Intentionally never resolves to simulate a stuck graceful shutdown.
+          }),
+      );
+      const error = vi.fn();
+      const exit = vi.fn();
+      const startProxy = vi.fn<NonNullable<CliRuntime["startProxy"]>>().mockResolvedValue({
+        port: 8402,
+        baseUrl: "https://api.deepseek.com",
+        close,
+      });
+
+      await runCli(["--config", fixtureConfig], {
+        log: vi.fn(),
+        error,
+        exit,
+        startProxy,
+        onSignal: (signal, handler) => {
+          signalHandlers.set(signal, handler);
+        },
+      });
+
+      signalHandlers.get("SIGINT")?.();
+      signalHandlers.get("SIGTERM")?.();
+
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(error).toHaveBeenCalledWith(
+        "Shutdown already in progress; forcing exit.",
+      );
+      expect(exit).toHaveBeenCalledWith(1);
     });
 
     it("exits with code 1 when shutdown close fails", async () => {
