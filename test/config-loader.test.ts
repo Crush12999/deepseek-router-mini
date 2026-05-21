@@ -41,7 +41,7 @@ describe("loadConfig", () => {
       path: join(__dirname, "fixtures/minimal-config.json"),
     });
     expect(config.proxy.port).toBe(8402);
-    expect(config.models).toHaveLength(2);
+    expect(config.models).toHaveLength(1);
   });
 
   it("should reject missing auto in publicModels", () => {
@@ -212,7 +212,7 @@ describe("loadConfig", () => {
     );
 
     expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
-      /duplicate.*deepseek-v4-flash/i,
+      /duplicate.*LLM_DeepSeekV4_Thinking/i,
     );
   });
 

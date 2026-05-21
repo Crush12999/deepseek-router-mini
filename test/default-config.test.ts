@@ -33,6 +33,7 @@ describe("DEFAULT_RAW_CONFIG", () => {
     expect(config.publicModels.auto?.kind).toBe("router");
     expect(config.publicModels.flash?.kind).toBe("alias");
     expect(config.publicModels.pro?.kind).toBe("alias");
+    expect(config.routing.tiers.MEDIUM.fallback).toBeUndefined();
     expect(Object.keys(config.routing.tiers).sort()).toEqual([
       "COMPLEX",
       "MEDIUM",
@@ -53,7 +54,7 @@ describe("DEFAULT_RAW_CONFIG", () => {
     }).toThrow(TypeError);
 
     expect(DEFAULT_RAW_CONFIG.proxy.port).toBe(8402);
-    expect(DEFAULT_RAW_CONFIG.models).toHaveLength(2);
+    expect(DEFAULT_RAW_CONFIG.models).toHaveLength(1);
     expect(DEFAULT_RAW_CONFIG).toEqual(minimalConfigFixture);
   });
 });
@@ -70,8 +71,8 @@ describe("createDefaultRawConfig", () => {
     clonedConfig.models.push(structuredClone(clonedConfig.models[0]));
 
     expect(clonedConfig.proxy.port).toBe(9999);
-    expect(clonedConfig.models).toHaveLength(3);
+    expect(clonedConfig.models).toHaveLength(2);
     expect(DEFAULT_RAW_CONFIG.proxy.port).toBe(8402);
-    expect(DEFAULT_RAW_CONFIG.models).toHaveLength(2);
+    expect(DEFAULT_RAW_CONFIG.models).toHaveLength(1);
   });
 });
