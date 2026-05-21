@@ -47,7 +47,7 @@
           },
           "headerMap": {
             "type": "object",
-            "description": "Map .xiaoyienv keys to upstream header names. Defaults to {\"X-UID\":\"X-UID\"}.",
+            "description": "Map .xiaoyienv keys to upstream header names. Defaults to {\"PERSONAL-API-KEY\":\"x-api-key\",\"PERSONAL-UID\":\"x-uid\"}.",
             "additionalProperties": { "type": "string" }
           }
         }

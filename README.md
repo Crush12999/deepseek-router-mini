@@ -121,12 +121,13 @@ The plugin may optionally read `~/.openclaw/.xiaoyienv` as a fallback supplement
 
 ```env
 SERVICE_URL=https://api.deepseek.com
-X-UID=123456
+PERSONAL-API-KEY=sk-example
+PERSONAL-UID=123456
 ```
 
 `SERVICE_URL` supplements the fallback upstream URL. Other keys are only sent as
 headers when mapped by `pluginConfig.xiaoyiEnv.headerMap`; the default map is
-`{ "X-UID": "X-UID" }`.
+`{ "PERSONAL-API-KEY": "x-api-key", "PERSONAL-UID": "x-uid" }`.
 
 OpenClaw 应始终向本地 Router 请求 `auto`，再由 Router 在内部决定最终落到哪
 个 alias / physical model。

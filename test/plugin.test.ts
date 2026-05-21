@@ -1627,7 +1627,7 @@ describe("OpenClaw plugin config-driven loading", () => {
   });
 
   it("lets xiaoyienv headers override defaultHeaders case-insensitively", async () => {
-    const envPath = writeTempXiaoyiEnv("X-UID=env-user\n");
+    const envPath = writeTempXiaoyiEnv("PERSONAL-UID=env-user\n");
     const startProxy = vi.fn().mockResolvedValue({
       port: 8402,
       baseUrl: "https://api.deepseek.com",
@@ -1648,7 +1648,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     expectStartProxyRuntimeCall(startProxy, {
       headers: {
         "x-request-from": "openclaw",
-        "X-UID": "env-user",
+        "x-uid": "env-user",
       },
     });
   });
@@ -1868,7 +1868,7 @@ describe("OpenClaw plugin config-driven loading", () => {
 
   it("uses xiaoyienv SERVICE_URL when falling back to default config", async () => {
     const envPath = writeTempXiaoyiEnv(
-      "SERVICE_URL=https://env.example.com\nX-UID=123456\n",
+      "SERVICE_URL=https://env.example.com\nPERSONAL-UID=123456\n",
     );
     const startProxy = vi.fn().mockResolvedValue({
       port: 8402,
@@ -1886,7 +1886,7 @@ describe("OpenClaw plugin config-driven loading", () => {
 
     expectStartProxyRuntimeCall(startProxy, {
       upstreamUrl: "https://env.example.com",
-      headers: { "x-request-from": "openclaw", "X-UID": "123456" },
+      headers: { "x-request-from": "openclaw", "x-uid": "123456" },
     });
     expect(startProxy).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1937,7 +1937,7 @@ describe("OpenClaw plugin config-driven loading", () => {
 
   it("does not let xiaoyienv SERVICE_URL override a valid RawConfig upstreamUrl", async () => {
     const envPath = writeTempXiaoyiEnv(
-      "SERVICE_URL=https://env.example.com\nX-UID=123456\n",
+      "SERVICE_URL=https://env.example.com\nPERSONAL-UID=123456\n",
     );
     const startProxy = vi.fn().mockResolvedValue({
       port: 9011,
@@ -1959,7 +1959,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     expectStartProxyRuntimeCall(startProxy, {
       port: 9011,
       upstreamUrl: "https://raw.example.com",
-      headers: { "X-UID": "123456" },
+      headers: { "x-uid": "123456" },
     });
   });
 
@@ -2034,7 +2034,7 @@ describe("OpenClaw plugin config-driven loading", () => {
   });
 
   it("keeps provider request headers above xiaoyienv headers case-insensitively at service start", async () => {
-    const envPath = writeTempXiaoyiEnv("X-UID=env-user\n");
+    const envPath = writeTempXiaoyiEnv("PERSONAL-UID=env-user\n");
     const startProxy = vi.fn().mockResolvedValue({
       port: 8402,
       baseUrl: "https://api.deepseek.com",
@@ -2084,7 +2084,7 @@ describe("OpenClaw plugin config-driven loading", () => {
   });
 
   it("does not mark same-valued xiaoyienv header loaded when provider request overrides it", async () => {
-    const envPath = writeTempXiaoyiEnv("X-UID=same\n");
+    const envPath = writeTempXiaoyiEnv("PERSONAL-UID=same\n");
     const startProxy = vi.fn().mockResolvedValue({
       port: 8402,
       baseUrl: "https://api.deepseek.com",
@@ -2129,7 +2129,7 @@ describe("OpenClaw plugin config-driven loading", () => {
   });
 
   it("does not mark same-valued xiaoyienv header loaded when RawConfig proxy headers override it", async () => {
-    const envPath = writeTempXiaoyiEnv("X-UID=same\n");
+    const envPath = writeTempXiaoyiEnv("PERSONAL-UID=same\n");
     const config = createPluginConfig();
     config.proxy.headers = {
       "x-uid": "same",

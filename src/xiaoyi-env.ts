@@ -12,10 +12,11 @@ export const DEFAULT_XIAOYI_ENV_PATH = join(
 );
 
 /**
- * 默认仅允许把 X-UID 从环境文件映射到上游请求头，避免意外透传其他敏感字段。
+ * 默认仅允许把个人 API key 与 UID 从环境文件映射到上游请求头，避免意外透传其他敏感字段。
  */
 export const DEFAULT_XIAOYI_ENV_HEADER_MAP = Object.freeze({
-  "X-UID": "X-UID",
+  "PERSONAL-API-KEY": "x-api-key",
+  "PERSONAL-UID": "x-uid",
 }) satisfies Record<string, string>;
 
 export type XiaoyiEnvConfig = {
@@ -78,7 +79,7 @@ export function parseXiaoyiEnvContent(content: string): Record<string, string> {
  * 规范化 env-key -> header-name 映射。
  *
  * 仅当输入缺失或不是对象时回退默认映射；对象内的非法项会被跳过。
- * 若调用方显式传入空对象或全非法对象，则返回空映射以允许关闭默认 X-UID 映射。
+ * 若调用方显式传入空对象或全非法对象，则返回空映射以允许关闭默认个人 header 映射。
  * 结果同样使用 null-prototype map，确保 `"__proto__"` 等特殊 key 作为普通映射项被保留。
  */
 export function normalizeXiaoyiEnvHeaderMap(

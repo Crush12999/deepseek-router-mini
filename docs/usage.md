@@ -129,12 +129,13 @@ OpenClaw provider 配置、插件运行时覆盖或其他受支持的方式提�
 
 ```env
 SERVICE_URL=https://api.deepseek.com
-X-UID=123456
+PERSONAL-API-KEY=sk-example
+PERSONAL-UID=123456
 ```
 
 - `SERVICE_URL` 仅用于补充兜底配置的上游 URL。
 - 其他 key 只有通过 `pluginConfig.xiaoyiEnv.headerMap` 映射后才会作为 header
-  使用；默认映射是 `{ "X-UID": "X-UID" }`。
+  使用；默认映射是 `{ "PERSONAL-API-KEY": "x-api-key", "PERSONAL-UID": "x-uid" }`。
 
 配置优先级摘要：
 

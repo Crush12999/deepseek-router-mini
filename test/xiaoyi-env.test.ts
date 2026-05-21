@@ -36,12 +36,14 @@ SERVICE_URL=https://api.example.com
 broken-line
  =empty-key
 EMPTY_VALUE=
-X-UID=123456
+PERSONAL-UID=123456
+PERSONAL-API-KEY=sk-test
 TOKEN=a=b=c
 `),
     ).toEqual({
       SERVICE_URL: "https://api.example.com",
-      "X-UID": "123456",
+      "PERSONAL-UID": "123456",
+      "PERSONAL-API-KEY": "sk-test",
       TOKEN: "a=b=c",
     });
   });
@@ -49,7 +51,8 @@ TOKEN=a=b=c
   it("uses only mapped headers and keeps SERVICE_URL separate", () => {
     const path = tempFile(`
 SERVICE_URL=https://gateway.example.com
-X-UID=123456
+PERSONAL-UID=123456
+PERSONAL-API-KEY=sk-test
 SECRET=hidden
 `);
 
@@ -58,7 +61,7 @@ SECRET=hidden
     expect(result).toEqual({
       loaded: true,
       upstreamUrl: "https://gateway.example.com",
-      headers: { "X-UID": "123456" },
+      headers: { "x-api-key": "sk-test", "x-uid": "123456" },
     });
   });
 
@@ -85,7 +88,10 @@ SECRET=hidden
   });
 
   it("normalizes invalid headerMap entries without throwing", () => {
-    expect(DEFAULT_XIAOYI_ENV_HEADER_MAP).toEqual({ "X-UID": "X-UID" });
+    expect(DEFAULT_XIAOYI_ENV_HEADER_MAP).toEqual({
+      "PERSONAL-API-KEY": "x-api-key",
+      "PERSONAL-UID": "x-uid",
+    });
     expect(normalizeXiaoyiEnvHeaderMap({})).toEqual({});
     expect(
       normalizeXiaoyiEnvHeaderMap({
@@ -119,12 +125,12 @@ SECRET=hidden
     expect(result.UID).toBe("X-UID");
   });
 
-  it("allows callers to disable the default X-UID header mapping explicitly", () => {
+  it("allows callers to disable the default personal header mappings explicitly", () => {
     const withServiceUrlPath = tempFile(`
 SERVICE_URL=https://gateway.example.com
-X-UID=123456
+PERSONAL-UID=123456
 `);
-    const onlyUidPath = tempFile("X-UID=123456\n");
+    const onlyUidPath = tempFile("PERSONAL-UID=123456\n");
 
     expect(
       readXiaoyiEnvConfig({ path: withServiceUrlPath, headerMap: {} }),
