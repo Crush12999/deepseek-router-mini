@@ -19,6 +19,8 @@ export const DEFAULT_XIAOYI_ENV_HEADER_MAP = Object.freeze({
   "PERSONAL-UID": "x-uid",
 }) satisfies Record<string, string>;
 
+export const DEFAULT_XIAOYI_ENV_UPSTREAM_PATH = "/celia-claw/v1/sse-api";
+
 export type XiaoyiEnvConfig = {
   loaded: boolean;
   upstreamUrl?: string;
@@ -28,6 +30,7 @@ export type XiaoyiEnvConfig = {
 export type XiaoyiEnvReadOptions = {
   path?: string;
   headerMap?: unknown;
+  upstreamPath?: string;
 };
 
 function createStringMap(): Record<string, string> {
@@ -40,6 +43,17 @@ function hasOwn(value: object, key: string): boolean {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function joinUrlPath(baseUrl: string, path: string): string {
+  const trimmedBase = baseUrl.trim().replace(/\/+$/, "");
+  const trimmedPath = path.trim().replace(/^\/+|\/+$/g, "");
+
+  return trimmedPath ? `${trimmedBase}/${trimmedPath}` : trimmedBase;
+}
+
+function resolveUpstreamUrl(serviceUrl: string, upstreamPath: string): string {
+  return joinUrlPath(serviceUrl, upstreamPath);
 }
 
 /**
@@ -131,9 +145,12 @@ export function readXiaoyiEnvConfig(
       }
     }
 
+    const upstreamPath = isNonEmptyString(options.upstreamPath)
+      ? options.upstreamPath
+      : DEFAULT_XIAOYI_ENV_UPSTREAM_PATH;
     const upstreamUrl =
       hasOwn(values, "SERVICE_URL") && typeof values.SERVICE_URL === "string"
-        ? values.SERVICE_URL
+        ? resolveUpstreamUrl(values.SERVICE_URL, upstreamPath)
         : undefined;
     const hasHeaders = Object.keys(headers).length > 0;
     const loaded = Boolean(upstreamUrl || hasHeaders);

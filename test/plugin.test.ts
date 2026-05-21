@@ -1872,7 +1872,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     );
     const startProxy = vi.fn().mockResolvedValue({
       port: 8402,
-      baseUrl: "https://env.example.com",
+      baseUrl: "https://env.example.com/celia-claw/v1/sse-api",
       close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
     });
     const api = {
@@ -1885,7 +1885,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     await serviceCalls[0]!.start();
 
     expectStartProxyRuntimeCall(startProxy, {
-      upstreamUrl: "https://env.example.com",
+      upstreamUrl: "https://env.example.com/celia-claw/v1/sse-api",
       headers: { "x-request-from": "openclaw", "x-uid": "123456" },
     });
     expect(startProxy).toHaveBeenCalledWith(
@@ -1903,7 +1903,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     delete (invalidConfig.proxy as Partial<RawConfig["proxy"]>).upstreamUrl;
     const startProxy = vi.fn().mockResolvedValue({
       port: 8402,
-      baseUrl: "https://env.example.com",
+      baseUrl: "https://env.example.com/celia-claw/v1/sse-api",
       close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
     });
     const api = {
@@ -1919,7 +1919,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     await serviceCalls[0]!.start();
 
     expectStartProxyRuntimeCall(startProxy, {
-      upstreamUrl: "https://env.example.com",
+      upstreamUrl: "https://env.example.com/celia-claw/v1/sse-api",
     });
     expect(startProxy).toHaveBeenCalledWith(
       expect.objectContaining({

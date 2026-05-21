@@ -48,7 +48,7 @@ TOKEN=a=b=c
     });
   });
 
-  it("uses only mapped headers and keeps SERVICE_URL separate", () => {
+  it("uses only mapped headers and expands SERVICE_URL to the xiaoyi upstream endpoint", () => {
     const path = tempFile(`
 SERVICE_URL=https://gateway.example.com
 PERSONAL-UID=123456
@@ -60,8 +60,17 @@ SECRET=hidden
 
     expect(result).toEqual({
       loaded: true,
-      upstreamUrl: "https://gateway.example.com",
+      upstreamUrl: "https://gateway.example.com/celia-claw/v1/sse-api",
       headers: { "x-api-key": "sk-test", "x-uid": "123456" },
+    });
+  });
+
+  it("joins SERVICE_URL and service path without duplicate slashes", () => {
+    const path = tempFile("SERVICE_URL=https://gateway.example.com/base//\n");
+
+    expect(readXiaoyiEnvConfig({ path })).toEqual({
+      loaded: true,
+      upstreamUrl: "https://gateway.example.com/base/celia-claw/v1/sse-api",
     });
   });
 
@@ -136,7 +145,7 @@ PERSONAL-UID=123456
       readXiaoyiEnvConfig({ path: withServiceUrlPath, headerMap: {} }),
     ).toEqual({
       loaded: true,
-      upstreamUrl: "https://gateway.example.com",
+      upstreamUrl: "https://gateway.example.com/celia-claw/v1/sse-api",
     });
     expect(readXiaoyiEnvConfig({ path: onlyUidPath, headerMap: {} })).toEqual({
       loaded: false,
@@ -153,7 +162,7 @@ PERSONAL-UID=123456
       }),
     ).toEqual({
       loaded: true,
-      upstreamUrl: "https://gateway.example.com",
+      upstreamUrl: "https://gateway.example.com/celia-claw/v1/sse-api",
     });
   });
 
