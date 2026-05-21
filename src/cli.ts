@@ -193,10 +193,24 @@ export async function runCli(rawArgs: string[], runtime: Partial<CliRuntime> = {
   rt.log(`llm-router listening on http://127.0.0.1:${handle.port}`);
 
   // Graceful shutdown
-  const shutdown = async () => {
+  let shuttingDown = false;
+  const shutdown = async (): Promise<void> => {
+    /**
+     * OS signals may arrive more than once (Ctrl+C spam, SIGTERM during SIGINT).
+     * Only the first one should run `close()` so proxy shutdown remains idempotent;
+     * later signals stay visible but do not duplicate resource cleanup.
+     */
+    if (shuttingDown) return;
+    shuttingDown = true;
     rt.log("\nShutting down...");
-    await handle.close();
-    rt.exit(0);
+    try {
+      await handle.close();
+      rt.exit(0);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      rt.error(`Shutdown failed: ${message}`);
+      rt.exit(1);
+    }
   };
 
   rt.onSignal("SIGINT", () => {

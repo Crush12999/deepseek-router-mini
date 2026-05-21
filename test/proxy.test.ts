@@ -1861,6 +1861,144 @@ describe("proxy", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("closes without waiting for an active streaming response to finish", async () => {
+    let resolveUpstreamClosed!: () => void;
+    const upstreamClosed = new Promise<void>((resolve) => {
+      resolveUpstreamClosed = resolve;
+    });
+    const upstream = await startUpstream((_upstreamReq, upstreamRes) => {
+      upstreamRes.writeHead(200, {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+      });
+      upstreamRes.write('data: {"choices":[{"delta":{"content":"hello"}}]}\n\n');
+      upstreamRes.on("close", resolveUpstreamClosed);
+      // Intentionally leave the stream open until proxy shutdown aborts it.
+    });
+    handles.push(upstream);
+    const proxy = await startProxy({
+      baseUrl: upstream.baseUrl,
+      port: 0,
+      runtimeLimits: { proxyCloseGraceMs: 50 },
+    });
+
+    let clientReq: http.ClientRequest | undefined;
+    let closePromise: Promise<void> | undefined;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        clientReq = http.request(
+          {
+            hostname: "127.0.0.1",
+            port: proxy.port,
+            path: "/v1/chat/completions",
+            method: "POST",
+            headers: { "content-type": "application/json" },
+          },
+          (clientRes) => {
+            clientRes.once("data", () => resolve());
+            clientRes.once("error", reject);
+          },
+        );
+        clientReq.once("error", reject);
+        clientReq.end(
+          JSON.stringify({
+            model: "auto",
+            stream: true,
+            messages: [{ role: "user", content: "hello" }],
+          }),
+        );
+      });
+
+      closePromise = proxy.close();
+
+      await expect(
+        Promise.race([
+          closePromise.then(() => "closed"),
+          new Promise<"timeout">((resolve) => {
+            setTimeout(() => resolve("timeout"), 800);
+          }),
+        ]),
+      ).resolves.toBe("closed");
+
+      await expect(
+        Promise.race([
+          upstreamClosed,
+          new Promise<never>((_, reject) => {
+            setTimeout(
+              () => reject(new Error("Timed out waiting for upstream abort")),
+              500,
+            );
+          }),
+        ]),
+      ).resolves.toBeUndefined();
+    } finally {
+      clientReq?.destroy();
+      if (closePromise) {
+        await closePromise.catch(() => {});
+      } else {
+        await proxy.close().catch(() => {});
+      }
+    }
+  }, 3_000);
+
+  it("aborts the upstream streaming response when the client disconnects", async () => {
+    let resolveUpstreamClosed!: () => void;
+    const upstreamClosed = new Promise<void>((resolve) => {
+      resolveUpstreamClosed = resolve;
+    });
+    const upstream = await startUpstream((_upstreamReq, upstreamRes) => {
+      upstreamRes.writeHead(200, {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+      });
+      upstreamRes.write('data: {"choices":[{"delta":{"content":"hello"}}]}\n\n');
+      upstreamRes.on("close", resolveUpstreamClosed);
+      // Intentionally keep streaming until client abort propagates upstream.
+    });
+    handles.push(upstream);
+    const proxy = await startProxy({ baseUrl: upstream.baseUrl, port: 0 });
+    handles.push(proxy);
+
+    const clientReq = http.request(
+      {
+        hostname: "127.0.0.1",
+        port: proxy.port,
+        path: "/v1/chat/completions",
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      },
+      (clientRes) => {
+        clientRes.once("data", () => clientReq.destroy());
+        clientRes.on("error", () => {});
+      },
+    );
+    clientReq.on("error", () => {});
+    clientReq.end(
+      JSON.stringify({
+        model: "auto",
+        stream: true,
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    );
+
+    await expect(
+      Promise.race([
+        upstreamClosed,
+        new Promise<never>((_, reject) => {
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  "Timed out waiting for upstream stream close after client abort",
+                ),
+              ),
+            1_000,
+          );
+        }),
+      ]),
+    ).resolves.toBeUndefined();
+  });
+
   it("returns 504 when the upstream chat request times out", async () => {
     const upstream = await startUpstream(() => {
       // Intentionally keep the response open until proxy aborts.

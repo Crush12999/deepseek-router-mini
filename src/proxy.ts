@@ -1,5 +1,7 @@
 import http from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { once } from "node:events";
+import type { Socket } from "node:net";
 
 import type { RouterConfig } from "./config.js";
 import { resolveConfig } from "./config.js";
@@ -56,6 +58,8 @@ const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
 const DEFAULT_MAX_BODY_BYTES = 10 * 1024 * 1024;
 const DEFAULT_BODY_READ_TIMEOUT_MS = 30_000;
 const DEFAULT_UPSTREAM_REQUEST_TIMEOUT_MS = 300_000;
+export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000;
+export const DEFAULT_PROXY_CLOSE_GRACE_MS = 5_000;
 
 /**
  * `startProxy()` 实际运行时使用的完整限制集合。
@@ -77,6 +81,14 @@ export type ProxyRuntimeLimits = {
    * 超时后 proxy 会主动 abort 当前 fetch，并把它转换成面向客户端的 504。
    */
   upstreamRequestTimeoutMs: number;
+  /**
+   * 允许上游流式响应在两个 chunk 之间保持静默的最长时间。
+   */
+  streamIdleTimeoutMs: number;
+  /**
+   * close() 优雅等待活跃请求结束的最长时间，超时后强制释放资源。
+   */
+  proxyCloseGraceMs: number;
 };
 
 /**
@@ -91,6 +103,8 @@ export const DEFAULT_RUNTIME_LIMITS: ProxyRuntimeLimits = {
   maxBodyBytes: DEFAULT_MAX_BODY_BYTES,
   bodyReadTimeoutMs: DEFAULT_BODY_READ_TIMEOUT_MS,
   upstreamRequestTimeoutMs: DEFAULT_UPSTREAM_REQUEST_TIMEOUT_MS,
+  streamIdleTimeoutMs: DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+  proxyCloseGraceMs: DEFAULT_PROXY_CLOSE_GRACE_MS,
 };
 
 /**
@@ -106,6 +120,10 @@ export function resolveRuntimeLimits(
     upstreamRequestTimeoutMs:
       input?.upstreamRequestTimeoutMs ??
       DEFAULT_RUNTIME_LIMITS.upstreamRequestTimeoutMs,
+    streamIdleTimeoutMs:
+      input?.streamIdleTimeoutMs ?? DEFAULT_RUNTIME_LIMITS.streamIdleTimeoutMs,
+    proxyCloseGraceMs:
+      input?.proxyCloseGraceMs ?? DEFAULT_RUNTIME_LIMITS.proxyCloseGraceMs,
   };
 }
 
@@ -481,17 +499,104 @@ function copyResponseHeaders(
 
 /**
  * 透明转发上游响应体（支持流式 body）。
+ *
+ * 这里不能只用 `for await (...) res.write(...)`：当下游慢读时，Node 会通过
+ * `false` 返回值要求等待 `drain`，否则代理会无界缓冲；当上游长时间不再发 chunk
+ * 或 shutdown/client abort 发生时，也必须主动取消读取，避免 close/restart 被一条
+ * 卡住的流式 body 长期阻塞。
  */
 async function streamResponse(
   response: Response,
   res: ServerResponse,
+  options: {
+    signal: AbortSignal;
+    idleTimeoutMs: number;
+    onIdleTimeout: () => void;
+  },
 ): Promise<void> {
-  if (response.body) {
-    for await (const chunk of response.body as AsyncIterable<Uint8Array>) {
-      res.write(chunk);
+  if (!response.body) {
+    res.end();
+    return;
+  }
+
+  const reader = response.body.getReader();
+  let idleTimeout: NodeJS.Timeout | undefined;
+
+  const cleanupIdleTimeout = (): void => {
+    if (idleTimeout) {
+      clearTimeout(idleTimeout);
+      idleTimeout = undefined;
+    }
+  };
+
+  const resetIdleTimeout = (): void => {
+    cleanupIdleTimeout();
+    idleTimeout = setTimeout(() => {
+      options.onIdleTimeout();
+    }, options.idleTimeoutMs);
+  };
+
+  const throwIfAborted = (): void => {
+    if (options.signal.aborted) {
+      throw options.signal.reason instanceof Error
+        ? options.signal.reason
+        : new Error("Stream aborted");
+    }
+  };
+
+  const waitForDrain = async (): Promise<void> => {
+    /**
+     * `drain` 是下游 backpressure 的唯一可靠释放信号；同时监听 abort/close，
+     * 保证慢客户端或 shutdown 时不会把流转发卡在等待 drain 上。
+     */
+    await Promise.race([
+      once(res, "drain"),
+      once(res, "close").then(() => {
+        throw new Error("Response closed while waiting for drain");
+      }),
+      once(options.signal, "abort").then(() => {
+        throw options.signal.reason instanceof Error
+          ? options.signal.reason
+          : new Error("Stream aborted");
+      }),
+    ]);
+  };
+
+  try {
+    resetIdleTimeout();
+    options.signal.addEventListener(
+      "abort",
+      () => {
+        void reader.cancel(options.signal.reason).catch(() => {});
+      },
+      { once: true },
+    );
+    while (true) {
+      throwIfAborted();
+      const { done, value } = await Promise.race([
+        reader.read(),
+        once(options.signal, "abort").then(() => {
+          throw options.signal.reason instanceof Error
+            ? options.signal.reason
+            : new Error("Stream aborted");
+        }),
+      ]);
+      resetIdleTimeout();
+      if (done) break;
+      if (value && !res.write(value)) {
+        await waitForDrain();
+      }
+    }
+
+    res.end();
+  } finally {
+    cleanupIdleTimeout();
+    if (options.signal.aborted) {
+      await reader.cancel(options.signal.reason).catch(() => {});
+    } else {
+      reader.releaseLock();
     }
   }
-  res.end();
 }
 
 /**
@@ -1012,6 +1117,7 @@ async function proxyChat(
   res: ServerResponse,
   cfg: RouterConfig,
   runtimeLimits: ProxyRuntimeLimits,
+  activeRequestControllers: Set<AbortController>,
   sessionStore: SessionStore,
   tierEntries: Record<Tier, TierEntry>,
   publicModels: Record<string, PublicModelConfig>,
@@ -1094,6 +1200,7 @@ async function proxyChat(
   }
 
   const requestController = new AbortController();
+  activeRequestControllers.add(requestController);
   let responseFinished = false;
   /**
    * 客户端一旦在 proxy 等待/转发上游期间断开，就立刻取消上游请求，避免继续
@@ -1226,11 +1333,24 @@ async function proxyChat(
     for (const [k, v] of Object.entries(responseHeaders)) {
       res.setHeader(k, v);
     }
-    await streamResponse(attempt.response, res);
+    await streamResponse(attempt.response, res, {
+      signal: requestController.signal,
+      idleTimeoutMs: runtimeLimits.streamIdleTimeoutMs,
+      /**
+       * 上游流式响应进入 idle timeout 后直接 abort 当前控制器，让 fetch body、
+       * 下游写入和 close() 共享同一条释放路径，避免出现只停读不关连接的半关闭状态。
+       */
+      onIdleTimeout: () => {
+        if (!requestController.signal.aborted) {
+          requestController.abort(new Error("Upstream stream idle timeout"));
+        }
+      },
+    });
     responseFinished = true;
   } finally {
     cleanupRequestAbortListeners();
     attempt?.cleanup();
+    activeRequestControllers.delete(requestController);
   }
 }
 
@@ -1267,6 +1387,16 @@ export async function startProxy(options: ProxyOptions): Promise<ProxyHandle> {
     routingConfig: buildRoutingConfigFromRawConfig(options.config),
     modelPricing: buildModelPricingFromPublicModels(publicModels, registry),
   });
+  const activeSockets = new Set<Socket>();
+  const activeRequestControllers = new Set<AbortController>();
+  let closePromise: Promise<void> | undefined;
+  let sessionStoreClosed = false;
+
+  const closeSessionStoreOnce = (): void => {
+    if (sessionStoreClosed) return;
+    sessionStoreClosed = true;
+    sessionStore.close();
+  };
 
   const server = http.createServer((req, res) => {
     void (async () => {
@@ -1294,6 +1424,7 @@ export async function startProxy(options: ProxyOptions): Promise<ProxyHandle> {
             res,
             cfg,
             runtimeLimits,
+            activeRequestControllers,
             sessionStore,
             tierEntries,
             publicModels,
@@ -1315,6 +1446,13 @@ export async function startProxy(options: ProxyOptions): Promise<ProxyHandle> {
     })();
   });
 
+  server.on("connection", (socket) => {
+    activeSockets.add(socket);
+    socket.on("close", () => {
+      activeSockets.delete(socket);
+    });
+  });
+
   const port = await new Promise<number>((resolve, reject) => {
     server.once("error", reject);
     server.listen(cfg.port, "127.0.0.1", () => {
@@ -1330,13 +1468,54 @@ export async function startProxy(options: ProxyOptions): Promise<ProxyHandle> {
   return {
     port,
     baseUrl: cfg.baseUrl,
-    close: () =>
-      new Promise<void>((resolve, reject) => {
-        server.close((err) => {
-          sessionStore.close();
-          if (err) reject(err);
+    close: () => {
+      if (closePromise) return closePromise;
+
+      closePromise = new Promise<void>((resolve, reject) => {
+        let settled = false;
+        let graceTimedOut = false;
+
+        const settle = (error?: Error): void => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(graceTimeout);
+          closeSessionStoreOnce();
+          if (error) reject(error);
           else resolve();
+        };
+
+        /**
+         * `server.close()` 只会停止接收新连接，并等待现有连接自然结束；对流式
+         * body 卡住或下游慢读的连接，它可能无限等待。因此 grace timeout 到期后
+         * 统一 abort 活跃上游请求，并强制关闭 HTTP/socket 资源。多次 close() 共用
+         * 同一个 promise，避免重复关闭 session store 或重复销毁 socket。
+         */
+        const graceTimeout = setTimeout(() => {
+          graceTimedOut = true;
+          for (const controller of activeRequestControllers) {
+            if (!controller.signal.aborted) {
+              controller.abort(new Error("Proxy closing"));
+            }
+          }
+
+          server.closeIdleConnections?.();
+          server.closeAllConnections?.();
+          for (const socket of activeSockets) {
+            socket.destroy();
+          }
+          settle();
+        }, runtimeLimits.proxyCloseGraceMs);
+
+        server.close((err) => {
+          if (err && !graceTimedOut) {
+            settle(err);
+            return;
+          }
+          settle();
         });
-      }),
+      });
+
+      return closePromise;
+    },
   };
 }

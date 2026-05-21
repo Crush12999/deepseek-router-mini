@@ -183,5 +183,68 @@ describe("cli", () => {
         }),
       );
     });
+
+    it("runs shutdown only once when multiple signals arrive", async () => {
+      const signalHandlers = new Map<string, () => void>();
+      const close = vi.fn<() => Promise<void>>(
+        () =>
+          new Promise((resolve) => {
+            setTimeout(resolve, 20);
+          }),
+      );
+      const exit = vi.fn();
+      const startProxy = vi.fn<NonNullable<CliRuntime["startProxy"]>>().mockResolvedValue({
+        port: 8402,
+        baseUrl: "https://api.deepseek.com",
+        close,
+      });
+
+      await runCli(["--config", fixtureConfig], {
+        log: vi.fn(),
+        error: vi.fn(),
+        exit,
+        startProxy,
+        onSignal: (signal, handler) => {
+          signalHandlers.set(signal, handler);
+        },
+      });
+
+      signalHandlers.get("SIGINT")?.();
+      signalHandlers.get("SIGTERM")?.();
+
+      await vi.waitFor(() => {
+        expect(exit).toHaveBeenCalledWith(0);
+      });
+      expect(close).toHaveBeenCalledTimes(1);
+    });
+
+    it("exits with code 1 when shutdown close fails", async () => {
+      const signalHandlers = new Map<string, () => void>();
+      const closeError = new Error("close failed");
+      const error = vi.fn();
+      const exit = vi.fn();
+      const startProxy = vi.fn<NonNullable<CliRuntime["startProxy"]>>().mockResolvedValue({
+        port: 8402,
+        baseUrl: "https://api.deepseek.com",
+        close: vi.fn().mockRejectedValue(closeError),
+      });
+
+      await runCli(["--config", fixtureConfig], {
+        log: vi.fn(),
+        error,
+        exit,
+        startProxy,
+        onSignal: (signal, handler) => {
+          signalHandlers.set(signal, handler);
+        },
+      });
+
+      signalHandlers.get("SIGINT")?.();
+
+      await vi.waitFor(() => {
+        expect(exit).toHaveBeenCalledWith(1);
+      });
+      expect(error).toHaveBeenCalledWith("Shutdown failed: close failed");
+    });
   });
 });
