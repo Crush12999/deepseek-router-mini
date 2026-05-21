@@ -457,6 +457,10 @@ function writeJson(res: ServerResponse, status: number, body: unknown): void {
  *
  * 这里会主动移除任何上游已带的公开路由头，确保最终对外头部完全由当前
  * Router 实例生成。
+ *
+ * Node fetch 可能已经把上游 gzip/br/deflate body 解码成明文流；此时继续透传
+ * `content-encoding` 或上游压缩后的 `content-length` 会让客户端二次解压，
+ * 或按错误长度读取响应。
  */
 function copyResponseHeaders(
   response: Response,
