@@ -67,24 +67,14 @@ describe("package metadata", () => {
       "LLM Router local routing proxy for OpenClaw",
     );
     expect(plugin.configSchema.description).toContain("llm-router");
-    expect(plugin.configSchema.properties.config).toMatchObject({
-      type: "object",
-    });
-    expect(plugin.configSchema.properties.config.description).toContain(
-      "llm-router",
-    );
-    expect(plugin.configSchema.properties.configPath).toMatchObject({
-      type: "string",
-    });
-    expect(plugin.configSchema.properties.configPath.description).toContain(
-      "llm-router",
-    );
+    expect(plugin.configSchema.properties).not.toHaveProperty("config");
+    expect(plugin.configSchema.properties).not.toHaveProperty("configPath");
     expect(plugin.configSchema.properties.port.description).toContain(
-      "override config.proxy.port",
+      "override proxy port",
     );
     expect(plugin.configSchema.properties.port).not.toHaveProperty("default");
     expect(plugin.configSchema.properties.upstreamUrl.description).toContain(
-      "override config.proxy.upstreamUrl",
+      "override upstream URL",
     );
     expect(plugin.configSchema.properties.upstreamUrl).not.toHaveProperty(
       "default",

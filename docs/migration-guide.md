@@ -2,9 +2,7 @@
 
 ## 破坏性变更
 
-1. **配置文件成为唯一启动入口**：CLI 必须提供 `--config`，OpenClaw 插件必
-   须提供 `pluginConfig.config` 或 `pluginConfig.configPath`。不再支持无配
-   置启动，也不再提供基于环境变量的 fallback。
+1. **配置文件成为唯一启动入口**：CLI 必须提供 `--config`；OpenClaw 插件固定读取当前用户目录下的默认文件。默认配置文件名为 `.openclaw/llm-router-config.json`，位于当前用户目录下。不再支持纯环境变量启动。
 2. **`models[].id` 现在就是实际上游模型 ID**：v0.2.0 配置格式不包含
    `upstreamModel` 字段。项目尚未上线旧 schema，因此不提供迁移检测、自
    动兼容层或回退逻辑。
@@ -31,7 +29,7 @@
 3. 在 `publicModels` 中声明内部 alias，并在 `routing.tiers` 中引用这些
    alias。客户端 / OpenClaw 侧统一只请求 `auto`。
 4. CLI、脚本和自动化命令统一改用 `llm-router --config config.json`。
-5. OpenClaw 插件配置统一改到 `plugins.entries.llm-router`，并通过
+5. OpenClaw 插件默认配置写到当前用户目录下的 `.openclaw/llm-router-config.json`，并通过
    `models.providers.xiaoyiprovider` 观察 Router 注入的 provider 状态。
 6. 如果你的旧客户端、脚本或测试显式请求 `flash` / `pro`，请全部改为
    `auto`，并通过 `x-xy-router-model` /

@@ -24,8 +24,8 @@ LLM Router 在 v0.2.0 里把「请求入口」和「路由结果」分成了两�
 
 ## 2. 配置文件
 
-CLI 必须使用 `--config`；OpenClaw 插件优先使用 `pluginConfig.config` 或
-`pluginConfig.configPath`，缺失或非法时会进入内置默认配置兜底。
+CLI 必须使用 `--config`；OpenClaw 插件固定读取当前用户目录下的默认配置文件，
+缺失或非法时会进入内置默认配置兜底。默认配置文件名为 `.openclaw/llm-router-config.json`，位于当前用户目录下。
 
 示例配置：
 
@@ -108,16 +108,14 @@ CLI 必须使用 `--config`；OpenClaw 插件优先使用 `pluginConfig.config` 
 - 如果你希望新增 `lite` / `think` / `debug` 之类的新 alias，只需要改
   `publicModels` 和 `routing`；客户端请求入口仍然保持为 `auto`。
 
-OpenClaw 插件模式额外提供启动兜底：如果 `pluginConfig.config` 和
-`pluginConfig.configPath` 都缺失或非法，插件会回退到内置默认配置，确保本地
+OpenClaw 插件模式额外提供启动兜底：如果默认配置文件缺失或非法，插件会回退到内置默认配置，确保本地
 Router 仍能启动。该兜底配置不包含真实 `apiKey`，上游鉴权仍需要通过
 OpenClaw provider 配置、插件运行时覆盖或其他受支持的方式提供。
 
 进入内置默认配置兜底时，插件会加入内置默认 header：
 `x-request-from: openclaw`。`pluginConfig.defaultHeaders` 可以补充或覆盖这
 一兜底层 headers；但只在 `config.source === "default"` 时生效。只要
-`pluginConfig.config` 或 `pluginConfig.configPath` 合法，即便配置了
-`defaultHeaders` 也完全不使用。
+默认配置文件合法，即便配置了 `defaultHeaders` 也完全不使用。
 
 插件还可以把配置的 `.xiaoyienv` 文件作为兜底补充读取：
 
@@ -133,15 +131,17 @@ PERSONAL-UID=123456
 
 配置优先级摘要：
 
-1. 合法的 `pluginConfig.config` 优先于 `pluginConfig.configPath`。
-2. 合法的 `pluginConfig.configPath` 优先于内置默认配置。
+1. 合法的默认配置文件优先于内置默认配置。
+2. openclaw.json 中残留的 `pluginConfig.config` / `pluginConfig.configPath` 会被忽略。
 3. 只有主配置缺失或非法时，`SERVICE_URL` 才会补充兜底配置的
    `proxy.upstreamUrl`。
-4. 默认兜底 headers 优先级是：内置默认 headers <
-   `pluginConfig.defaultHeaders` < `.xiaoyienv` 映射 headers <
-   合法 `RawConfig.proxy.headers` < provider/request headers；同名 header
-   按大小写不敏感规则由更高优先级来源覆盖。
-5. `pluginConfig.port`、`pluginConfig.upstreamUrl`、`pluginConfig.trace`
+4. 默认配置文件合法时，headers 优先级是：`.xiaoyienv` 映射 headers <
+   默认配置文件中的 `RawConfig.proxy.headers` < provider/request headers。
+5. 默认兜底场景下，headers 优先级是：内置默认 headers <
+   `pluginConfig.defaultHeaders` < `.xiaoyienv` 映射 headers < provider/request
+   headers。
+6. 同名 header 按大小写不敏感规则由更高优先级来源覆盖。
+7. `pluginConfig.port`、`pluginConfig.upstreamUrl`、`pluginConfig.trace`
    属于运行时覆盖项，优先级高于主配置和 `.xiaoyienv`。
 
 ### 2.1 Routing thresholds
@@ -187,7 +187,7 @@ curl -sS http://127.0.0.1:8402/health
   "version": "1.0.4",
   "degraded": false,
   "config": {
-    "source": "inline",
+    "source": "file",
     "envFileLoaded": false
   }
 }
@@ -195,29 +195,18 @@ curl -sS http://127.0.0.1:8402/health
 
 ### 3.2 OpenClaw 插件
 
-内联配置：
-
-```bash
-openclaw config set plugins.entries.llm-router.config.config '{"version":1,...}'
-openclaw gateway restart
-```
-
-文件路径：
-
-```bash
-openclaw config set plugins.entries.llm-router.config.configPath "/path/to/config.json"
-openclaw gateway restart
-```
+默认配置文件名为 `.openclaw/llm-router-config.json`，位于当前用户目录下。
+更新该文件后重启 OpenClaw Gateway 即可；不要通过 `openclaw config set` 写入 `config` 或 `configPath`。
 
 插件不会注册 provider，也不会在 manifest 中声明 providers。它只负责写入或
 修复 `models.providers.xiaoyiprovider`，并把 OpenClaw 对外可见的模型列
 表收敛为 `auto`。
 
-补充说明：`plugins.entries.llm-router.config.port` 与 `upstreamUrl` 是可选运行时覆写项；若未显式配置，则沿用 `pluginConfig.config` / `configPath` 指向配置文件中的 `proxy.port` 与 `proxy.upstreamUrl`。
+补充说明：`plugins.entries.llm-router.config.port` 与 `upstreamUrl` 是可选运行时覆写项；若未显式配置，则沿用默认配置文件或内置兜底配置中的 `proxy.port` 与 `proxy.upstreamUrl`。
 
 当插件进入内置默认配置兜底时，`GET /health` 仍返回低泄漏摘要：`degraded`
 为 `true`，`config.source` 为 `default`，`config.fallbackReason` 只包含稳定
-枚举（例如 `missing_config`、`config_json_parse_error`），不会暴露原始异常
+枚举（例如 `config_path_not_found`、`config_json_parse_error`），不会暴露原始异常
 详情。`config.envFileLoaded` 只在 `.xiaoyienv` 的 `SERVICE_URL` 或映射后的
 header 最终实际生效时为 `true`；如果文件不存在、读取失败，或相关值被更高优
 先级配置覆盖，则保持 `false`。`pluginConfig.defaultHeaders` 不影响

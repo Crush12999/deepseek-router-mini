@@ -35,7 +35,7 @@ v0.2.0 的模型语义完全来自配置文件，但要分清「外部入口」�
 - router `metadata` 必须完整且字段类型正确。
 - alias `candidates[]` 必须引用存在的 `models[].id`。
 - `routing.tiers.*.publicModel` 和 `fallback[]` 只能引用 alias public model。
-- OpenClaw 插件必须提供 `pluginConfig.config` 或 `pluginConfig.configPath`。
+- OpenClaw 插件默认读取当前用户目录下的 `.openclaw/llm-router-config.json`。
 
 ### 2.1 Routing thresholds
 
@@ -84,7 +84,7 @@ client
 
 它负责：
 
-- 从 `pluginConfig.config` 或 `pluginConfig.configPath` 加载 `RawConfig`
+- 从当前用户目录下的 `.openclaw/llm-router-config.json` 加载 `RawConfig`
 - 允许 `port` / `upstreamUrl` / `trace` 覆盖 `config.proxy.*`
 - 根据 `publicModels` 与 `models` 生成 provider 元数据
 - 写入或修复 `models.providers.xiaoyiprovider`

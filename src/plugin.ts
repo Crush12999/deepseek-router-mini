@@ -1,3 +1,6 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 import { loadConfig } from "./config-loader.js";
 import { createDefaultRawConfig } from "./default-config.js";
 import type { RawConfig } from "./config-schema.js";
@@ -35,8 +38,6 @@ export type OpenClawPluginApi = {
         port?: unknown;
         upstreamUrl?: unknown;
         trace?: unknown;
-        config?: RawConfig;
-        configPath?: string;
         defaultHeaders?: unknown;
         xiaoyiEnv?: {
           path?: unknown;
@@ -182,6 +183,16 @@ export function injectLlmRouterModelsConfig(
   };
 }
 
+
+/**
+ * 默认 OpenClaw 插件 RawConfig 路径。
+ *
+ * 不再从 openclaw.json 暴露完整 RawConfig 或 configPath，降低配置泄漏面。
+ */
+export function defaultPluginConfigPath(home = homedir()): string {
+  return join(home, ".openclaw", "llm-router-config.json");
+}
+
 /**
  * 解析 pluginConfig.port，非法值直接忽略，回退到配置文件中的端口。
  */
@@ -199,25 +210,13 @@ function parsePortValue(value: unknown): number | undefined {
 }
 
 /**
- * 从 pluginConfig 加载配置。
+ * 从插件默认用户目录路径加载 RawConfig。
  *
- * 这是严格解析入口：合法 inline/file 走 schema 校验，缺失配置仍抛错，
- * 由更外层的 `resolvePluginRuntimeConfig()` 决定是否进入默认配置兜底。
+ * openclaw.json 中遗留的 `pluginConfig.config` / `pluginConfig.configPath`
+ * 不再作为 RawConfig 来源，避免把完整路由配置或路径暴露在宿主配置内。
  */
-export function resolvePluginConfig(api: OpenClawPluginApi): RawConfig {
-  const inline = api.pluginConfig?.config;
-  const path = api.pluginConfig?.configPath;
-
-  if (hasInlineConfig(inline)) {
-    return loadConfig({ kind: "inline", config: inline as RawConfig });
-  }
-  if (hasConfigPath(path)) {
-    return loadConfig({ kind: "file", path: path as string });
-  }
-
-  throw new Error(
-    "llm-router: missing config. Set pluginConfig.config or pluginConfig.configPath",
-  );
+export function resolvePluginConfig(): RawConfig {
+  return loadConfig({ kind: "file", path: defaultPluginConfigPath() });
 }
 
 /**
@@ -225,23 +224,6 @@ export function resolvePluginConfig(api: OpenClawPluginApi): RawConfig {
  */
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/**
- * 只有非 null / undefined 的值才算“真正提供了 inline config”。
- *
- * 这样可以避免 `config: null` 或 `config: undefined` 这类占位字段遮蔽合法
- * `configPath`，并让“仅有空占位字段”的场景回落到缺失配置分支。
- */
-function hasInlineConfig(value: unknown): boolean {
-  return value !== null && value !== undefined;
-}
-
-/**
- * pluginConfig.configPath 只有是非空字符串时才算可用文件配置来源。
- */
-function hasConfigPath(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0;
 }
 
 /**
@@ -445,55 +427,30 @@ function resolveProxyConfigWithCaseInsensitiveHeaders(
 }
 
 /**
- * 组合主配置与 pluginConfig 运行时覆盖项。
+ * 组合默认用户目录 RawConfig 与 pluginConfig 运行时覆盖项。
  *
- * 本函数是插件配置加载失败的最后兜底边界：缺失配置时改用默认配置，
- * 其余合法 inline/file 继续走严格配置解析。
+ * 默认路径不可用或配置非法时，统一回退到内置默认配置；遗留
+ * `pluginConfig.config` / `pluginConfig.configPath` 会被忽略而不报错。
  */
 function resolvePluginRuntimeConfig(
   api: OpenClawPluginApi,
 ): RuntimeConfigResult {
-  const inline = api.pluginConfig?.config;
-  const path = api.pluginConfig?.configPath;
   let runtimeConfigResult: RuntimeConfigResult;
 
-  if (hasInlineConfig(inline)) {
-    try {
-      runtimeConfigResult = {
-        config: resolvePluginConfig(api),
-        health: {
-          degraded: false,
-          config: {
-            source: "inline",
-            envFileLoaded: false,
-          },
+  try {
+    runtimeConfigResult = {
+      config: resolvePluginConfig(),
+      health: {
+        degraded: false,
+        config: {
+          source: "file",
+          envFileLoaded: false,
         },
-        envContribution: { upstreamUrlApplied: false, headers: {} },
-      };
-    } catch (error) {
-      runtimeConfigResult = fallbackConfig("config_schema_error", error);
-    }
-  } else if (hasConfigPath(path)) {
-    try {
-      runtimeConfigResult = {
-        config: resolvePluginConfig(api),
-        health: {
-          degraded: false,
-          config: {
-            source: "file",
-            envFileLoaded: false,
-          },
-        },
-        envContribution: { upstreamUrlApplied: false, headers: {} },
-      };
-    } catch (error) {
-      runtimeConfigResult = fallbackConfig(
-        classifyConfigLoadError(error),
-        error,
-      );
-    }
-  } else {
-    runtimeConfigResult = fallbackConfig("missing_config");
+      },
+      envContribution: { upstreamUrlApplied: false, headers: {} },
+    };
+  } catch (error) {
+    runtimeConfigResult = fallbackConfig(classifyConfigLoadError(error), error);
   }
 
   const env = readXiaoyiEnvConfig(readXiaoyiEnvOptions(api));

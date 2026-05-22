@@ -53,6 +53,7 @@ if (typeof mod.createModelRegistry !== "function") throw new Error("missing crea
 if (typeof mod.resolvePublicModel !== "function") throw new Error("missing resolvePublicModel export");
 if (typeof mod.generateOpenClawModels !== "function") throw new Error("missing generateOpenClawModels export");
 if (typeof mod.injectLlmRouterModelsConfig !== "function") throw new Error("missing injectLlmRouterModelsConfig export");
+if (mod.defaultPluginConfigPath !== undefined) throw new Error("defaultPluginConfigPath should not be public entrypoint API");
 if (typeof mod.route !== "function") throw new Error("missing route export");
 if (mod.DEFAULT_ROUTING_CONFIG?.overrides?.ambiguousDefaultTier !== "MEDIUM") {
   throw new Error("missing DEFAULT_ROUTING_CONFIG export");
@@ -106,6 +107,7 @@ for (const key of Object.keys(mod)) {
     throw new Error(\`legacy export leaked from entrypoint: \${key}\`);
   }
 }
+
 
 const services = [];
 const providers = [];

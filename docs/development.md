@@ -145,7 +145,7 @@ POST /v1/chat/completions
 
 插件不会注册 provider，也不会声明 providers。当前策略是：
 
-- 加载 `pluginConfig.config` 或 `pluginConfig.configPath`。
+- 加载当前用户目录下的 `.openclaw/llm-router-config.json`。
 - 计算本地 provider `baseUrl`，例如 `http://127.0.0.1:8402/v1`。
 - 调用 `generateOpenClawModels(runtimeConfig.publicModels, runtimeConfig.models)`
   生成完整的路由语义元数据。
@@ -169,7 +169,7 @@ OpenClaw 去选。
 
 - 配置文件中的 `publicModels` / `routing`
 - `generateOpenClawModels()`
-- `pluginConfig.config` / `pluginConfig.configPath`
+- 当前用户目录下的 `.openclaw/llm-router-config.json`
 - 请求 `auto`，再从响应头读取最终 alias / physical model
 
 ## 6. 响应头与错误格式

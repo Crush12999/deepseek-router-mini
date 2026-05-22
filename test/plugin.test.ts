@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import path from "node:path";
@@ -7,6 +7,7 @@ import type { RawConfig } from "../src/config-schema.js";
 import { generateOpenClawModels } from "../src/provider.js";
 import type { OpenClawService } from "../src/plugin.js";
 import {
+  defaultPluginConfigPath,
   injectLlmRouterModelsConfig,
   localProviderBaseUrl,
   registerOpenClawPlugin as registerOpenClawPluginImpl,
@@ -99,6 +100,40 @@ const invalidJsonFixturePath = path.resolve(
 );
 const tempDirs: string[] = [];
 
+function createTempHome(): string {
+  const home = mkdtempSync(path.join(tmpdir(), "llm-router-plugin-home-"));
+  tempDirs.push(home);
+  return home;
+}
+
+function writeDefaultPluginConfig(home: string, config: RawConfig): string {
+  const file = defaultPluginConfigPath(home);
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, JSON.stringify(config), "utf8");
+  return file;
+}
+
+function useTempHome(home: string): void {
+  vi.stubEnv("HOME", home);
+  vi.stubEnv("USERPROFILE", home);
+}
+
+function useDefaultPluginConfig(config: RawConfig): string {
+  const home = createTempHome();
+  writeDefaultPluginConfig(home, config);
+  useTempHome(home);
+  return home;
+}
+
+function writeInvalidDefaultPluginConfig(content: string): string {
+  const home = createTempHome();
+  const file = defaultPluginConfigPath(home);
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, content, "utf8");
+  useTempHome(home);
+  return file;
+}
+
 function writeTempXiaoyiEnv(content: string): string {
   const dir = mkdtempSync(path.join(tmpdir(), "llm-router-plugin-env-"));
   tempDirs.push(dir);
@@ -114,24 +149,29 @@ function cleanupTempDirs(): void {
 }
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   cleanupTempDirs();
 });
 
 function normalizePluginConfig(
   pluginConfig: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
-  if (!pluginConfig) {
-    return { config: createPluginConfig() };
-  }
+  const normalized = { ...(pluginConfig ?? {}) };
+  const inlineConfig = normalized.config;
+  const configPath = normalized.configPath;
+  const config =
+    inlineConfig !== null && inlineConfig !== undefined
+      ? (inlineConfig as RawConfig)
+      : typeof configPath === "string"
+        ? (JSON.parse(readFileSync(configPath, "utf8")) as RawConfig)
+        : createPluginConfig();
 
-  if ("config" in pluginConfig || "configPath" in pluginConfig) {
-    return pluginConfig;
-  }
-
-  return {
-    config: createPluginConfig(),
-    ...pluginConfig,
-  };
+  const home = createTempHome();
+  writeDefaultPluginConfig(home, config);
+  useTempHome(home);
+  delete normalized.config;
+  delete normalized.configPath;
+  return normalized;
 }
 
 function registerOpenClawPlugin(
@@ -1486,6 +1526,103 @@ describe("OpenClaw plugin lifecycle", () => {
   });
 });
 
+describe("OpenClaw plugin default config path", () => {
+  const serviceCalls: OpenClawService[] = [];
+
+  beforeEach(() => {
+    serviceCalls.length = 0;
+  });
+
+  afterEach(async () => {
+    await Promise.allSettled(serviceCalls.map((service) => service.stop()));
+  });
+
+  it("builds the default plugin config path under the current user home", () => {
+    expect(defaultPluginConfigPath("/tmp/user")).toBe(
+      path.join("/tmp/user", ".openclaw", "llm-router-config.json"),
+    );
+  });
+
+  it("loads RawConfig from the default user config path and ignores legacy plugin config sources", async () => {
+    const home = createTempHome();
+    useTempHome(home);
+    writeDefaultPluginConfig(
+      home,
+      createPluginConfig(9011, "https://default-path.example.com"),
+    );
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 9011,
+      baseUrl: "https://default-path.example.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {},
+      pluginConfig: {
+        config: createPluginConfig(9000, "https://legacy-inline.example.com"),
+        configPath: fixtureConfigPath,
+      },
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPluginWithoutDefaults(api, { startProxy });
+    await serviceCalls[0]!.start();
+
+    expectStartProxyRuntimeCall(startProxy, {
+      port: 9011,
+      upstreamUrl: "https://default-path.example.com",
+    });
+    expect(startProxy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        health: {
+          degraded: false,
+          config: {
+            source: "file",
+            envFileLoaded: false,
+          },
+        },
+      }),
+    );
+  });
+
+  it("ignores legacy pluginConfig.config and configPath when the default config path is missing", async () => {
+    const home = createTempHome();
+    useTempHome(home);
+    const startProxy = vi.fn().mockResolvedValue({
+      port: 8402,
+      baseUrl: "https://api.deepseek.com",
+      close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    });
+    const api = {
+      config: {},
+      pluginConfig: {
+        config: createPluginConfig(9000, "https://legacy-inline.example.com"),
+        configPath: fixtureConfigPath,
+      },
+      registerService: (service: OpenClawService) => serviceCalls.push(service),
+    };
+
+    registerOpenClawPluginWithoutDefaults(api, { startProxy });
+    await serviceCalls[0]!.start();
+
+    expectStartProxyRuntimeCall(startProxy, {
+      port: 8402,
+      upstreamUrl: "https://api.deepseek.com",
+    });
+    expect(startProxy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        health: {
+          degraded: true,
+          config: {
+            source: "default",
+            fallbackReason: "config_path_not_found",
+            envFileLoaded: false,
+          },
+        },
+      }),
+    );
+  });
+});
+
 describe("OpenClaw plugin config-driven loading", () => {
   const serviceCalls: OpenClawService[] = [];
 
@@ -1497,7 +1634,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     await Promise.allSettled(serviceCalls.map((service) => service.stop()));
   });
 
-  it("loads config from pluginConfig.config (inline)", async () => {
+  it("loads config from the default user config path", async () => {
     const startProxy = vi.fn().mockResolvedValue({
       port: 9000,
       baseUrl: "https://api.deepseek.com",
@@ -1530,7 +1667,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     });
   });
 
-  it("loads config from pluginConfig.configPath (file)", async () => {
+  it("loads config from the default user config path instead of legacy configPath", async () => {
     const startProxy = vi.fn().mockResolvedValue({
       port: 8402,
       baseUrl: "https://api.deepseek.com",
@@ -1573,8 +1710,9 @@ describe("OpenClaw plugin config-driven loading", () => {
     ["undefined", undefined],
     ["null", null],
   ])(
-    "loads configPath when pluginConfig.config is %s placeholder",
+    "loads the default user config when legacy pluginConfig.config is %s placeholder",
     async (_caseName, configValue) => {
+      useDefaultPluginConfig(createPluginConfig());
       const startProxy = vi.fn().mockResolvedValue({
         port: 8402,
         baseUrl: "https://api.deepseek.com",
@@ -1615,7 +1753,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     },
   );
 
-  it("uses default config when plugin config is missing", async () => {
+  it("uses default config when the default user config file is missing", async () => {
     const startProxy = vi.fn().mockResolvedValue({
       port: 8402,
       baseUrl: "https://api.deepseek.com",
@@ -1659,7 +1797,7 @@ describe("OpenClaw plugin config-driven loading", () => {
           degraded: true,
           config: expect.objectContaining({
             source: "default",
-            fallbackReason: "missing_config",
+            fallbackReason: "config_path_not_found",
             envFileLoaded: false,
           }),
         }),
@@ -1719,6 +1857,7 @@ describe("OpenClaw plugin config-driven loading", () => {
   });
 
   it("ignores defaultHeaders and built-in default headers when RawConfig is valid", async () => {
+    useDefaultPluginConfig(createPluginConfig());
     const startProxy = vi.fn().mockResolvedValue({
       port: 8402,
       baseUrl: "https://api.deepseek.com",
@@ -1828,7 +1967,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     });
   });
 
-  it("uses default config when pluginConfig.config is null without configPath", async () => {
+  it("uses default config when the default user config file is missing despite legacy placeholders", async () => {
     const startProxy = vi.fn().mockResolvedValue({
       port: 8402,
       baseUrl: "https://api.deepseek.com",
@@ -1853,7 +1992,7 @@ describe("OpenClaw plugin config-driven loading", () => {
           degraded: true,
           config: expect.objectContaining({
             source: "default",
-            fallbackReason: "missing_config",
+            fallbackReason: "config_path_not_found",
             envFileLoaded: false,
           }),
         }),
@@ -1862,20 +2001,21 @@ describe("OpenClaw plugin config-driven loading", () => {
   });
 
   it.each([
-    [
-      "missing file",
-      "/tmp/llm-router-missing-config.json",
-      "config_path_not_found",
-    ],
-    ["directory", __dirname, "config_file_read_error"],
-    [
-      "schema error",
-      path.resolve(__dirname, "fixtures/invalid-config.json"),
-      "config_schema_error",
-    ],
+    ["missing file", undefined, "config_path_not_found"],
+    ["directory", "__DIRECTORY__", "config_file_read_error"],
+    ["schema error", "__SCHEMA__", "config_schema_error"],
   ])(
-    "uses default config when configPath has %s",
+    "uses default config when the default user config path has %s",
     async (_caseName, configPath, fallbackReason) => {
+      if (configPath === "__DIRECTORY__") {
+        const home = createTempHome();
+        mkdirSync(defaultPluginConfigPath(home), { recursive: true });
+        useTempHome(home);
+      } else if (configPath === "__SCHEMA__") {
+        writeInvalidDefaultPluginConfig(
+          readFileSync(path.resolve(__dirname, "fixtures/invalid-config.json"), "utf8"),
+        );
+      }
       const startProxy = vi.fn().mockResolvedValue({
         port: 8402,
         baseUrl: "https://api.deepseek.com",
@@ -1910,7 +2050,8 @@ describe("OpenClaw plugin config-driven loading", () => {
     },
   );
 
-  it("uses default config when configPath contains invalid JSON", async () => {
+  it("uses default config when the default user config file contains invalid JSON", async () => {
+    writeInvalidDefaultPluginConfig(readFileSync(invalidJsonFixturePath, "utf8"));
     const startProxy = vi.fn().mockResolvedValue({
       port: 8402,
       baseUrl: "https://api.deepseek.com",
@@ -1943,7 +2084,8 @@ describe("OpenClaw plugin config-driven loading", () => {
     );
   });
 
-  it("uses default config when pluginConfig.config fails schema validation", async () => {
+  it("uses default config when the default user config file fails schema validation", async () => {
+    writeInvalidDefaultPluginConfig(JSON.stringify({ version: 1, proxy: { port: 8402 } }));
     const startProxy = vi.fn().mockResolvedValue({
       port: 8402,
       baseUrl: "https://api.deepseek.com",
@@ -2012,10 +2154,11 @@ describe("OpenClaw plugin config-driven loading", () => {
     );
   });
 
-  it("treats missing RawConfig upstreamUrl as schema error before applying xiaoyienv fallback", async () => {
+  it("treats missing default RawConfig upstreamUrl as schema error before applying xiaoyienv fallback", async () => {
     const envPath = writeTempXiaoyiEnv("SERVICE_URL=https://env.example.com\n");
     const invalidConfig = createPluginConfig();
     delete (invalidConfig.proxy as Partial<RawConfig["proxy"]>).upstreamUrl;
+    useDefaultPluginConfig(invalidConfig);
     const startProxy = vi.fn().mockResolvedValue({
       port: 8402,
       baseUrl: "https://env.example.com/celia-claw/v1/sse-api",
@@ -2054,6 +2197,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     const envPath = writeTempXiaoyiEnv(
       "SERVICE_URL=https://env.example.com\nPERSONAL-UID=123456\n",
     );
+    useDefaultPluginConfig(createPluginConfig(9011, "https://raw.example.com"));
     const startProxy = vi.fn().mockResolvedValue({
       port: 9011,
       baseUrl: "https://raw.example.com",
@@ -2080,6 +2224,7 @@ describe("OpenClaw plugin config-driven loading", () => {
 
   it("keeps health envFileLoaded false when xiaoyienv SERVICE_URL is ignored by a valid RawConfig", async () => {
     const envPath = writeTempXiaoyiEnv("SERVICE_URL=https://env.example.com\n");
+    useDefaultPluginConfig(createPluginConfig(9011, "https://raw.example.com"));
     const startProxy = vi.fn().mockResolvedValue({
       port: 9011,
       baseUrl: "https://raw.example.com",
@@ -2249,6 +2394,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     config.proxy.headers = {
       "x-uid": "same",
     };
+    useDefaultPluginConfig(config);
     const startProxy = vi.fn().mockResolvedValue({
       port: 8402,
       baseUrl: "https://api.deepseek.com",

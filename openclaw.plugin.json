@@ -9,16 +9,8 @@
   },
   "configSchema": {
     "type": "object",
-    "description": "Provide either llm-router config or llm-router configPath. port, upstreamUrl, and trace override config.proxy.* at runtime.",
+    "description": "llm-router reads RawConfig from the current user default config file. port, upstreamUrl, and trace are optional runtime overrides.",
     "properties": {
-      "config": {
-        "type": "object",
-        "description": "Inline RawConfig passed directly to llm-router."
-      },
-      "configPath": {
-        "type": "string",
-        "description": "Path to a RawConfig JSON file for llm-router."
-      },
       "defaultHeaders": {
         "type": "object",
         "description": "Headers applied only when the built-in default fallback config is used. Built-in default is {\"x-request-from\":\"openclaw\"}.",
@@ -26,11 +18,11 @@
       },
       "port": {
         "type": "number",
-        "description": "Runtime override config.proxy.port. Optional; if omitted, use the value from pluginConfig.config / configPath."
+        "description": "Runtime override proxy port. Optional; if omitted, use the value from the default user config file or built-in fallback."
       },
       "upstreamUrl": {
         "type": "string",
-        "description": "Runtime override config.proxy.upstreamUrl. Optional; if omitted, use the value from pluginConfig.config / configPath."
+        "description": "Runtime override upstream URL. Optional; if omitted, use the value from the default user config file or built-in fallback."
       },
       "trace": {
         "type": "string",

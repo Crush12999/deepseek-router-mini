@@ -89,25 +89,22 @@ llm-router --config config.json --api-key sk-your-key
 
 ## OpenClaw Plugin Usage
 
+默认配置文件名为 `.openclaw/llm-router-config.json`，位于当前用户目录下。
+OpenClaw 插件会自动读取该文件；不要在 `openclaw.json` 中写入完整 RawConfig 或配置路径。
+
 ```bash
-# 内联配置
-openclaw config set plugins.entries.llm-router.config.config '{"version":1,...}'
-
-# 文件路径
-openclaw config set plugins.entries.llm-router.config.configPath "/path/to/config.json"
-
 # 查看 Router 注入的 provider 配置
 openclaw config get models.providers.xiaoyiprovider
 ```
 
-If `pluginConfig.config` and `pluginConfig.configPath` are missing or invalid,
-OpenClaw plugin mode falls back to a built-in default config so the local router
-can still start. The fallback config does not include a real `apiKey`.
+If the default plugin config file is missing or invalid, OpenClaw plugin mode
+falls back to a built-in default config so the local router can still start. The
+fallback config does not include a real `apiKey`.
 
 When fallback config is used, the plugin adds the built-in default header
 `x-request-from: openclaw`. `pluginConfig.defaultHeaders` may add or override
-headers at this fallback-only layer; it is ignored when `pluginConfig.config` or
-`pluginConfig.configPath` is valid.
+headers at this fallback-only layer; it is ignored when the default plugin
+config file is valid.
 
 The plugin may optionally read the configured `.xiaoyienv` file as a fallback supplement:
 
