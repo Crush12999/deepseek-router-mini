@@ -94,13 +94,7 @@ CLI 必须使用 `--config`；OpenClaw 插件优先使用 `pluginConfig.config` 
       "REASONING": { "publicModel": "pro" }
     },
     "structuredOutputMinTier": "MEDIUM",
-    "ambiguousDefaultTier": "MEDIUM",
-    "tierBoundaries": {
-      "simpleMedium": 0,
-      "mediumComplex": 0.3,
-      "complexReasoning": 0.5
-    },
-    "confidenceThreshold": 0.7
+    "ambiguousDefaultTier": "MEDIUM"
   }
 }
 ```
@@ -125,7 +119,7 @@ OpenClaw provider 配置、插件运行时覆盖或其他受支持的方式提�
 `pluginConfig.config` 或 `pluginConfig.configPath` 合法，即便配置了
 `defaultHeaders` 也完全不使用。
 
-插件还可以把 `~/.openclaw/.xiaoyienv` 作为兜底补充读取：
+插件还可以把配置的 `.xiaoyienv` 文件作为兜底补充读取：
 
 ```env
 SERVICE_URL=https://api.deepseek.com
@@ -152,16 +146,14 @@ PERSONAL-UID=123456
 
 ### 2.1 Routing thresholds
 
-`routing.tierBoundaries` 和 `routing.confidenceThreshold` 是当前**唯一开放给配
-置文件的 scoring knobs**：
+路由评分阈值属于内置启动常量，不属于公开配置面。配置文件只应通过
+`routing.tiers`、`structuredOutputMinTier` 和 `ambiguousDefaultTier` 控制路由
+结果。
 
-- `routing.tierBoundaries.simpleMedium` /
-  `mediumComplex` / `complexReasoning`：定义加权分数落在哪个 tier。
-- `routing.confidenceThreshold`：定义分类器何时把结果视为「信心不足 / 需要走
-  ambiguous 分支」。
+下列参数不应写进 `config.json`：
 
-下列参数不是公开配置面，不应写进 `config.json`：
-
+- tier boundaries
+- confidence threshold
 - dimension weights
 - keyword lists
 - token thresholds

@@ -5,19 +5,6 @@ function hasOwn(value: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
 
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
-}
-
-function assertFiniteNumber(
-  value: unknown,
-  path: string,
-): asserts value is number {
-  if (!isFiniteNumber(value)) {
-    throw new Error(`${path} must be a finite number`);
-  }
-}
-
 function assertPublicModelMetadata(value: unknown, path: string): void {
   if (!value || typeof value !== "object") {
     throw new Error(`${path}.metadata is required`);
@@ -115,6 +102,7 @@ export function loadConfig(source: ConfigSource): RawConfig {
  * - publicModels[*].candidates[] 非空（仅 alias）
  * - routing.tiers[*].publicModel / fallback[] 只能引用 alias publicModel
  * - 四个 tier 必须完整声明
+ * - 旧配置残留的 routing.tierBoundaries / confidenceThreshold 不再校验，运行时固定使用内置评分阈值
  * - proxy.port 是 1-65535 整数
  * - proxy.headers 值都是字符串
  *
@@ -198,47 +186,6 @@ function validateConfig(config: RawConfig): void {
         fallbackId,
         `routing.tiers.${tier}.fallback`,
       );
-    }
-  }
-
-  if (hasOwn(config.routing as object, "tierBoundaries")) {
-    const tierBoundaries = config.routing.tierBoundaries;
-
-    if (
-      !tierBoundaries ||
-      typeof tierBoundaries !== "object" ||
-      Array.isArray(tierBoundaries)
-    ) {
-      throw new Error("routing.tierBoundaries must be an object");
-    }
-
-    const { simpleMedium, mediumComplex, complexReasoning } = tierBoundaries;
-
-    assertFiniteNumber(simpleMedium, "routing.tierBoundaries.simpleMedium");
-    assertFiniteNumber(mediumComplex, "routing.tierBoundaries.mediumComplex");
-    assertFiniteNumber(
-      complexReasoning,
-      "routing.tierBoundaries.complexReasoning",
-    );
-
-    if (!(simpleMedium <= mediumComplex && mediumComplex <= complexReasoning)) {
-      throw new Error(
-        "routing.tierBoundaries must satisfy simpleMedium <= mediumComplex <= complexReasoning",
-      );
-    }
-  }
-
-  if (hasOwn(config.routing as object, "confidenceThreshold")) {
-    assertFiniteNumber(
-      config.routing.confidenceThreshold,
-      "routing.confidenceThreshold",
-    );
-
-    if (
-      config.routing.confidenceThreshold < 0 ||
-      config.routing.confidenceThreshold > 1
-    ) {
-      throw new Error("routing.confidenceThreshold must be between 0 and 1");
     }
   }
 

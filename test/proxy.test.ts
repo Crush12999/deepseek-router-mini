@@ -717,16 +717,17 @@ describe("proxy", () => {
     });
   });
 
-  it("uses routing threshold overrides from config", async () => {
+  it("ignores residual routing threshold overrides from config", async () => {
     const upstream = await startUpstream();
     handles.push(upstream);
     const config = createAliasConfig();
-    config.routing.tierBoundaries = {
+    const routing = config.routing as unknown as Record<string, unknown>;
+    routing.tierBoundaries = {
       simpleMedium: -1,
       mediumComplex: -0.5,
       complexReasoning: -0.1,
     };
-    config.routing.confidenceThreshold = 0;
+    routing.confidenceThreshold = 0;
     const proxy = await startProxy({
       config: withProxyOverrides(config, {
         upstreamUrl: upstream.baseUrl,
@@ -745,13 +746,13 @@ describe("proxy", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(res.headers.get(routerHeader("model"))).toBe("pro");
-    expect(res.headers.get(routerHeader("tier"))).toBe("REASONING");
+    expect(res.headers.get(routerHeader("model"))).toBe("flash");
+    expect(res.headers.get(routerHeader("tier"))).toBe("SIMPLE");
     expect(res.headers.get(routerHeader("trace"))).toBe(
-      "auto:reasoning:pro:reasoning",
+      "auto:simple:flash:first-pass",
     );
     expect(upstream.requests[0]?.body).toMatchObject({
-      model: "deepseek-v4-pro",
+      model: "deepseek-v4-flash",
     });
   });
 

@@ -30,17 +30,9 @@ internal configuration only.
 
 ## Routing Thresholds
 
-`routing.tierBoundaries` and `routing.confidenceThreshold` are the only public
-scoring knobs.
-
-- `routing.tierBoundaries` controls the score boundaries between `SIMPLE`,
-  `MEDIUM`, `COMPLEX`, and `REASONING`.
-- `routing.confidenceThreshold` controls when a score is treated as ambiguous by
-  the built-in classifier.
-
-Dimension weights, keyword lists, token thresholds, and confidence steepness
-remain internal implementation constants and are not part of the public config
-surface.
+Scoring thresholds are internal launch constants and are not part of the public
+config surface. Configure `routing.tiers`, `structuredOutputMinTier`, and
+`ambiguousDefaultTier` to control model selection behavior.
 
 ## Install
 
@@ -117,7 +109,7 @@ When fallback config is used, the plugin adds the built-in default header
 headers at this fallback-only layer; it is ignored when `pluginConfig.config` or
 `pluginConfig.configPath` is valid.
 
-The plugin may optionally read `~/.openclaw/.xiaoyienv` as a fallback supplement:
+The plugin may optionally read the configured `.xiaoyienv` file as a fallback supplement:
 
 ```env
 SERVICE_URL=https://api.deepseek.com

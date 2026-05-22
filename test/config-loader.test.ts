@@ -266,85 +266,17 @@ describe("loadConfig", () => {
     );
   });
 
-  it("accepts configurable routing tier boundaries and confidence threshold", () => {
+  it("ignores invalid residual routing tier boundaries and confidence threshold", () => {
     const raw = cloneConfig();
-    raw.routing.tierBoundaries = {
-      simpleMedium: 0.15,
-      mediumComplex: 0.45,
-      complexReasoning: 0.75,
+    const routing = raw.routing as unknown as Record<string, unknown>;
+    routing.tierBoundaries = {
+      simpleMedium: Number.NaN,
+      mediumComplex: "invalid",
+      complexReasoning: null,
     };
-    raw.routing.confidenceThreshold = 0.7;
+    routing.confidenceThreshold = "invalid";
 
     expect(loadConfig({ kind: "inline", config: raw })).toEqual(raw);
-  });
-
-  it("rejects null routing.tierBoundaries", () => {
-    const raw = cloneConfig();
-    raw.routing.tierBoundaries = null as never;
-
-    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
-      /routing\.tierBoundaries.*object/i,
-    );
-  });
-
-  it.each([
-    ["simpleMedium", Number.NaN],
-    ["simpleMedium", "0.1"],
-    ["simpleMedium", Number.POSITIVE_INFINITY],
-    ["mediumComplex", Number.NaN],
-    ["mediumComplex", "0.4"],
-    ["mediumComplex", Number.POSITIVE_INFINITY],
-    ["complexReasoning", Number.NaN],
-    ["complexReasoning", "0.8"],
-    ["complexReasoning", Number.POSITIVE_INFINITY],
-  ] satisfies Array<
-    [keyof NonNullable<RawConfig["routing"]["tierBoundaries"]>, number | string]
-  >)("rejects invalid routing.tierBoundaries.%s", (key, value) => {
-    const raw = cloneConfig();
-    raw.routing.tierBoundaries = {
-      simpleMedium: 0.15,
-      mediumComplex: 0.45,
-      complexReasoning: 0.75,
-    };
-    raw.routing.tierBoundaries[key] = value as never;
-
-    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
-      new RegExp(`routing\\.tierBoundaries\\.${key}.*finite number`, "i"),
-    );
-  });
-
-  it("rejects non-monotonic boundaries", () => {
-    const raw = cloneConfig();
-    raw.routing.tierBoundaries = {
-      simpleMedium: 0.5,
-      mediumComplex: 0.4,
-      complexReasoning: 0.9,
-    };
-
-    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
-      /simpleMedium <= mediumComplex <= complexReasoning/i,
-    );
-  });
-
-  it.each([
-    [-0.01, /between 0 and 1/i],
-    [1.01, /between 0 and 1/i],
-    [Number.NaN, /finite number/i],
-    ["0.7", /finite number/i],
-  ])("rejects invalid confidenceThreshold %s", (value, error) => {
-    const raw = cloneConfig();
-    raw.routing.confidenceThreshold = value as never;
-
-    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(error);
-  });
-
-  it("rejects null confidenceThreshold", () => {
-    const raw = cloneConfig();
-    raw.routing.confidenceThreshold = null as never;
-
-    expect(() => loadConfig({ kind: "inline", config: raw })).toThrow(
-      /routing\.confidenceThreshold.*finite number/i,
-    );
   });
 
   it("should reject invalid port number", () => {

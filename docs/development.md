@@ -46,15 +46,13 @@ POST /v1/chat/completions
 
 ### 2.1 Routing thresholds
 
-`routing.tierBoundaries` 和 `routing.confidenceThreshold` 是当前唯一对外开放的
-scoring knobs：
-
-- `routing.tierBoundaries`：定义 `SIMPLE` / `MEDIUM` / `COMPLEX` /
-  `REASONING` 的分界线。
-- `routing.confidenceThreshold`：定义分类器何时把结果视为 ambiguous。
+路由评分阈值属于内部实现常量，不属于公开配置合同。旧配置如果残留相关字段，
+加载期不报错，运行时仍固定使用内置默认值。
 
 以下参数不属于公开配置合同：
 
+- tier boundaries
+- confidence threshold
 - dimension weights
 - keyword lists
 - token thresholds
@@ -67,8 +65,7 @@ scoring knobs：
 - **对外请求入口固定为 `auto`**。
 - **内部路由 alias 由配置驱动**。
 - **真实上游 physical model 也由配置驱动**。
-- **公开可调的评分参数只有 `routing.tierBoundaries` 和
-  `routing.confidenceThreshold`**。
+- **评分阈值不属于公开配置面，运行时固定使用内置默认值**。
 
 ## 3. 请求链路
 

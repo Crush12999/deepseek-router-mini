@@ -39,15 +39,12 @@ v0.2.0 的模型语义完全来自配置文件，但要分清「外部入口」�
 
 ### 2.1 Routing thresholds
 
-当前公开给用户配置的 scoring knobs 只有两项：
+评分阈值属于内部算法常量，不开放配置。旧配置如果残留阈值字段，加载期不报错，运行时仍使用内置默认值。
 
-- `routing.tierBoundaries`
-- `routing.confidenceThreshold`
+下面这些参数不开放配置：
 
-它们分别控制 tier 分界线与「结果是否足够确定」的判断阈值。
-
-下面这些参数仍然是内部算法常量，不开放配置：
-
+- tier boundaries
+- confidence threshold
 - dimension weights
 - keyword lists
 - token thresholds
@@ -133,8 +130,7 @@ client
 - `auto` 路由返回 alias 头，不能把真实上游模型名泄漏为请求合同。
 - OpenClaw provider 注入后只暴露 `auto`。
 - 坏配置必须在加载期 fast-fail，而不是运行中兜底。
-- 评分配置面对外只开放 `routing.tierBoundaries` 和
-  `routing.confidenceThreshold`。
+- 评分阈值不属于公开配置面，运行时固定使用内置默认值。
 
 若需要了解迁移细节，请看 [migration-guide.md](./migration-guide.md)；若需要模
 块级维护说明，请看 [development.md](./development.md)。

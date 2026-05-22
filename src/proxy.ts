@@ -842,20 +842,11 @@ function buildRouterOptions(options: {
  * 把持久化 RawConfig 映射为 Router 运行时配置。
  */
 function buildRoutingConfigFromRawConfig(rawConfig: RawConfig): RoutingConfig {
-  const scoring = {
-    ...DEFAULT_ROUTING_CONFIG.scoring,
-    tierBoundaries: {
-      ...DEFAULT_ROUTING_CONFIG.scoring.tierBoundaries,
-      ...rawConfig.routing.tierBoundaries,
-    },
-    confidenceThreshold:
-      rawConfig.routing.confidenceThreshold ??
-      DEFAULT_ROUTING_CONFIG.scoring.confidenceThreshold,
-  };
-
   return {
     ...DEFAULT_ROUTING_CONFIG,
-    scoring,
+    // Threshold scoring is an internal launch constant; ignore residual user
+    // config fields so stale pre-launch configs cannot change routing behavior.
+    scoring: DEFAULT_ROUTING_CONFIG.scoring,
     tiers: mapRawTierEntries(rawConfig.routing.tiers),
     overrides: {
       structuredOutputMinTier:

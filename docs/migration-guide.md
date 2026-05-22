@@ -14,10 +14,9 @@
 4. **OpenClaw provider 暴露的模型列表收敛为 `auto`**：即使路由配置里仍
    有 `flash` / `pro` / `lite` / `think`，写入
    `models.providers.xiaoyiprovider.models` 时也只保留 `auto`。
-5. **路由评分的公开可调参数只有两项**：`routing.tierBoundaries` 和
-   `routing.confidenceThreshold` 是唯一开放的 scoring knobs。dimension
-   weights、keyword lists、token thresholds、confidence steepness 仍然属
-   于内部实现常量。
+5. **路由评分阈值不再开放配置**：`routing.tierBoundaries` 和
+   `routing.confidenceThreshold` 不属于公开配置面；如旧配置仍残留这些字段，
+   当前版本会忽略它们并继续使用内置 scoring 常量。
 6. **错误响应统一为 OpenAI-compatible 结构**：响应体统一为
    `{ "error": { "message", "type", "code" } }` 这一类结构（当前实现还会
    带 `param: null`）。
@@ -37,6 +36,5 @@
 6. 如果你的旧客户端、脚本或测试显式请求 `flash` / `pro`，请全部改为
    `auto`，并通过 `x-xy-router-model` /
    `x-xy-router-actual-model` 读取最终 alias / physical model。
-7. 如果需要调路由阈值，只修改 `routing.tierBoundaries` 和
-   `routing.confidenceThreshold`；不要尝试在配置文件中注入其他 scoring
-   internals。
+7. 不要在配置文件中调整 scoring internals；通过 `routing.tiers`、
+   `structuredOutputMinTier` 和 `ambiguousDefaultTier` 控制公开路由行为。

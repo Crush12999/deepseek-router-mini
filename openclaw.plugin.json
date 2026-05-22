@@ -43,7 +43,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Optional path to .xiaoyienv. Defaults to ~/.openclaw/.xiaoyienv."
+            "description": "Optional path to .xiaoyienv. Defaults to the built-in fallback location."
           },
           "headerMap": {
             "type": "object",

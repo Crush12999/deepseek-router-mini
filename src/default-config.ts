@@ -71,12 +71,6 @@ function buildDefaultRawConfig(): RawConfig {
       },
       structuredOutputMinTier: "MEDIUM",
       ambiguousDefaultTier: "MEDIUM",
-      tierBoundaries: {
-        simpleMedium: 0,
-        mediumComplex: 0.3,
-        complexReasoning: 0.5,
-      },
-      confidenceThreshold: 0.7,
     },
   };
 }
