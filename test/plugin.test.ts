@@ -474,16 +474,7 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(result).toBeUndefined();
     expect(startProxy).not.toHaveBeenCalled();
     expect(providerCalls).toHaveLength(0);
-    expect(api.config).toMatchObject({
-      models: {
-        providers: {
-          xiaoyiprovider: {
-            baseUrl: "http://127.0.0.1:8402/v1",
-            api: "openai-completions",
-          },
-        },
-      },
-    });
+    expect(api.config).toEqual({});
     expect(serviceCalls).toHaveLength(1);
     expect(serviceCalls[0]).toMatchObject({
       id: "llm-router-proxy",
@@ -492,10 +483,7 @@ describe("OpenClaw plugin lifecycle", () => {
     });
 
     await serviceCalls[0]!.start();
-    expect(api.runtime.config.mutateConfigFile).toHaveBeenCalledWith({
-      afterWrite: { mode: "auto" },
-      mutate: expect.any(Function),
-    });
+    expect(api.runtime.config.mutateConfigFile).not.toHaveBeenCalled();
     expect(startProxy).toHaveBeenCalledWith(
       expect.objectContaining({
         config: expect.objectContaining({
@@ -518,7 +506,7 @@ describe("OpenClaw plugin lifecycle", () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it("persists provider config through the OpenClaw runtime config mutation API on service start", async () => {
+  it("does not persist provider config through the OpenClaw runtime config mutation API on service start", async () => {
     const runtimeConfig = createPluginConfig(9123, "https://api.deepseek.com");
     const startProxy = vi.fn().mockResolvedValue({
       port: 9123,
@@ -546,8 +534,9 @@ describe("OpenClaw plugin lifecycle", () => {
         params.mutate(persistedConfig);
       },
     );
+    const runtimeOpenClawConfig = structuredClone(persistedConfig);
     const api = {
-      config: {},
+      config: runtimeOpenClawConfig,
       runtime: {
         config: {
           mutateConfigFile,
@@ -563,20 +552,40 @@ describe("OpenClaw plugin lifecycle", () => {
     registerOpenClawPlugin(api, { startProxy });
     await serviceCalls[0]!.start();
 
-    expect(mutateConfigFile).toHaveBeenCalledWith({
-      afterWrite: { mode: "auto" },
-      mutate: expect.any(Function),
-    });
+    expect(mutateConfigFile).not.toHaveBeenCalled();
     expect(persistedConfig.models.providers.xiaoyiprovider).toEqual({
-      baseUrl: "http://127.0.0.1:9123/v1",
-      api: "openai-completions",
+      baseUrl: "http://stale.invalid/v1",
+      api: "wrong-api",
       apiKey: "keep-key",
       headers: { "X-Keep": "yes" },
       request: {
         headers: { "X-Request-Keep": "yes" },
       },
-      models: onlyAutoModel(createInjectedModels(runtimeConfig)),
+      models: [{ id: "stale" }],
     });
+    expect(runtimeOpenClawConfig.models.providers.xiaoyiprovider).toEqual({
+      baseUrl: "http://stale.invalid/v1",
+      api: "wrong-api",
+      apiKey: "keep-key",
+      headers: { "X-Keep": "yes" },
+      request: {
+        headers: { "X-Request-Keep": "yes" },
+      },
+      models: [{ id: "stale" }],
+    });
+    expect(startProxy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          proxy: expect.objectContaining({
+            apiKey: "keep-key",
+            headers: {
+              "X-Keep": "yes",
+              "X-Request-Keep": "yes",
+            },
+          }),
+        }),
+      }),
+    );
   });
 
   it("still starts when the OpenClaw runtime config mutation API is unavailable", async () => {
@@ -643,16 +652,7 @@ describe("OpenClaw plugin lifecycle", () => {
     registerOpenClawPlugin(api, { startProxy });
 
     expect(api.registerProvider).not.toHaveBeenCalled();
-    expect(api.config).toMatchObject({
-      models: {
-        providers: {
-          xiaoyiprovider: {
-            baseUrl: "http://127.0.0.1:9999/v1",
-            api: "openai-completions",
-          },
-        },
-      },
-    });
+    expect(api.config).toEqual({});
 
     await serviceCalls[0]!.start();
     expectStartProxyRuntimeCall(startProxy, {
@@ -665,9 +665,6 @@ describe("OpenClaw plugin lifecycle", () => {
     "does not require registerProvider on the OpenClaw API in %s mode",
     (registrationMode) => {
       const startProxy = vi.fn();
-      const runtimeConfig = createPluginConfig();
-      const models = createInjectedModels(runtimeConfig);
-      const injectedModels = onlyAutoModel(models);
       const api = {
         config: {},
         registrationMode,
@@ -679,17 +676,7 @@ describe("OpenClaw plugin lifecycle", () => {
 
       expect(result).toBeUndefined();
       expect(startProxy).not.toHaveBeenCalled();
-      expect(api.config).toMatchObject({
-        models: {
-          providers: {
-            xiaoyiprovider: {
-              baseUrl: "http://127.0.0.1:8402/v1",
-              api: "openai-completions",
-              models: injectedModels,
-            },
-          },
-        },
-      });
+      expect(api.config).toEqual({});
       expect(serviceCalls).toHaveLength(1);
       expect(serviceCalls[0]).toMatchObject({
         id: "llm-router-proxy",
@@ -717,16 +704,7 @@ describe("OpenClaw plugin lifecycle", () => {
     registerOpenClawPlugin(api, { startProxy });
 
     expect(api.registerProvider).not.toHaveBeenCalled();
-    expect(api.config).toMatchObject({
-      models: {
-        providers: {
-          xiaoyiprovider: {
-            baseUrl: "http://127.0.0.1:8402/v1",
-            api: "openai-completions",
-          },
-        },
-      },
-    });
+    expect(api.config).toEqual({});
 
     await serviceCalls[0]!.start();
     expectStartProxyRuntimeCall(startProxy, {
@@ -1040,15 +1018,7 @@ describe("OpenClaw plugin lifecycle", () => {
 
     registerOpenClawPlugin(api, { startProxy });
 
-    expect(api.config).toMatchObject({
-      models: {
-        providers: {
-          xiaoyiprovider: {
-            baseUrl: "http://127.0.0.1:9999/v1",
-          },
-        },
-      },
-    });
+    expect(api.config).toEqual({});
 
     await serviceCalls[0]!.start();
     expectStartProxyRuntimeCall(startProxy, {
@@ -1075,15 +1045,7 @@ describe("OpenClaw plugin lifecycle", () => {
 
     registerOpenClawPlugin(api, { startProxy });
 
-    expect(api.config).toMatchObject({
-      models: {
-        providers: {
-          xiaoyiprovider: {
-            baseUrl: "http://127.0.0.1:8402/v1",
-          },
-        },
-      },
-    });
+    expect(api.config).toEqual({});
 
     await serviceCalls[0]!.start();
     expectStartProxyRuntimeCall(startProxy, {
@@ -1092,8 +1054,8 @@ describe("OpenClaw plugin lifecycle", () => {
     });
   });
 
-  it.each(["discovery", "cli-metadata", "setup-only", "tool-discovery"])(
-    "only injects config in %s mode",
+  it.each(["cli-metadata", "setup-only", "tool-discovery"])(
+    "does not register a service or mutate config in %s mode",
     (registrationMode) => {
       const startProxy = vi.fn();
       const api = {
@@ -1112,18 +1074,30 @@ describe("OpenClaw plugin lifecycle", () => {
       expect(startProxy).not.toHaveBeenCalled();
       expect(api.registerService).not.toHaveBeenCalled();
       expect(api.registerProvider).not.toHaveBeenCalled();
-      expect(api.config).toMatchObject({
-        models: {
-          providers: {
-            xiaoyiprovider: {
-              baseUrl: "http://127.0.0.1:9999/v1",
-              api: "openai-completions",
-            },
-          },
-        },
-      });
+      expect(api.config).toEqual({});
     },
   );
+
+  it("registers the runtime service in discovery mode without mutating api.config", () => {
+    const startProxy = vi.fn();
+    const api = {
+      config: {},
+      registrationMode: "discovery",
+      pluginConfig: {
+        port: 9999,
+        upstreamUrl: "https://plugin.example.com",
+      },
+      registerProvider: vi.fn(),
+      registerService: vi.fn(),
+    };
+
+    registerOpenClawPlugin(api, { startProxy });
+
+    expect(startProxy).not.toHaveBeenCalled();
+    expect(api.registerProvider).not.toHaveBeenCalled();
+    expect(api.registerService).toHaveBeenCalledTimes(1);
+    expect(api.config).toEqual({});
+  });
 
   it("closes the previous proxy when a later service starts", async () => {
     const firstClose = vi
@@ -1480,15 +1454,7 @@ describe("OpenClaw plugin lifecycle", () => {
 
     await expect(serviceCalls[0]!.start()).rejects.toThrow("EADDRINUSE");
     expect(api.registerProvider).not.toHaveBeenCalled();
-    expect(api.config).toMatchObject({
-      models: {
-        providers: {
-          xiaoyiprovider: {
-            baseUrl: "http://127.0.0.1:8402/v1",
-          },
-        },
-      },
-    });
+    expect(api.config).toEqual({});
     expect(api.logger.error).toHaveBeenCalledWith(
       "LLM Router failed to start on port 8402: listen EADDRINUSE: address already in use 127.0.0.1:8402",
     );
@@ -1650,15 +1616,7 @@ describe("OpenClaw plugin config-driven loading", () => {
 
     registerOpenClawPlugin(api, { startProxy });
 
-    expect(api.config).toMatchObject({
-      models: {
-        providers: {
-          xiaoyiprovider: {
-            baseUrl: "http://127.0.0.1:9000/v1",
-          },
-        },
-      },
-    });
+    expect(api.config).toEqual({});
 
     await serviceCalls[0]!.start();
     expectStartProxyRuntimeCall(startProxy, {
@@ -1683,15 +1641,7 @@ describe("OpenClaw plugin config-driven loading", () => {
 
     registerOpenClawPlugin(api, { startProxy });
 
-    expect(api.config).toMatchObject({
-      models: {
-        providers: {
-          xiaoyiprovider: {
-            baseUrl: "http://127.0.0.1:8402/v1",
-          },
-        },
-      },
-    });
+    expect(api.config).toEqual({});
 
     await serviceCalls[0]!.start();
     expect(startProxy).toHaveBeenCalledWith(
@@ -1772,17 +1722,7 @@ describe("OpenClaw plugin config-driven loading", () => {
     expect(() =>
       registerOpenClawPluginWithoutDefaults(api, { startProxy }),
     ).not.toThrow();
-    expect(api.config).toMatchObject({
-      models: {
-        providers: {
-          xiaoyiprovider: {
-            baseUrl: "http://127.0.0.1:8402/v1",
-            api: "openai-completions",
-            models: [expect.objectContaining({ id: "auto" })],
-          },
-        },
-      },
-    });
+    expect(api.config).toEqual({});
 
     await serviceCalls[0]!.start();
     expect(startProxy).toHaveBeenCalledWith(
@@ -2522,15 +2462,7 @@ describe("OpenClaw plugin config-driven loading", () => {
 
     registerOpenClawPlugin(api, { startProxy });
 
-    expect(api.config).toMatchObject({
-      models: {
-        providers: {
-          xiaoyiprovider: {
-            baseUrl: "http://127.0.0.1:9999/v1",
-          },
-        },
-      },
-    });
+    expect(api.config).toEqual({});
 
     await serviceCalls[0]!.start();
     expectStartProxyRuntimeCall(startProxy, {
@@ -2594,15 +2526,7 @@ describe("OpenClaw plugin default export", () => {
 
     expect(result).toBeUndefined();
     expect(api.registerProvider).not.toHaveBeenCalled();
-    expect(api.config).toMatchObject({
-      models: {
-        providers: {
-          xiaoyiprovider: {
-            baseUrl: "http://127.0.0.1:8402/v1",
-          },
-        },
-      },
-    });
+    expect(api.config).toEqual({});
     expect(services).toHaveLength(1);
     expect(services[0]).toMatchObject({
       id: "llm-router-proxy",

@@ -86,15 +86,14 @@ client
 
 - 从当前用户目录下的 `.openclaw/llm-router-config.json` 加载 `RawConfig`
 - 允许 `port` / `upstreamUrl` / `trace` 覆盖 `config.proxy.*`
-- 根据 `publicModels` 与 `models` 生成 provider 元数据
-- 写入或修复 `models.providers.xiaoyiprovider`
+- 读取既有 `models.providers.xiaoyiprovider` 的 apiKey / headers 运行时覆盖
 - 在运行态注册 `llm-router-proxy` 服务并管理代理生命周期
-- 对 OpenClaw 只暴露 `auto` 这个稳定请求入口
 
 它不会：
 
 - 注册 provider
 - 声明 providers manifest
+- 自动写入、修复或持久化 OpenClaw provider/model 配置
 - 读取环境变量作为配置来源
 - 把内部 alias 直接暴露给 OpenClaw 选择
 
@@ -128,7 +127,7 @@ client
 - 生产代码不再依赖旧固定模型常量或旧 schema 名字。
 - 显式 alias 请求必须被 `400` 拒绝，并只提示 `Supported models: auto`。
 - `auto` 路由返回 alias 头，不能把真实上游模型名泄漏为请求合同。
-- OpenClaw provider 注入后只暴露 `auto`。
+- OpenClaw provider/model 配置由外部维护，建议只暴露 `auto`。
 - 坏配置必须在加载期 fast-fail，而不是运行中兜底。
 - 评分阈值不属于公开配置面，运行时固定使用内置默认值。
 

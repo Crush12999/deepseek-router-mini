@@ -135,26 +135,26 @@ POST /v1/chat/completions
 | `src/provider.ts`              | 根据 `publicModels` 与 `models` 生成 OpenClaw provider 元数据。       |
 | `src/router/*`                 | 负责评分、tier 选择、trace 构建和 alias 级别决策。                    |
 | `src/proxy.ts`                 | HTTP 编排层；负责请求边界校验、alias 解析、上游转发和响应头。         |
-| `src/plugin.ts`                | OpenClaw 集成层；负责加载配置、修复 provider 配置、管理代理生命周期。 |
+| `src/plugin.ts`                | OpenClaw 集成层；负责加载配置、读取既有 provider 覆盖、管理代理生命周期。 |
 | `src/session.ts`               | 维护 `auto` 请求的 session pinning。                                  |
 | `src/cli.ts`                   | 提供 `--config`、`--port`、`--api-key`、`--base-url` 等入口。         |
 
 ## 5. OpenClaw 集成
 
-### 5.1 provider 注入
+### 5.1 provider 配置边界
 
 插件不会注册 provider，也不会声明 providers。当前策略是：
 
 - 加载当前用户目录下的 `.openclaw/llm-router-config.json`。
-- 计算本地 provider `baseUrl`，例如 `http://127.0.0.1:8402/v1`。
-- 调用 `generateOpenClawModels(runtimeConfig.publicModels, runtimeConfig.models)`
-  生成完整的路由语义元数据。
-- 写回 `models.providers.xiaoyiprovider` 时，再把 `models` 过滤为只暴露
-  `auto`。
+- 只注册 `llm-router-proxy` service 并启动本地 Router proxy。
+- 暂不自动写入、修复或持久化
+  `models.providers.xiaoyiprovider`；OpenClaw provider/model 配置由外部维护。
+- service 启动时仍会读取既有 `models.providers.xiaoyiprovider` 上的
+  `apiKey` / `headers` / `request.headers` 作为运行时覆盖项。
 
-这样做的原因是：OpenClaw 始终只需要一个稳定入口 `auto`，具体落到哪个
-alias / physical model 应由 Router 内部决定，而不是把 alias 暴露给
-OpenClaw 去选。
+这样做的原因是：OpenClaw 的 `openclaw.json` 由外部维护；本插件只负责本地
+Router proxy 生命周期。OpenClaw 侧仍应只请求稳定入口 `auto`，具体落到哪个
+alias / physical model 应由 Router 内部决定。
 
 ### 5.2 已删除的旧公开口径
 
@@ -239,8 +239,8 @@ v0.2.0 相关版本示例：
 - `/health` 返回的 `version`：`0.2.0`
 - `npm pack` 产物示例：`llm-router-0.2.0.tgz`
 
-OpenClaw 侧真正能请求哪些模型，不取决于静态常量，而取决于当前请求边界与运
-行时注入逻辑。当前结果是固定只暴露 `auto`。
+OpenClaw 侧真正能请求哪些模型由外部 provider/model 配置维护；Router 请求边
+界当前仍固定只接受 `auto`。
 
 ## 8. 本地开发与验证
 
@@ -269,7 +269,7 @@ npm run typecheck
 
 1. `auto` 请求是否返回 alias 头和 actual model 头。
 2. 显式 alias 请求是否被 `400` 拒绝，并提示 `Supported models: auto`。
-3. OpenClaw `models.providers.xiaoyiprovider.models` 是否只包含 `auto`。
+3. OpenClaw 侧外部维护的 `models.providers.xiaoyiprovider.models` 是否只包含 `auto`。
 
 ## 9. 维护提示
 
@@ -283,6 +283,6 @@ proxy.ts 负责 physical 解析和上游编排
 如果未来要重新开放新的请求入口，至少需要同步修改：
 
 - `src/proxy.ts` 里的请求边界校验
-- `src/plugin.ts` 里的 provider 注入模型列表
+- 外部维护的 OpenClaw provider/model 配置
 - README、使用手册、开发文档中的对外合同描述
 - `test/proxy.test.ts` 与 `test/plugin.test.ts` 中对应断言

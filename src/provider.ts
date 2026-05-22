@@ -9,8 +9,8 @@ import { resolvePublicModelCandidate } from "./public-model-resolver.js";
 /**
  * OpenClaw 侧约定的 provider 标识。
  *
- * Router 本身并不注册 provider 实现，但会持续修复
- * `models.providers.xiaoyiprovider` 这段配置。
+ * Router 不再写入 OpenClaw 配置；该 ID 只用于读取外部维护的 provider
+ * 覆盖项，以及生成可复用的模型目录元数据。
  */
 export const LLM_ROUTER_PROVIDER_ID = "xiaoyiprovider";
 export const LLM_ROUTER_PROVIDER_NAME = "LLM Router Provider";

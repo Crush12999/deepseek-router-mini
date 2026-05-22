@@ -198,9 +198,9 @@ curl -sS http://127.0.0.1:8402/health
 默认配置文件名为 `.openclaw/llm-router-config.json`，位于当前用户目录下。
 更新该文件后重启 OpenClaw Gateway 即可；不要通过 `openclaw config set` 写入 `config` 或 `configPath`。
 
-插件不会注册 provider，也不会在 manifest 中声明 providers。它只负责写入或
-修复 `models.providers.xiaoyiprovider`，并把 OpenClaw 对外可见的模型列
-表收敛为 `auto`。
+插件不会注册 provider，也不会在 manifest 中声明 providers。它暂不自动写入
+或修复 `models.providers.xiaoyiprovider`，只负责启动本地 Router proxy；
+OpenClaw provider/model 配置由外部维护。
 
 补充说明：`plugins.entries.llm-router.config.port` 与 `upstreamUrl` 是可选运行时覆写项；若未显式配置，则沿用默认配置文件或内置兜底配置中的 `proxy.port` 与 `proxy.upstreamUrl`。
 
@@ -315,15 +315,10 @@ x-xy-router-fallback: false
 - `x-xy-router-actual-model=deepseek-v4-flash` 表示真正发往上游的请求体已经
   把 `model` 改写成了 `deepseek-v4-flash`。
 
-## 6. OpenClaw provider 模型注入
+## 6. OpenClaw provider 配置边界
 
-OpenClaw provider 的元数据仍然来自运行时配置：
-
-- `config.publicModels`
-- `config.models`
-
-但真正写入 `models.providers.xiaoyiprovider.models` 时，当前只暴露一个对外可
-请求条目：
+插件暂不自动写入 OpenClaw provider/model 配置。外部维护的
+`models.providers.xiaoyiprovider.models` 当前应只暴露一个对外可请求条目：
 
 ```text
 auto
@@ -366,14 +361,14 @@ auto
 
 ## 8. OpenClaw 排查要点
 
-### 8.1 确认 provider 已修复
+### 8.1 确认 provider 已由外部配置
 
 ```bash
 openclaw plugins inspect llm-router --json
 openclaw config get models.providers.xiaoyiprovider
 ```
 
-关键字段应包含：
+外部维护的关键字段应包含：
 
 ```text
 baseUrl: http://127.0.0.1:8402/v1
@@ -381,8 +376,8 @@ api: openai-completions
 models: auto
 ```
 
-即使你的路由配置里定义了 `flash` / `pro` 或别的 alias，这里也应该只看到
-`auto`。这是当前实现的预期行为。
+即使你的路由配置里定义了 `flash` / `pro` 或别的 alias，这里也建议只看到
+`auto`；插件本身不会自动修复这个配置。
 
 ### 8.2 确认最终实际模型
 
@@ -425,4 +420,4 @@ npm run typecheck
    `x-xy-router-actual-model`。
 2. 显式请求 `flash` / `pro` 等 alias 时是否返回 `400`，并提示
    `Supported models: auto`。
-3. OpenClaw `models.providers.xiaoyiprovider.models` 是否只暴露 `auto`。
+3. 外部维护的 OpenClaw `models.providers.xiaoyiprovider.models` 是否只暴露 `auto`。

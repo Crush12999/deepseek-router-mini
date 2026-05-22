@@ -9,9 +9,8 @@
 3. **公开模型语义改为「固定 `auto` 请求入口 + 配置驱动内部 alias」**：
    `auto` 是唯一固定保留、也是唯一对外可请求的 model。`flash` / `pro`
    之类条目仍然来自 `config.publicModels`，但只作为内部路由 alias 使用。
-4. **OpenClaw provider 暴露的模型列表收敛为 `auto`**：即使路由配置里仍
-   有 `flash` / `pro` / `lite` / `think`，写入
-   `models.providers.xiaoyiprovider.models` 时也只保留 `auto`。
+4. **OpenClaw provider/model 配置由外部维护**：插件暂不自动写入或修复
+   `models.providers.xiaoyiprovider`；外部维护的模型列表建议只暴露 `auto`。
 5. **路由评分阈值不再开放配置**：`routing.tierBoundaries` 和
    `routing.confidenceThreshold` 不属于公开配置面；如旧配置仍残留这些字段，
    当前版本会忽略它们并继续使用内置 scoring 常量。
@@ -29,8 +28,8 @@
 3. 在 `publicModels` 中声明内部 alias，并在 `routing.tiers` 中引用这些
    alias。客户端 / OpenClaw 侧统一只请求 `auto`。
 4. CLI、脚本和自动化命令统一改用 `llm-router --config config.json`。
-5. OpenClaw 插件默认配置写到当前用户目录下的 `.openclaw/llm-router-config.json`，并通过
-   `models.providers.xiaoyiprovider` 观察 Router 注入的 provider 状态。
+5. OpenClaw 插件默认配置写到当前用户目录下的 `.openclaw/llm-router-config.json`；
+   `models.providers.xiaoyiprovider` 由外部维护。
 6. 如果你的旧客户端、脚本或测试显式请求 `flash` / `pro`，请全部改为
    `auto`，并通过 `x-xy-router-model` /
    `x-xy-router-actual-model` 读取最终 alias / physical model。

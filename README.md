@@ -58,18 +58,13 @@ For related routing and OpenClaw ecosystem context, see
 For OpenClaw v2026.4.11 and v2026.3.24, LLM Router does not register a provider
 and does not declare providers in `openclaw.plugin.json`.
 
-When loaded by OpenClaw, the router still writes or repairs
-`models.providers.xiaoyiprovider` so that:
+When loaded by OpenClaw, the plugin does not write or repair
+`models.providers.xiaoyiprovider`. It only starts the local Router proxy.
+OpenClaw provider/model configuration is maintained externally.
 
-- `baseUrl` points to the local router API, for example
-  `http://127.0.0.1:8402/v1`
-- `api` is `openai-completions`
-- `models` only exposes `auto`, even if the routing config contains aliases such
-  as `flash` and `pro`
-
-Existing `apiKey`, `api_key`, `headers`, `request`, and unknown provider fields
-are preserved across Gateway restarts. The router only repairs its managed
-fields.
+If `models.providers.xiaoyiprovider` already exists, existing `apiKey`,
+`api_key`, `headers`, and `request.headers` are read at service start and passed
+to the local proxy runtime.
 
 ## CLI Usage
 
@@ -93,7 +88,7 @@ llm-router --config config.json --api-key sk-your-key
 OpenClaw 插件会自动读取该文件；不要在 `openclaw.json` 中写入完整 RawConfig 或配置路径。
 
 ```bash
-# 查看 Router 注入的 provider 配置
+# 查看外部维护的 provider 配置
 openclaw config get models.providers.xiaoyiprovider
 ```
 

@@ -16,7 +16,6 @@ import type {
   ProxyOptions,
 } from "./proxy.js";
 import {
-  generateOpenClawModels,
   type OpenClawModelDefinition,
   LLM_ROUTER_PROVIDER_API,
   LLM_ROUTER_PROVIDER_ID,
@@ -107,6 +106,7 @@ const closingProxies = new WeakMap<ProxyHandle, Promise<void>>();
 const RUNTIME_REGISTRATION_MODES = new Set([
   "full",
   "runtime",
+  "discovery",
   "activate",
   "active",
 ]);
@@ -613,27 +613,6 @@ function resolveProviderRuntimeOverrides(
 }
 
 /**
- * OpenClaw 在插件注册时传入的 `api.config` 是运行时快照；直接修改它不会自动
- * 落盘。运行态启动时如果宿主提供正式的 config mutation API，则把同一份
- * provider 修复持久化到 openclaw.json。
- */
-async function persistLlmRouterModelsConfig(
-  api: OpenClawPluginApi,
-  providerBaseUrl: string,
-  modelDefinitions: OpenClawModelDefinition[],
-): Promise<void> {
-  const mutateConfigFile = api.runtime?.config?.mutateConfigFile;
-  if (!mutateConfigFile) return;
-
-  await mutateConfigFile({
-    afterWrite: { mode: "auto" },
-    mutate: (draft) => {
-      injectLlmRouterModelsConfig(draft, providerBaseUrl, modelDefinitions);
-    },
-  });
-}
-
-/**
  * 只有在运行态注册模式下才启动本地 HTTP proxy 服务。
  */
 function shouldStartRuntimeProxy(
@@ -741,7 +720,6 @@ function createProxyService(
   health: ProxyHealthInfo,
   envContribution: EnvConfigContribution,
   providerBaseUrl: string,
-  modelDefinitions: OpenClawModelDefinition[],
 ): OpenClawService {
   let serviceProxy: ProxyHandle | undefined;
   let startPromise: Promise<void> | undefined;
@@ -775,11 +753,6 @@ function createProxyService(
             serviceProxy = undefined;
           }
 
-          await persistLlmRouterModelsConfig(
-            api,
-            providerBaseUrl,
-            modelDefinitions,
-          );
           const providerOverrides = resolveProviderRuntimeOverrides(api);
           const startConfig: RawConfig = {
             ...runtimeConfig,
@@ -871,9 +844,8 @@ function createProxyService(
  *
  * 注册顺序很关键：
  * 1. 先解析运行时配置；
- * 2. 生成 provider 元数据；
- * 3. 把 `auto` 注入到 OpenClaw；
- * 4. 只有在运行态模式下才真正注册并启动本地 proxy service。
+ * 2. 仅在 runtime/discovery 模式下注册本地 proxy service；
+ * 3. 不再写回或修复 OpenClaw provider/model 配置。
  */
 export function registerOpenClawPlugin(
   api: OpenClawPluginApi,
@@ -882,10 +854,6 @@ export function registerOpenClawPlugin(
   const runtimeConfigResult = resolvePluginRuntimeConfig(api);
   const runtimeConfig = runtimeConfigResult.config;
   const providerBaseUrl = localProviderBaseUrl(runtimeConfig.proxy.port);
-  const models = generateOpenClawModels(
-    runtimeConfig.publicModels,
-    runtimeConfig.models,
-  );
   const shouldRegisterRuntimeService = shouldStartRuntimeProxy(
     api.registrationMode,
   );
@@ -901,30 +869,16 @@ export function registerOpenClawPlugin(
     }
   }
 
-  if (!shouldRegisterRuntimeService) {
-    injectLlmRouterModelsConfig(api.config, providerBaseUrl, models);
-    return;
-  }
+  if (!shouldRegisterRuntimeService) return;
 
-  const previousConfig = structuredClone(api.config);
-  injectLlmRouterModelsConfig(api.config, providerBaseUrl, models);
-  try {
-    api.registerService(
-      createProxyService(
-        api,
-        runtime,
-        runtimeConfig,
-        runtimeConfigResult.health,
-        runtimeConfigResult.envContribution,
-        providerBaseUrl,
-        models,
-      ),
-    );
-  } catch (error) {
-    for (const key of Object.keys(api.config)) {
-      delete api.config[key];
-    }
-    Object.assign(api.config, previousConfig);
-    throw error;
-  }
+  api.registerService(
+    createProxyService(
+      api,
+      runtime,
+      runtimeConfig,
+      runtimeConfigResult.health,
+      runtimeConfigResult.envContribution,
+      providerBaseUrl,
+    ),
+  );
 }

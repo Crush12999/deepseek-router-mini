@@ -126,15 +126,11 @@ const result = mod.default.register({
 if (result && typeof result.then === "function") throw new Error("plugin register returned a thenable");
 if (result !== undefined) throw new Error("plugin register must return undefined");
 if (providers.length !== 0) throw new Error("plugin register must not register provider");
-if (services.length !== 0) throw new Error("discovery register should not register runtime service");
-if (config?.models?.providers?.xiaoyiprovider?.baseUrl !== "http://127.0.0.1:8402/v1") {
-  throw new Error("plugin register did not inject xiaoyiprovider baseUrl");
-}
-if (config?.models?.providers?.xiaoyiprovider?.api !== "openai-completions") {
-  throw new Error("plugin register did not inject xiaoyiprovider api");
-}
+if (services.length !== 1) throw new Error("discovery register should register runtime service");
+if (Object.keys(config).length !== 0) throw new Error("plugin register must not mutate OpenClaw config");
 
 const secondConfig = {};
+const secondServices = [];
 const secondResult = mod.default.register({
   config: secondConfig,
   pluginConfig: { config: ${JSON.stringify(minimalConfig)} },
@@ -143,17 +139,13 @@ const secondResult = mod.default.register({
     throw new Error("registerProvider should not be called in discovery mode");
   },
   registerService(service) {
-    throw new Error("registerService should not be called in discovery mode");
+    secondServices.push(service);
   }
 });
 if (secondResult && typeof secondResult.then === "function") throw new Error("second plugin register returned a thenable");
 if (secondResult !== undefined) throw new Error("second plugin register must return undefined");
-if (secondConfig?.models?.providers?.xiaoyiprovider?.baseUrl !== "http://127.0.0.1:8402/v1") {
-  throw new Error("second plugin register did not inject xiaoyiprovider baseUrl");
-}
-if (secondConfig?.models?.providers?.xiaoyiprovider?.api !== "openai-completions") {
-  throw new Error("second plugin register did not inject xiaoyiprovider api");
-}
+if (secondServices.length !== 1) throw new Error("second discovery register should register runtime service");
+if (Object.keys(secondConfig).length !== 0) throw new Error("second plugin register must not mutate OpenClaw config");
 
 console.log(JSON.stringify({
   id: mod.default.id,
