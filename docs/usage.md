@@ -184,7 +184,7 @@ curl -sS http://127.0.0.1:8402/health
 {
   "status": "ok",
   "baseUrl": "https://api.deepseek.com",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "degraded": false,
   "config": {
     "source": "file",
